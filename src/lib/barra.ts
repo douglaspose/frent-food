@@ -1,10 +1,11 @@
 import "server-only";
 import { db } from "./db";
-import { temPermissao, type Sessao } from "./session";
+import { temAlgumaPermissao, temPermissao, type Sessao } from "./session";
+import { PERMISSOES_DO_CAIXA } from "./caixa";
 
 export type DadosBarra = {
   unidade: string;
-  usuario: { nome: string; cargo: string; podeGerir: boolean };
+  usuario: { nome: string; cargo: string; podeGerir: boolean; podeVerCaixa: boolean };
   caixaAberto: boolean;
   /** Tickets que precisam de alguém: atrasados na cozinha + prontos parados. */
   cozinhaAlertas: number;
@@ -79,6 +80,7 @@ export async function dadosDaBarra(sessao: Sessao): Promise<DadosBarra> {
       nome: sessao.nome,
       cargo: sessao.cargo,
       podeGerir: temPermissao(sessao, "produto.editar"),
+      podeVerCaixa: temAlgumaPermissao(sessao, PERMISSOES_DO_CAIXA),
     },
     caixaAberto: unidade.caixas.length > 0,
     cozinhaAlertas: atrasados + esperando,

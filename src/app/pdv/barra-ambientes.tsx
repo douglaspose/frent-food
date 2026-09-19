@@ -77,15 +77,27 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
 
   const ambientes = [
     { href: "/pdv", rotulo: "Mesas", icone: ICONE.mesas },
-    {
-      href: "/pdv/caixa",
-      rotulo: "Caixa",
-      icone: ICONE.caixa,
-      etiqueta: dados.caixaAberto ? null : "fechado",
-      titulo: dados.caixaAberto
-        ? "Caixa aberto"
-        : "Caixa fechado — não é possível receber pagamento",
-    },
+    /**
+     * O caixa só aparece para quem o opera.
+     *
+     * A tela mostra quanto há na gaveta, o faturamento do turno e as sangrias
+     * do dia — não é informação de quem está atendendo mesa. O garçom fica
+     * sabendo que o caixa está fechado onde isso muda o que ele faz: na tela
+     * de pagamento, que já avisa antes de deixá-lo tentar receber.
+     */
+    ...(dados.usuario.podeVerCaixa
+      ? [
+          {
+            href: "/pdv/caixa",
+            rotulo: "Caixa",
+            icone: ICONE.caixa,
+            etiqueta: dados.caixaAberto ? null : "fechado",
+            titulo: dados.caixaAberto
+              ? "Caixa aberto"
+              : "Caixa fechado — não é possível receber pagamento",
+          },
+        ]
+      : []),
     {
       href: "/kds",
       rotulo: "Cozinha",

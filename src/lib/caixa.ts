@@ -13,6 +13,20 @@ import { centavos } from "./comanda";
  * função, que é justamente o ponto.
  */
 
+/**
+ * Quem opera a gaveta. Qualquer uma destas abre a tela do caixa.
+ *
+ * A tela mostra quanto há em dinheiro na gaveta agora, o faturamento do turno
+ * por forma de pagamento e o histórico de sangrias — quem tirou e para onde
+ * levou. É a mesma classe de informação que a retaguarda esconde de quem está
+ * atendendo mesa, e "R$ 3.240 na gaveta" circulando pelo salão é o tipo de
+ * coisa que nenhum dono quer.
+ *
+ * Fica aqui, numa lista só, porque a barra e a própria tela precisam decidir
+ * igual: esconder o botão não é segurança, então as duas conferem.
+ */
+export const PERMISSOES_DO_CAIXA = ["caixa.abrir", "caixa.fechar", "caixa.sangria"];
+
 /** Sangria e pagamento tiram; suprimento e recebimento põem. */
 export const RETIRA_DA_GAVETA = new Set(["SANGRIA", "PAGAMENTO"]);
 

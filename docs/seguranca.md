@@ -20,14 +20,23 @@ burlar trocando a URL.
 ### 2. Permissão por cargo
 
 Cada server action sensível chama `exigirPermissao("chave")` antes de tocar no
-banco. Esconder o botão na interface **não é segurança** — é conveniência. A
-prova disso está em `caixa.fechar`: a tela do caixa mostra o botão para todo
-mundo, e um garçom que clica recebe a recusa do servidor.
+banco. Esconder o botão na interface **não é segurança** — é conveniência.
+
+O melhor exemplo é o cancelamento de item: o botão aparece para todo mundo,
+marcado "(com autorização)", e quem decide é o servidor — que responde pedindo
+o PIN de quem pode em vez de recusar. A interface ali não esconde nada; ela
+apenas antecipa o que vai acontecer.
+
+Onde a tela **também** é fechada, é por causa do que ela mostra, não do que
+ela faz: a tela do caixa expõe o dinheiro na gaveta e o faturamento do turno,
+então além de esconder o item do menu ela redireciona quem não opera a gaveta.
+As duas coisas juntas — a porta e a recusa do servidor.
 
 Chaves em uso: `comanda.abrir`, `comanda.lancarItem`, `comanda.cancelarItem`,
 `comanda.aplicarDesconto`, `comanda.receberPagamento`, `comanda.fechar`,
-`caixa.abrir`, `caixa.fechar`, `produto.editar`, `cardapio.editar`,
-`usuario.editar`, `mesa.transferir`, `auditoria.ver`, `unidade.configurar`.
+`caixa.abrir`, `caixa.fechar`, `caixa.sangria`, `produto.editar`,
+`cardapio.editar`, `usuario.editar`, `mesa.transferir`, `auditoria.ver`,
+`unidade.configurar`.
 
 ### 3. Verificação de dono em cada ação
 
@@ -87,7 +96,7 @@ Quem aprova precisa ter PIN. Aprovar o próprio pedido é recusado.
 
 ### 7. Testes
 
-`npm test` — 188 testes cobrindo o que quebra dinheiro ou vaza dado:
+`npm test` — 194 testes cobrindo o que quebra dinheiro ou vaza dado:
 
 - **Dinheiro**: taxa de serviço sobre o valor descontado, desconto limitado ao
   consumo, arredondamento de centavo sem erro de float, leitura do preço
@@ -100,6 +109,8 @@ Quem aprova precisa ter PIN. Aprovar o próprio pedido é recusado.
 - **Auditoria**: registro e alteração caem juntos quando a transação falha
 - **Transferência**: itens e total seguem a comanda, os tickets acompanham, e
   a mesa de destino herda o estado da conta
+- **Acesso ao caixa**: a tela do turno é só de quem opera a gaveta; garçom não
+  entra nem pela URL
 - **RLS**: o script não envelhece em relação ao schema — tabela nova sem
   política quebra a suíte
 - **Mensagens**: regra de negócio volta como valor e chega ao usuário em

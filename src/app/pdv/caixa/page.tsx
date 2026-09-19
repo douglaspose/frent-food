@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { centavos } from "@/lib/comanda";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { redirect } from "next/navigation";
+import { exigirSessao, temAlgumaPermissao, temPermissao } from "@/lib/session";
+import { PERMISSOES_DO_CAIXA } from "@/lib/caixa";
 import { dadosDaBarra } from "@/lib/barra";
 import { BarraAmbientes } from "../barra-ambientes";
 import { CaixaPainel } from "./caixa-painel";
@@ -11,6 +13,15 @@ export const dynamic = "force-dynamic";
 
 export default async function CaixaPage() {
   const sessao = await exigirSessao();
+
+  /**
+   * Esconder o botão não é segurança — é conveniência.
+   *
+   * Quem não opera o caixa também não entra pela URL: a tela mostra o dinheiro
+   * que está na gaveta agora e as sangrias do turno.
+   */
+  if (!temAlgumaPermissao(sessao, PERMISSOES_DO_CAIXA)) redirect("/pdv");
+
   const unidade = await db.unidade.findFirst({ where: { id: sessao.unidadeId } });
   if (!unidade) {
     return (

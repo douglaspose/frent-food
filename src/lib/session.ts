@@ -87,6 +87,11 @@ export function temPermissao(sessao: Sessao, chave: string) {
   return sessao.permissoes.includes("*") || sessao.permissoes.includes(chave);
 }
 
+/** Basta uma. Serve para telas que reúnem operações de permissões diferentes. */
+export function temAlgumaPermissao(sessao: Sessao, chaves: string[]) {
+  return chaves.some((chave) => temPermissao(sessao, chave));
+}
+
 /**
  * Barra a ação quando o cargo não tem a permissão. A mensagem diz qual é —
  * no salão isso vira "chama o gerente", que é exatamente o fluxo esperado.
