@@ -192,7 +192,18 @@ export function MapaMesas({
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6">
-      <header className="mb-5 flex flex-wrap items-baseline justify-between gap-3">
+      {/*
+        `items-end`, não `items-baseline`.
+
+        A propriedade com "baseline" no nome é a que erra aqui: o bloco da
+        direita é um flex, e a primeira linha de base dele vem do rótulo
+        pequeno ("OCUPADAS"), não dos números. O título acabava alinhado à
+        legenda e flutuava 24px acima do valor.
+
+        Com `items-end` a base de "Mesas" cai exatamente sobre a de "4/46" —
+        medido, não estimado.
+      */}
+      <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold tracking-tight">Mesas</h1>
           <SeloAoVivo estado={aoVivo} />
