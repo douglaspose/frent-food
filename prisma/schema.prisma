@@ -1,0 +1,1123 @@
+// Sistema de Gestão de Restaurantes — schema v1
+// Escopo: Salão (mesas/comanda/PDV/caixa) + Cardápio/Produtos + KDS
+// Multi-tenant: toda entidade carrega tenantId; isolamento reforçado por RLS no Postgres.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: a URL de conexão vive em prisma.config.ts (CLI) e no adapter (runtime).
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────── Tenancy e organização ───────────────────────────
+
+model Tenant {
+  id       String   @id @default(cuid())
+  slug     String   @unique // subdomínio: lipao.meusistema.com.br
+  nome     String
+  plano    String   @default("basico")
+  ativo    Boolean  @default(true)
+  criadoEm DateTime @default(now())
+
+  unidades        Unidade[]
+  usuarios        Usuario[]
+  cargos          Cargo[]
+  clientes        Cliente[]
+  categorias      CategoriaProduto[]
+  produtos        Produto[]
+  gruposOpcionais GrupoOpcional[]
+  cardapios       Cardapio[]
+  formasPagamento FormaPagamento[]
+
+  @@map("tenants")
+}
+
+model Unidade {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  codigo      String
+  nome        String
+  apelido     String?
+  cnpj        String?
+  razaoSocial String?
+  telefone    String?
+  whatsapp    String?
+  email       String?
+
+  cep         String?
+  logradouro  String?
+  numero      String?
+  complemento String?
+  bairro      String?
+  cidade      String?
+  uf          String?
+  latitude    Decimal? @db.Decimal(10, 7)
+  longitude   Decimal? @db.Decimal(10, 7)
+
+  taxaServicoPct     Decimal @default(10) @db.Decimal(5, 2)
+  retencaoGorjetaPct Decimal @default(0) @db.Decimal(5, 2)
+
+  atuaLoja     Boolean  @default(true)
+  atuaDelivery Boolean  @default(false)
+  timezone     String   @default("America/Sao_Paulo")
+  ativo        Boolean  @default(true)
+  criadoEm     DateTime @default(now())
+
+  /// Credencial do agente de impressão instalado no restaurante. É por unidade
+  /// porque o agente roda na máquina do salão, não no servidor.
+  tokenImpressao String? @unique
+
+  // ─── Fiscal ───
+  inscricaoEstadual   String?
+  inscricaoMunicipal  String?
+  /// Define se os produtos usam CSOSN (Simples) ou CST (Normal) na nota.
+  regimeTributario    RegimeTributario @default(SIMPLES_NACIONAL)
+  codigoMunicipioIbge String?
+  codigoUf            String?
+
+  emissorFiscal  EmissorFiscal  @default(SIMULADO)
+  ambienteFiscal AmbienteFiscal @default(HOMOLOGACAO)
+  /// Token do gateway fiscal. Nunca é exibido de volta na tela.
+  tokenEmissor   String?
+  /// Código de Segurança do Contribuinte e seu id, emitidos pela SEFAZ.
+  cscId          String?
+  csc            String?
+  serieNfce      Int            @default(1)
+  emiteNfce      Boolean        @default(false)
+
+  parametros    ParametroUnidade[]
+  areas         Area[]
+  mesas         Mesa[]
+  estacoes      Estacao[]
+  impressoras   Impressora[]
+  cardapios     Cardapio[]
+  comandas      Comanda[]
+  caixas        Caixa[]
+  usuarios      UsuarioUnidade[]
+  pedidos       Pedido[]
+  autorizacoes  Autorizacao[]
+  impressoes    FilaImpressao[]
+  notasFiscais  NotaFiscal[]
+  perfisFiscais PerfilFiscal[]
+
+  @@unique([tenantId, codigo])
+  @@index([tenantId])
+  @@map("unidades")
+}
+
+/// Feature flags de comportamento por unidade — o que permite o mesmo código
+/// servir espetaria, boate e self-service. Ex.: "mesa.exigirIdentificacaoCliente".
+model ParametroUnidade {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  grupo String // MESAS, CARTAO, COZINHA, KDS, CAIXA, IMPRESSAO
+  chave String
+  valor Json
+
+  @@unique([unidadeId, chave])
+  @@index([tenantId])
+  @@map("parametros_unidade")
+}
+
+// ─────────────────────────── Usuários e permissões ───────────────────────────
+
+/// Toda chave estrangeira que aponta para Usuario tem `onDelete: Cascade`.
+///
+/// Não é para apagar histórico: a aplicação nunca exclui usuário, só desativa
+/// (ver `alternarUsuarioAtivo`), justamente porque o nome dele está em
+/// comandas, pagamentos e no diário. A cascata existe para o único caso em que
+/// um usuário some de verdade — o encerramento do restaurante inteiro, quando
+/// o Tenant é apagado e tudo que é dele tem que ir junto. Sem ela, oferecer um
+/// cliente a saída dos próprios dados falha em chave estrangeira.
+model Usuario {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  nome      String
+  email     String
+  senhaHash String?
+  /// PIN curto para login rápido no PDV (garçom trocando de turno)
+  pinHash   String?
+  cpf       String?
+  avatarUrl String?
+  ativo     Boolean  @default(true)
+  criadoEm  DateTime @default(now())
+
+  unidades           UsuarioUnidade[]
+  comandasAbertas    Comanda[]        @relation("ComandaAbertaPor")
+  itensLancados      ComandaItem[]    @relation("ItemLancadoPor")
+  itensCancelados    ComandaItem[]    @relation("ItemCanceladoPor")
+  caixasAbertos      Caixa[]          @relation("CaixaAbertoPor")
+  caixasFechados     Caixa[]          @relation("CaixaFechadoPor")
+  movimentos         MovimentoCaixa[]
+  pagamentos         Pagamento[]
+  autorizacoesFeitas Autorizacao[]    @relation("AutorizacaoSolicitante")
+  autorizacoesDadas  Autorizacao[]    @relation("AutorizacaoAprovador")
+  logs               AuditLog[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("usuarios")
+}
+
+model Cargo {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  nome  String // GARCOM, CAIXA, GERENTE, PROPRIETARIO
+  nivel Int    @default(0)
+
+  permissoes Permissao[]
+  usuarios   UsuarioUnidade[]
+
+  @@unique([tenantId, nome])
+  @@map("cargos")
+}
+
+model Permissao {
+  id        String  @id @default(cuid())
+  cargoId   String
+  cargo     Cargo   @relation(fields: [cargoId], references: [id], onDelete: Cascade)
+  chave     String // ex.: comanda.cancelarItem, caixa.sangria, produto.editarPreco
+  permitido Boolean @default(true)
+
+  @@unique([cargoId, chave])
+  @@map("permissoes")
+}
+
+model UsuarioUnidade {
+  id        String  @id @default(cuid())
+  usuarioId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+  cargoId   String
+  cargo     Cargo   @relation(fields: [cargoId], references: [id])
+
+  @@unique([usuarioId, unidadeId])
+  @@map("usuarios_unidades")
+}
+
+// ─────────────────────────── Salão: áreas e mesas ───────────────────────────
+
+model Area {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  nome  String // DECK, INTERNA, EXTERNA
+  ordem Int     @default(0)
+  ativo Boolean @default(true)
+
+  mesas Mesa[]
+
+  @@index([tenantId])
+  @@map("areas")
+}
+
+enum StatusMesa {
+  LIVRE
+  OCUPADA
+  FECHANDO
+  RESERVADA
+  SUJA
+}
+
+model Mesa {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+  areaId    String?
+  area      Area?   @relation(fields: [areaId], references: [id])
+
+  numero     String
+  capacidade Int        @default(4)
+  status     StatusMesa @default(LIVRE)
+  /// Token do QR fixo da mesa (pedir na mesa pelo celular do cliente)
+  qrToken    String?    @unique
+  ativo      Boolean    @default(true)
+
+  comandas Comanda[]
+
+  @@unique([unidadeId, numero])
+  @@index([tenantId])
+  @@map("mesas")
+}
+
+// ─────────────────────────── Catálogo ───────────────────────────
+
+enum TipoProduto {
+  VENDA
+  INSUMO
+  REVENDA
+  EMBALAGEM
+  USO_INTERNO
+}
+
+enum UnidadeMedida {
+  UN
+  KG
+  G
+  L
+  ML
+}
+
+model CategoriaProduto {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  nome   String
+  ordem  Int     @default(0)
+  corHex String?
+  ativo  Boolean @default(true)
+
+  produtos      Produto[]
+  cardapioItens CardapioItem[]
+
+  @@index([tenantId])
+  @@map("categorias_produto")
+}
+
+model Produto {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  codigo        String?
+  titulo        String
+  tipo          TipoProduto       @default(VENDA)
+  unidadeMedida UnidadeMedida     @default(UN)
+  categoriaId   String?
+  categoria     CategoriaProduto? @relation(fields: [categoriaId], references: [id])
+
+  descricao        String?
+  fichaNutricional String?
+  alergicos        String?
+  harmonizacao     String?
+  fotoUrl          String?
+
+  // Fiscal / custo
+  ncm              String?
+  cest             String?
+  categoriaImposto String?
+  centroCusto      String?
+  perfilFiscalId   String?
+  perfilFiscal     PerfilFiscal? @relation(fields: [perfilFiscalId], references: [id])
+  valorIdealVenda  Decimal?      @db.Decimal(10, 2)
+  margemLucroMin   Decimal?      @db.Decimal(5, 2)
+
+  // Comportamento na operação
+  tempoMontagemMin  Int?
+  exigePontoCarne   Boolean @default(false)
+  ehAdicional       Boolean @default(false)
+  maiorDeIdade      Boolean @default(false)
+  isentoTaxaServico Boolean @default(false)
+  ativo             Boolean @default(true)
+
+  /// Produto que é dado baixa direto na venda, sem passar por ficha técnica —
+  /// uma cerveja sai do estoque como ela mesma; um prato sai pelos insumos.
+  controlaEstoque Boolean  @default(false)
+  estoqueMinimo   Decimal? @db.Decimal(14, 4)
+
+  criadoEm DateTime @default(now())
+
+  composicao      Composicao[]           @relation("ComposicaoPai")
+  usadoComoInsumo Composicao[]           @relation("ComposicaoInsumo")
+  gruposOpcionais ProdutoGrupoOpcional[]
+  estacoes        ProdutoEstacao[]
+  cardapioItens   CardapioItem[]
+  comandaItens    ComandaItem[]
+  opcionaisItem   OpcionalItem[]
+  saldos          EstoqueSaldo[]
+  movimentos      MovimentoEstoque[]
+
+  @@index([tenantId])
+  @@map("produtos")
+}
+
+/// Saldo atual por unidade. O custo é médio ponderado: cada entrada mistura o
+/// preço novo com o que já estava em casa, que é como o custo real se comporta.
+model EstoqueSaldo {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  quantidade   Decimal  @default(0) @db.Decimal(14, 4)
+  custoMedio   Decimal  @default(0) @db.Decimal(12, 4)
+  atualizadoEm DateTime @updatedAt
+
+  @@unique([unidadeId, produtoId])
+  @@index([tenantId])
+  @@map("estoque_saldos")
+}
+
+enum TipoMovimentoEstoque {
+  ENTRADA
+  SAIDA_VENDA
+  PERDA
+  AJUSTE
+  DEVOLUCAO
+}
+
+/// Livro-caixa do estoque: nada muda de saldo sem deixar uma linha aqui.
+/// É o que permite responder "cadê os 8 kg de picanha que sumiram".
+model MovimentoEstoque {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  tipo          TipoMovimentoEstoque
+  /// Positiva em entrada, negativa em saída.
+  quantidade    Decimal              @db.Decimal(14, 4)
+  custoUnitario Decimal              @default(0) @db.Decimal(12, 4)
+  saldoDepois   Decimal              @db.Decimal(14, 4)
+
+  motivo       String?
+  referenciaId String?
+  usuarioId    String?
+  criadoEm     DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([unidadeId, produtoId, criadoEm])
+  @@map("movimentos_estoque")
+}
+
+/// Ficha técnica: quanto de cada insumo um produto de venda consome.
+model Composicao {
+  id         String  @id @default(cuid())
+  produtoId  String
+  produto    Produto @relation("ComposicaoPai", fields: [produtoId], references: [id], onDelete: Cascade)
+  insumoId   String
+  /// Cascata também aqui: a linha da ficha não significa nada sem o insumo, e
+  /// sem isso o encerramento de um cliente falha por chave estrangeira.
+  insumo     Produto @relation("ComposicaoInsumo", fields: [insumoId], references: [id], onDelete: Cascade)
+  quantidade Decimal @db.Decimal(12, 4)
+
+  @@unique([produtoId, insumoId])
+  @@map("composicoes")
+}
+
+model GrupoOpcional {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  titulo      String
+  minEscolhas Int     @default(0)
+  maxEscolhas Int     @default(1)
+  obrigatorio Boolean @default(false)
+  ordem       Int     @default(0)
+
+  itens    OpcionalItem[]
+  produtos ProdutoGrupoOpcional[]
+
+  @@index([tenantId])
+  @@map("grupos_opcionais")
+}
+
+model OpcionalItem {
+  id      String        @id @default(cuid())
+  grupoId String
+  grupo   GrupoOpcional @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  /// Opcional pode apontar para um produto (baixa estoque) ou ser texto solto.
+  produtoId String?
+  produto   Produto? @relation(fields: [produtoId], references: [id])
+  titulo    String
+  preco     Decimal  @default(0) @db.Decimal(10, 2)
+  ordem     Int      @default(0)
+  ativo     Boolean  @default(true)
+
+  comandaItemOpcionais ComandaItemOpcional[]
+
+  @@map("opcionais_item")
+}
+
+model ProdutoGrupoOpcional {
+  produtoId String
+  produto   Produto       @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  grupoId   String
+  grupo     GrupoOpcional @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  ordem     Int           @default(0)
+
+  @@id([produtoId, grupoId])
+  @@map("produtos_grupos_opcionais")
+}
+
+// ─────────────────────────── Cardápio (vitrine por canal) ───────────────────────────
+
+enum CanalVenda {
+  SALAO
+  BALCAO
+  DELIVERY
+  APP
+  TOTEM
+}
+
+/// O cardápio é separado do produto: mesma ficha, preços e disponibilidade
+/// diferentes por canal e por unidade.
+model Cardapio {
+  id        String  @id @default(cuid())
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  nome  String
+  canal CanalVenda @default(SALAO)
+  ativo Boolean    @default(true)
+
+  itens CardapioItem[]
+
+  @@unique([unidadeId, canal])
+  @@index([tenantId])
+  @@map("cardapios")
+}
+
+model CardapioItem {
+  id          String            @id @default(cuid())
+  cardapioId  String
+  cardapio    Cardapio          @relation(fields: [cardapioId], references: [id], onDelete: Cascade)
+  produtoId   String
+  produto     Produto           @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  categoriaId String?
+  categoria   CategoriaProduto? @relation(fields: [categoriaId], references: [id])
+
+  preco    Decimal @db.Decimal(10, 2)
+  ordem    Int     @default(0)
+  esgotado Boolean @default(false)
+  visivel  Boolean @default(true)
+
+  comandaItens ComandaItem[]
+
+  @@unique([cardapioId, produtoId])
+  @@map("cardapio_itens")
+}
+
+// ─────────────────────────── Produção: estações e impressoras ───────────────────────────
+
+enum TipoEstacao {
+  KDS
+  IMPRESSORA
+  AMBOS
+}
+
+model Impressora {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  nome     String
+  conexao  String // rede, usb, agente
+  endereco String?
+  modelo   String?
+  ativo    Boolean @default(true)
+
+  estacoes   Estacao[]
+  impressoes FilaImpressao[]
+
+  @@index([tenantId])
+  @@map("impressoras")
+}
+
+enum TipoImpressao {
+  COMANDA_PRODUCAO
+  CONFERENCIA
+  CUPOM
+  CANCELAMENTO
+  /// Aviso de mesa trocada. A cozinha de papel tem um ticket pendurado com o
+  /// número antigo — sem este aviso, o prato sai para a mesa errada.
+  TRANSFERENCIA
+  DANFE_NFCE
+}
+
+enum StatusImpressao {
+  PENDENTE
+  IMPRESSO
+  ERRO
+}
+
+/// Fila de impressão. O navegador não fala com impressora térmica, então o
+/// servidor só enfileira: um agente instalado no restaurante busca o que está
+/// PENDENTE e manda para a impressora. Se a internet cair, a fila espera —
+/// nada se perde.
+model FilaImpressao {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  impressoraId String?
+  impressora   Impressora? @relation(fields: [impressoraId], references: [id])
+
+  tipo   TipoImpressao
+  status StatusImpressao @default(PENDENTE)
+
+  /// Texto já formatado para 48 colunas. Guardar o conteúdo pronto (e não o id
+  /// do pedido) faz a segunda via sair idêntica à primeira, mesmo que a comanda
+  /// tenha mudado depois.
+  conteudo     String
+  titulo       String
+  referenciaId String?
+
+  tentativas Int       @default(0)
+  erro       String?
+  criadoEm   DateTime  @default(now())
+  impressoEm DateTime?
+
+  @@index([tenantId])
+  @@index([unidadeId, status])
+  @@map("fila_impressao")
+}
+
+/// Destino de produção de um item: BAR, COZINHA, CHAPA...
+model Estacao {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  nome         String
+  tipo         TipoEstacao @default(AMBOS)
+  corHex       String?
+  ordem        Int         @default(0)
+  impressoraId String?
+  impressora   Impressora? @relation(fields: [impressoraId], references: [id])
+  ativo        Boolean     @default(true)
+
+  produtos ProdutoEstacao[]
+  pedidos  Pedido[]
+
+  @@index([tenantId])
+  @@map("estacoes")
+}
+
+model ProdutoEstacao {
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  estacaoId String
+  estacao   Estacao @relation(fields: [estacaoId], references: [id], onDelete: Cascade)
+
+  @@id([produtoId, estacaoId])
+  @@map("produtos_estacoes")
+}
+
+// ─────────────────────────── Clientes ───────────────────────────
+
+model Cliente {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  nome           String
+  cpf            String?
+  celular        String?
+  email          String?
+  dataNascimento DateTime?
+  sexo           String?
+  observacoes    String?
+  fotoUrl        String?
+  visitas        Int       @default(0)
+  criadoEm       DateTime  @default(now())
+
+  comandas Comanda[]
+
+  @@index([tenantId])
+  @@index([tenantId, cpf])
+  @@map("clientes")
+}
+
+// ─────────────────────────── Comanda (o coração da operação) ───────────────────────────
+
+enum OrigemComanda {
+  MESA
+  BALCAO
+  CARTAO
+  DELIVERY
+}
+
+enum StatusComanda {
+  ABERTA
+  FECHANDO
+  PAGA
+  CANCELADA
+}
+
+model Comanda {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  numero Int
+  origem OrigemComanda @default(MESA)
+  status StatusComanda @default(ABERTA)
+
+  mesaId       String?
+  mesa         Mesa?    @relation(fields: [mesaId], references: [id])
+  cartaoNumero String?
+  clienteId    String?
+  cliente      Cliente? @relation(fields: [clienteId], references: [id])
+  nomeCliente  String?
+  pessoas      Int      @default(1)
+
+  taxaServicoPct Decimal @default(10) @db.Decimal(5, 2)
+  descontoValor  Decimal @default(0) @db.Decimal(10, 2)
+  descontoMotivo String?
+  observacao     String?
+
+  /// Quando o cliente pediu atenção. Fica nulo enquanto ninguém chamou e volta
+  /// a nulo quando o garçom atende — o mapa de mesas escala a cor pelo tempo.
+  chamadoGarcomEm DateTime?
+
+  abertaPorId String
+  abertaPor   Usuario   @relation("ComandaAbertaPor", fields: [abertaPorId], references: [id], onDelete: Cascade)
+  abertaEm    DateTime  @default(now())
+  fechadaEm   DateTime?
+
+  caixaId String?
+  caixa   Caixa?  @relation(fields: [caixaId], references: [id])
+
+  itens      ComandaItem[]
+  pedidos    Pedido[]
+  pagamentos Pagamento[]
+  notas      NotaFiscal[]
+
+  @@unique([unidadeId, numero])
+  @@index([tenantId])
+  @@index([unidadeId, status])
+  @@map("comandas")
+}
+
+enum StatusItem {
+  PENDENTE
+  ENVIADO
+  EM_PREPARO
+  PRONTO
+  ENTREGUE
+  CANCELADO
+}
+
+model ComandaItem {
+  id        String  @id @default(cuid())
+  tenantId  String
+  comandaId String
+  comanda   Comanda @relation(fields: [comandaId], references: [id], onDelete: Cascade)
+
+  produtoId      String
+  produto        Produto       @relation(fields: [produtoId], references: [id])
+  cardapioItemId String?
+  cardapioItem   CardapioItem? @relation(fields: [cardapioItemId], references: [id])
+
+  quantidade    Decimal @db.Decimal(10, 3)
+  precoUnitario Decimal @db.Decimal(10, 2)
+  precoTotal    Decimal @db.Decimal(10, 2)
+  observacao    String?
+  pontoCarne    String?
+
+  status StatusItem @default(PENDENTE)
+
+  lancadoPorId String
+  lancadoPor   Usuario  @relation("ItemLancadoPor", fields: [lancadoPorId], references: [id], onDelete: Cascade)
+  lancadoEm    DateTime @default(now())
+
+  canceladoPorId     String?
+  canceladoPor       Usuario? @relation("ItemCanceladoPor", fields: [canceladoPorId], references: [id], onDelete: Cascade)
+  motivoCancelamento String?
+
+  opcionais   ComandaItemOpcional[]
+  pedidoItens PedidoItem[]
+
+  @@index([tenantId])
+  @@index([comandaId])
+  @@map("comanda_itens")
+}
+
+model ComandaItemOpcional {
+  id            String        @id @default(cuid())
+  comandaItemId String
+  comandaItem   ComandaItem   @relation(fields: [comandaItemId], references: [id], onDelete: Cascade)
+  opcionalId    String?
+  opcional      OpcionalItem? @relation(fields: [opcionalId], references: [id])
+
+  /// Título e preço congelados no momento do lançamento (histórico imutável).
+  titulo     String
+  preco      Decimal @default(0) @db.Decimal(10, 2)
+  quantidade Int     @default(1)
+
+  @@map("comanda_item_opcionais")
+}
+
+// ─────────────────────────── KDS: pedido enviado à produção ───────────────────────────
+
+enum StatusPedido {
+  AGUARDANDO
+  EM_PREPARO
+  PRONTO
+  ENTREGUE
+  CANCELADO
+}
+
+/// Cada envio à cozinha gera um ticket por estação — é o que aparece no KDS
+/// e o que é impresso na comanda de produção.
+model Pedido {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+  comandaId String
+  comanda   Comanda @relation(fields: [comandaId], references: [id], onDelete: Cascade)
+  estacaoId String
+  estacao   Estacao @relation(fields: [estacaoId], references: [id])
+
+  numero Int
+  status StatusPedido @default(AGUARDANDO)
+
+  criadoEm   DateTime  @default(now())
+  iniciadoEm DateTime?
+  prontoEm   DateTime?
+  entregueEm DateTime?
+
+  itens PedidoItem[]
+
+  @@index([tenantId])
+  @@index([unidadeId, status])
+  @@map("pedidos")
+}
+
+model PedidoItem {
+  id            String      @id @default(cuid())
+  pedidoId      String
+  pedido        Pedido      @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  comandaItemId String
+  comandaItem   ComandaItem @relation(fields: [comandaItemId], references: [id], onDelete: Cascade)
+
+  @@unique([pedidoId, comandaItemId])
+  @@map("pedido_itens")
+}
+
+// ─────────────────────────── Caixa e pagamento ───────────────────────────
+
+enum TipoCaixa {
+  GERAL
+  DELIVERY
+}
+
+enum Turno {
+  DIA
+  INTERMEDIARIO
+  NOITE
+  MADRUGADA
+}
+
+enum StatusCaixa {
+  ABERTO
+  FECHADO
+  CONFERIDO
+}
+
+model Caixa {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  tipo   TipoCaixa   @default(GERAL)
+  data   DateTime    @db.Date
+  turno  Turno       @default(NOITE)
+  status StatusCaixa @default(ABERTO)
+
+  fundoCaixa     Decimal  @default(0) @db.Decimal(10, 2)
+  valorInformado Decimal? @db.Decimal(10, 2)
+  valorApurado   Decimal? @db.Decimal(10, 2)
+  divergencia    Decimal? @db.Decimal(10, 2)
+
+  abertoPorId  String
+  abertoPor    Usuario   @relation("CaixaAbertoPor", fields: [abertoPorId], references: [id], onDelete: Cascade)
+  abertoEm     DateTime  @default(now())
+  fechadoPorId String?
+  fechadoPor   Usuario?  @relation("CaixaFechadoPor", fields: [fechadoPorId], references: [id], onDelete: Cascade)
+  fechadoEm    DateTime?
+
+  comandas   Comanda[]
+  pagamentos Pagamento[]
+  movimentos MovimentoCaixa[]
+
+  @@index([tenantId])
+  @@index([unidadeId, status])
+  @@map("caixas")
+}
+
+enum TipoMovimento {
+  SANGRIA
+  SUPRIMENTO
+  PAGAMENTO
+  RECEBIMENTO
+}
+
+model MovimentoCaixa {
+  id       String @id @default(cuid())
+  tenantId String
+  caixaId  String
+  caixa    Caixa  @relation(fields: [caixaId], references: [id], onDelete: Cascade)
+
+  tipo      TipoMovimento
+  valor     Decimal       @db.Decimal(10, 2)
+  descricao String?
+  usuarioId String
+  usuario   Usuario       @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  criadoEm  DateTime      @default(now())
+
+  @@index([tenantId])
+  @@map("movimentos_caixa")
+}
+
+enum TipoPagamento {
+  DINHEIRO
+  CREDITO
+  DEBITO
+  PIX
+  VOUCHER
+  CONVENIO
+  OUTRO
+}
+
+model FormaPagamento {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  nome         String
+  tipo         TipoPagamento
+  /// tPag do layout da NFe: 01 dinheiro, 03 crédito, 04 débito, 17 Pix...
+  codigoFiscal String        @default("99")
+  taxaPct      Decimal       @default(0) @db.Decimal(5, 2)
+  prazoDias    Int           @default(0)
+  ativo        Boolean       @default(true)
+
+  pagamentos Pagamento[]
+
+  @@index([tenantId])
+  @@map("formas_pagamento")
+}
+
+model Pagamento {
+  id       String @id @default(cuid())
+  tenantId String
+
+  comandaId String
+  comanda   Comanda @relation(fields: [comandaId], references: [id], onDelete: Cascade)
+  caixaId   String?
+  caixa     Caixa?  @relation(fields: [caixaId], references: [id])
+
+  formaPagamentoId String
+  formaPagamento   FormaPagamento @relation(fields: [formaPagamentoId], references: [id])
+
+  valor    Decimal @db.Decimal(10, 2)
+  troco    Decimal @default(0) @db.Decimal(10, 2)
+  nsu      String?
+  bandeira String?
+
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  criadoEm  DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([comandaId])
+  @@map("pagamentos")
+}
+
+// ─────────────────────────── Governança ───────────────────────────
+
+enum TipoAutorizacao {
+  CANCELAMENTO_ITEM
+  CANCELAMENTO_COMANDA
+  DESCONTO
+  REABERTURA_COMANDA
+  SANGRIA
+}
+
+enum StatusAutorizacao {
+  PENDENTE
+  APROVADA
+  NEGADA
+}
+
+/// Aprovação gerencial: garçom solicita, gerente libera com seu PIN.
+///
+/// `CANCELAMENTO_COMANDA` e `REABERTURA_COMANDA` existem no enum e não são
+/// usados: não há ação de cancelar comanda inteira, e reabrir conta é de
+/// propósito liberado para qualquer garçom — travar isso faria ele burlar o
+/// sistema lançando na mesa do lado (ver `reabrirComanda`).
+model Autorizacao {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  tipo         TipoAutorizacao
+  referenciaId String
+  motivo       String?
+  status       StatusAutorizacao @default(PENDENTE)
+
+  solicitadoPorId String
+  solicitadoPor   Usuario  @relation("AutorizacaoSolicitante", fields: [solicitadoPorId], references: [id], onDelete: Cascade)
+  criadoEm        DateTime @default(now())
+
+  aprovadoPorId String?
+  aprovadoPor   Usuario?  @relation("AutorizacaoAprovador", fields: [aprovadoPorId], references: [id], onDelete: Cascade)
+  resolvidoEm   DateTime?
+
+  /// Quando a aprovação foi gasta. Uma autorização vale uma vez: sem isto, o
+  /// garçom guardaria a liberação do primeiro desconto e aplicaria a noite
+  /// inteira. A validade é curta e fica no código, não numa coluna.
+  usadoEm DateTime?
+
+  @@index([tenantId])
+  @@index([unidadeId, status])
+  @@map("autorizacoes")
+}
+
+// ─────────────────────────── Fiscal (NFC-e) ───────────────────────────
+
+enum RegimeTributario {
+  SIMPLES_NACIONAL
+  NORMAL
+}
+
+enum AmbienteFiscal {
+  HOMOLOGACAO
+  PRODUCAO
+}
+
+/// Quem fala com a SEFAZ. Trocar de gateway não deve mexer no resto do sistema.
+enum EmissorFiscal {
+  SIMULADO
+  FOCUS_NFE
+  PLUGNOTAS
+}
+
+/**
+ * Agrupamento de tributação. Um restaurante tem 200 produtos e três ou quatro
+ * situações fiscais — repetir CFOP e CSOSN em cada produto seria erro garantido
+ * no dia em que a regra mudar.
+ */
+model PerfilFiscal {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  nome   String
+  padrao Boolean @default(false)
+
+  /// 0 nacional, 1 estrangeira importação direta, 2 estrangeira mercado interno...
+  origemMercadoria Int    @default(0)
+  cfop             String @default("5102")
+
+  /// Simples Nacional usa CSOSN; Regime Normal usa CST. Guardamos os dois e a
+  /// nota escolhe conforme o regime da unidade.
+  csosn   String @default("102")
+  cstIcms String @default("00")
+
+  aliquotaIcms   Decimal @default(0) @db.Decimal(5, 2)
+  cstPis         String  @default("49")
+  aliquotaPis    Decimal @default(0) @db.Decimal(5, 4)
+  cstCofins      String  @default("49")
+  aliquotaCofins Decimal @default(0) @db.Decimal(5, 4)
+
+  produtos Produto[]
+
+  @@index([tenantId])
+  @@map("perfis_fiscais")
+}
+
+enum StatusNotaFiscal {
+  PENDENTE
+  PROCESSANDO
+  AUTORIZADA
+  REJEITADA
+  CANCELADA
+  CONTINGENCIA
+  DENEGADA
+}
+
+/**
+ * Uma nota por comanda paga. O XML autorizado fica guardado porque é ele, e não
+ * o nosso banco, que vale perante o fisco — se o gateway sumir amanhã, a
+ * obrigação de guardar cinco anos continua sendo do restaurante.
+ */
+model NotaFiscal {
+  id        String   @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade  @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+  comandaId String?
+  comanda   Comanda? @relation(fields: [comandaId], references: [id])
+
+  modelo   String           @default("65") // 65 = NFC-e
+  serie    Int
+  numero   Int
+  ambiente AmbienteFiscal
+  status   StatusNotaFiscal @default(PENDENTE)
+
+  valorTotal Decimal @db.Decimal(10, 2)
+
+  chaveAcesso  String?   @unique
+  protocolo    String?
+  autorizadaEm DateTime?
+  qrCodeDados  String?
+  urlConsulta  String?
+  xml          String?
+
+  motivoRejeicao String?
+  tentativas     Int     @default(0)
+
+  canceladaEm           DateTime?
+  protocoloCancelamento String?
+  motivoCancelamento    String?
+
+  emitidaPorId String?
+  criadoEm     DateTime @default(now())
+
+  @@unique([unidadeId, serie, numero])
+  @@index([tenantId])
+  @@index([unidadeId, status])
+  @@map("notas_fiscais")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  unidadeId String?
+  usuarioId String?
+  usuario   Usuario? @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  entidade   String
+  entidadeId String
+  acao       String // CRIAR, EDITAR, EXCLUIR, CANCELAR
+  antes      Json?
+  depois     Json?
+  ip         String?
+  criadoEm   DateTime @default(now())
+
+  @@index([tenantId, entidade, entidadeId])
+  @@map("audit_logs")
+}

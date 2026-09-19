@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "TipoImpressao" ADD VALUE 'TRANSFERENCIA';

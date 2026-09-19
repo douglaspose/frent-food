@@ -1,0 +1,36 @@
+# Postgres do sistema de gestão.
+# Mesmo arquivo roda na máquina de desenvolvimento e na VPS Ubuntu (DigitalOcean).
+#
+#   docker compose up -d
+#
+# Na VPS, NÃO exponha a porta 5432 para a internet: a app roda no mesmo host e
+# fala com o banco pela rede interna do Compose. O bind em 127.0.0.1 abaixo
+# garante isso — para acessar de fora, use um túnel SSH:
+#   ssh -L 5432:localhost:5432 root@SEU_IP
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: gestao_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gestao}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:-gestao_restaurante}
+      # Locale pt-BR para ordenação correta de acentos (ç, ã) em listas de produtos
+      LANG: pt_BR.utf8
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gestao} -d ${POSTGRES_DB:-gestao_restaurante}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+    name: gestao_postgres_data
