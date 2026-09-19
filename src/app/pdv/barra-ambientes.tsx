@@ -86,6 +86,20 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
   const ambientes = [
     { href: "/pdv", rotulo: "Mesas", icone: ICONE.mesas },
     /**
+     * A cozinha vem logo depois das mesas porque é a única que chama.
+     *
+     * O contador de atraso é o motivo de alguém olhar para a barra sem ter
+     * decidido ir a lugar nenhum — e o olho vai ao segundo lugar antes de
+     * varrer o resto. O caixa se consulta quando se quer; a cozinha avisa.
+     */
+    {
+      href: "/kds",
+      rotulo: "Cozinha",
+      icone: ICONE.cozinha,
+      contador: dados.cozinhaAlertas,
+      titulo: dados.cozinhaDetalhe,
+    },
+    /**
      * O caixa só aparece para quem o opera.
      *
      * A tela mostra quanto há na gaveta, o faturamento do turno e as sangrias
@@ -106,13 +120,6 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
           },
         ]
       : []),
-    {
-      href: "/kds",
-      rotulo: "Cozinha",
-      icone: ICONE.cozinha,
-      contador: dados.cozinhaAlertas,
-      titulo: dados.cozinhaDetalhe,
-    },
     ...(dados.usuario.podeGerir
       ? [{ href: "/gestao", rotulo: "Gestão", icone: ICONE.gestao }]
       : []),
