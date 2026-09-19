@@ -23,18 +23,26 @@ const ICONE = {
       <rect x="14" y="14" width="7" height="7" rx="1.5" />
     </svg>
   ),
+  /**
+   * O cifrão tem círculo porque o KDS já usa um cifrão solto no ticket de
+   * "conta pedida". São telas diferentes, mas a barra aparece dentro do KDS:
+   * o círculo e a palavra ao lado separam um do outro.
+   */
   caixa: (
     <svg viewBox="0 0 24 24" className="h-5 w-5" {...TRACO} aria-hidden>
-      <rect x="2.5" y="7" width="19" height="13" rx="2" />
-      <path d="M2.5 11h19" />
-      <path d="M7 7V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2" />
-      <path d="M12 15h4" />
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 6.5v11" />
+      <path d="M14.5 9.2C14.5 8 13.4 7.2 12 7.2S9.5 8 9.5 9.2s1.1 1.9 2.5 2.2 2.5 1 2.5 2.2-1.1 2-2.5 2-2.5-.8-2.5-2" />
     </svg>
   ),
+  /** Panela com vapor: a chama anterior, em traço fino, lia-se como gota. */
   cozinha: (
     <svg viewBox="0 0 24 24" className="h-5 w-5" {...TRACO} aria-hidden>
-      <path d="M12 2s5 4.5 5 9a5 5 0 0 1-10 0c0-1.5.6-2.8 1.3-3.8C9 8.5 12 6 12 2z" />
-      <path d="M6 21h12" />
+      <path d="M4 11h16v5a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-5z" />
+      <path d="M2 11h2" />
+      <path d="M20 11h2" />
+      <path d="M9.5 7.5c0-1.2 1-1.6 1-2.7S9.5 3 9.5 3" />
+      <path d="M14.5 7.5c0-1.2 1-1.6 1-2.7S14.5 3 14.5 3" />
     </svg>
   ),
   gestao: (
