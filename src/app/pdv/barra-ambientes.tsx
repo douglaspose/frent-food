@@ -30,15 +30,19 @@ const ICONE = {
     </svg>
   ),
   /**
-   * O cifrão tem círculo porque o KDS já usa um cifrão solto no ticket de
-   * "conta pedida". São telas diferentes, mas a barra aparece dentro do KDS:
-   * o círculo e a palavra ao lado separam um do outro.
+   * Cédula, e não um cifrão.
+   *
+   * O KDS usa um cifrão solto no ticket de "conta pedida", e a barra aparece
+   * dentro do KDS — antes era um cifrão dentro de um círculo justamente para
+   * os dois não se confundirem. A cédula resolve isso pela forma, sem depender
+   * de o olho notar um círculo a mais.
    */
   caixa: (classe: string) => (
     <svg viewBox="0 0 24 24" className={classe} {...TRACO} aria-hidden>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 6.5v11" />
-      <path d="M14.5 9.2C14.5 8 13.4 7.2 12 7.2S9.5 8 9.5 9.2s1.1 1.9 2.5 2.2 2.5 1 2.5 2.2-1.1 2-2.5 2-2.5-.8-2.5-2" />
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <circle cx="12" cy="12" r="2.6" />
+      <path d="M5.5 12h.5" />
+      <path d="M18 12h.5" />
     </svg>
   ),
   /** Panela com vapor: a chama anterior, em traço fino, lia-se como gota. */
@@ -51,6 +55,16 @@ const ICONE = {
       <path d="M14.5 7.5c0-1.2 1-1.6 1-2.7S14.5 3 14.5 3" />
     </svg>
   ),
+  /**
+   * O gráfico de barras ficou, depois de uma tentativa de engrenagem.
+   *
+   * A engrenagem descrevia melhor a seção — que tem dez telas, das quais só o
+   * Painel é relatório —, mas o desenho não se sustentou: com traço de 2px e
+   * dentes desse tamanho, o contorno não fica concêntrico com o furo do meio,
+   * e a peça sai torta justamente nos 20 e 28px em que ela aparece.
+   *
+   * Quem for tentar de novo precisa resolver o desenho antes do significado.
+   */
   gestao: (classe: string) => (
     <svg viewBox="0 0 24 24" className={classe} {...TRACO} aria-hidden>
       <path d="M3 21h18" />
