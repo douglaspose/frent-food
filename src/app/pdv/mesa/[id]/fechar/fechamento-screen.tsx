@@ -176,9 +176,16 @@ export function FechamentoScreen({
         </p>
       )}
 
+      {/*
+        O `min-w-0` nas colunas não é sobra: item de grid nasce com
+        `min-width: auto` e se recusa a ficar menor que o próprio conteúdo.
+        Sem ele, um campo largo lá dentro empurra a tela inteira, e no celular
+        o navegador responde alargando o viewport — a conta some para fora da
+        borda direita bem na hora de receber o dinheiro.
+      */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Consumo e totais */}
-        <section className="space-y-4">
+        <section className="min-w-0 space-y-4">
           <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
               Consumo
@@ -309,7 +316,10 @@ export function FechamentoScreen({
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
                 placeholder="Motivo"
-                className={`flex-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none ${TEXTO_DE_CAMPO}`}
+                /* `flex-1` sozinho não encolhe: um input traz largura natural de
+                   umas 20 letras, e `min-width: auto` a defende. Era ele que
+                   estourava a tela. */
+                className={`min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none ${TEXTO_DE_CAMPO}`}
               />
               <button
                 onClick={() => aplicar()}
@@ -323,7 +333,7 @@ export function FechamentoScreen({
         </section>
 
         {/* Recebimento */}
-        <section className="space-y-4">
+        <section className="min-w-0 space-y-4">
           <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
               Receber
