@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import type { Viewport } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { exigirSessao, temPermissao } from "@/lib/session";
 import { dadosDaBarra } from "@/lib/barra";
+import { MenuDaGestao } from "./menu";
 import { BarraAmbientes } from "../pdv/barra-ambientes";
 
 /**
@@ -22,19 +22,6 @@ const PERMISSAO_DE_GESTAO = "produto.editar";
  * terminado de carregar.
  */
 export const viewport: Viewport = { themeColor: "#ffffff" };
-
-const MENU = [
-  { href: "/gestao", rotulo: "Painel" },
-  { href: "/gestao/cardapio", rotulo: "Cardápio" },
-  { href: "/gestao/produtos", rotulo: "Produtos" },
-  { href: "/gestao/mesas", rotulo: "Mesas" },
-  { href: "/gestao/estoque", rotulo: "Estoque" },
-  { href: "/gestao/equipe", rotulo: "Equipe" },
-  { href: "/gestao/impressao", rotulo: "Impressão" },
-  { href: "/gestao/fiscal", rotulo: "Fiscal" },
-  { href: "/gestao/auditoria", rotulo: "Diário" },
-  { href: "/gestao/ajustes", rotulo: "Ajustes" },
-];
 
 /**
  * Shell da retaguarda. Tema claro de propósito: o PDV é escuro porque vive num
@@ -67,23 +54,7 @@ export default async function GestaoLayout({ children }: { children: ReactNode }
         <div className="mx-auto flex max-w-6xl items-center gap-x-6 gap-y-2 px-6 py-3">
           <span className="shrink-0 font-bold tracking-tight">Gestão</span>
 
-          {/*
-            São dez seções: no celular elas viravam quatro linhas de cabeçalho
-            antes de qualquer conteúdo. Aqui rolam de lado numa faixa só, e a
-            sangria negativa deixa a primeira e a última encostarem na borda da
-            tela em vez de morrerem dentro do padding.
-          */}
-          <nav className="-mx-6 flex min-w-0 flex-1 gap-1 overflow-x-auto px-6 sm:mx-0 sm:flex-wrap sm:px-0">
-            {MENU.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-900"
-              >
-                {item.rotulo}
-              </Link>
-            ))}
-          </nav>
+          <MenuDaGestao />
         </div>
       </header>
 
