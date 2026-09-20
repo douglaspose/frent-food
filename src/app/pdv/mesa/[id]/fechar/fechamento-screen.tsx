@@ -1,6 +1,7 @@
 "use client";
 
 import { temErro } from "@/lib/erro-de-operacao";
+import { TEXTO_DE_CAMPO } from "@/lib/campo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -306,13 +307,13 @@ export function FechamentoScreen({
                 onChange={(e) => setDesconto(e.target.value)}
                 inputMode="decimal"
                 placeholder="0,00"
-                className="w-28 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm tabular-nums placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none"
+                className={`w-28 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 tabular-nums placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none ${TEXTO_DE_CAMPO}`}
               />
               <input
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
                 placeholder="Motivo"
-                className="flex-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none"
+                className={`flex-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none ${TEXTO_DE_CAMPO}`}
               />
               <button
                 onClick={() => aplicar()}

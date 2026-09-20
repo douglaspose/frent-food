@@ -1,6 +1,7 @@
 "use client";
 
 import { temErro } from "@/lib/erro-de-operacao";
+import { TEXTO_DE_CAMPO } from "@/lib/campo";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { mesasLivres, transferirMesa } from "../../transferencia-actions";
@@ -109,7 +110,7 @@ export function Transferir({
         onChange={(e) => setBusca(e.target.value)}
         inputMode="numeric"
         placeholder="número da mesa"
-        className="mb-3 w-full rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none"
+        className={`mb-3 w-full rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none ${TEXTO_DE_CAMPO}`}
       />
 
       {erro && <p className="mb-3 text-sm text-red-400">{erro}</p>}

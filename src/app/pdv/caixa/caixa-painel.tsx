@@ -1,6 +1,7 @@
 "use client";
 
 import { temErro } from "@/lib/erro-de-operacao";
+import { TEXTO_DE_CAMPO } from "@/lib/campo";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { abrirCaixa, fecharCaixa, registrarMovimentoCaixa } from "../pagamento-actions";
@@ -338,7 +339,7 @@ export function CaixaPainel({
               value={descricaoMov}
               onChange={(e) => setDescricaoMov(e.target.value)}
               placeholder="Para onde foi, quem levou (obrigatório)"
-              className="w-full rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2.5 text-sm placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none"
+              className={`w-full rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2.5 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none ${TEXTO_DE_CAMPO}`}
             />
 
             {/* O erro tem que aparecer aqui, não lá no rodapé: quem clicou em

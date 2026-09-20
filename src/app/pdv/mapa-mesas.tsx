@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { TEXTO_DE_CAMPO } from "@/lib/campo";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { decorrido, useAgora } from "./use-agora";
 import { useAoVivo } from "./use-ao-vivo";
@@ -295,7 +296,7 @@ export function MapaMesas({
             onChange={(e) => setBusca(e.target.value)}
             inputMode="numeric"
             placeholder="buscar mesa (F4)"
-            className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none sm:order-2 sm:w-44 sm:flex-none"
+            className={`min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none sm:order-2 sm:w-44 sm:flex-none ${TEXTO_DE_CAMPO}`}
           />
 
           <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-neutral-400 sm:order-1 sm:ml-auto">

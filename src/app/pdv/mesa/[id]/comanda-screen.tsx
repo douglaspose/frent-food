@@ -1,6 +1,7 @@
 "use client";
 
 import { temErro } from "@/lib/erro-de-operacao";
+import { TEXTO_DE_CAMPO } from "@/lib/campo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -315,7 +316,7 @@ export function ComandaScreen({
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="digite o código do produto (F4)"
-              className="w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none"
+              className={`w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none ${TEXTO_DE_CAMPO}`}
             />
           </div>
           <ul className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
@@ -517,7 +518,7 @@ export function ComandaScreen({
                         if (e.key === "Escape") setCancelando(null);
                       }}
                       placeholder="Motivo (obrigatório)"
-                      className="w-full rounded bg-neutral-950 px-2 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-red-500"
+                      className={`w-full rounded bg-neutral-950 px-2 py-2 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-red-500 ${TEXTO_DE_CAMPO}`}
                     />
                     <div className="flex gap-2">
                       <button
