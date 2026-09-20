@@ -191,7 +191,7 @@ export function MapaMesas({
   const carrinhosParados = todas.filter((m) => (m.comanda?.itensNoCarrinho ?? 0) > 0).length;
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-6">
+    <main className="mx-auto max-w-7xl px-4 pt-6 pb-24 sm:pb-6">
       {/*
         `items-end`, não `items-baseline`.
 

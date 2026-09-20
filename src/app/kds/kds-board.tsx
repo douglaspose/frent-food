@@ -197,7 +197,7 @@ export function KdsBoard({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-neutral-950 text-neutral-100">
+    <div className="flex min-h-0 flex-1 flex-col bg-neutral-950 pb-16 text-neutral-100 sm:pb-0">
       <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-neutral-900 px-4 py-3">
         <h1 className="mr-4 text-lg font-bold tracking-tight">Cozinha</h1>
 
