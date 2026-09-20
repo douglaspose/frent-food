@@ -143,3 +143,77 @@ body {
     text-transform: uppercase;
   }
 }
+
+/**
+ * Quem pede menos movimento, recebe menos movimento.
+ *
+ * Ligar "reduzir movimento" no iPhone costuma ser por enxaqueca ou vertigem,
+ * e o PDV é uma tela encarada o turno inteiro.
+ *
+ * Hoje alcança os `animate-pulse` espalhados pelo sistema — entre eles o do
+ * aviso de cliente chamando, que continua vermelho e visível, só para de
+ * piscar. A regra fica aqui de pé para o que vier depois: vale para qualquer
+ * animação ou transição futura, sem ninguém precisar lembrar dela.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/**
+ * A lupa dos campos de busca.
+ *
+ * Vem como imagem de fundo, e não como um ícone ao lado do campo, porque a
+ * busca do mapa de mesas mora dentro de um `sm:contents`: envolver o input
+ * num container faria o wrapper virar o item do flex e desmontaria a linha de
+ * filtros no balcão. Assim a estrutura das telas não muda em nada.
+ *
+ * Ela fica visível mesmo com texto digitado — quem volta ao campo depois de
+ * filtrar continua vendo do que aquele campo se trata.
+ *
+ * A cor está escrita no SVG porque `currentColor` não atravessa uma
+ * `data:` URI. É o mesmo neutral-500 do texto de apoio.
+ */
+.campo-de-busca {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.6-3.6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: left 0.75rem center;
+  background-size: 1.125rem;
+  padding-left: 2.5rem;
+}
+
+/**
+ * O véu acima da barra do celular.
+ *
+ * Sem ele o conteúdo termina abruptamente na borda da barra e a lista parece
+ * ter acabado ali. Com o conteúdo sumindo aos poucos, fica claro que a barra
+ * está por cima e que o que rola é o resto — e dá para saber, de relance, se
+ * ainda há coisa embaixo.
+ *
+ * A cor não pode ser fixa: a mesma barra aparece sobre o preto do salão e
+ * sobre o cinza claro da retaguarda. Cada shell declara a sua em
+ * `--cor-do-veu`; o padrão aqui é o do salão, que é onde ela mais aparece.
+ *
+ * `pointer-events: none` porque isto é pintura, não obstáculo — um toque em
+ * cima tem que chegar no que está embaixo.
+ */
+:root {
+  --cor-do-veu: #0a0a0a;
+}
+
+.barra-do-celular::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 1.5rem;
+  background: linear-gradient(to top, var(--cor-do-veu), transparent);
+  pointer-events: none;
+}

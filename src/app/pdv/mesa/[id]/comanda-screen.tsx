@@ -337,8 +337,10 @@ export function ComandaScreen({
               ref={buscaRef}
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder={temTeclado ? "digite o código do produto (F4)" : "digite o código do produto"}
-              className={`w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none ${TEXTO_DE_CAMPO}`}
+              /* O campo sempre buscou pelos dois, e o texto só falava do código:
+                 quem não decorou o número achava que precisava decorar. */
+              placeholder={temTeclado ? "código ou nome do produto (F4)" : "código ou nome do produto"}
+              className={`campo-de-busca w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none ${TEXTO_DE_CAMPO}`}
             />
           </div>
           {/* O espaço embaixo é a altura da barra fixa: sem ele o último
@@ -457,9 +459,13 @@ export function ComandaScreen({
           {erro && <p className="px-3 pb-2 text-xs text-red-400">{erro}</p>}
 
           <div className="shrink-0 space-y-2 border-t border-neutral-900 p-3">
-            <div className="flex justify-between text-sm">
-              <span className="text-neutral-500">Carrinho</span>
-              <span className="font-semibold tabular-nums">{brl.format(totalCarrinho)}</span>
+            {/* Mesmo peso do total da comanda: é dinheiro que vai para a
+                conta assim que o pedido sair daqui, e estava escrito como
+                nota de rodapé. O rótulo é "Total" porque o cabeçalho da
+                folha já diz que se trata do carrinho. */}
+            <div className="flex justify-between text-lg font-bold">
+              <span>Total</span>
+              <span className="tabular-nums text-orange-400">{brl.format(totalCarrinho)}</span>
             </div>
             <div className="flex gap-2">
               <button

@@ -220,7 +220,13 @@ export function MapaMesas({
         Com `items-end` a base de "Mesas" cai exatamente sobre a de "4/46" —
         medido, não estimado.
       */}
-      <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
+      {/*
+        As duas linhas dividem a tela em três faixas, como na comanda: quem
+        você é (título e números do turno), como filtrar, e o salão. A sangria
+        negativa faz a linha atravessar o padding do container em vez de parar
+        onde o texto para.
+      */}
+      <header className="-mx-4 mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-neutral-900 px-4 pb-4">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold tracking-tight">Mesas</h1>
           <SeloAoVivo estado={aoVivo} />
@@ -262,7 +268,7 @@ export function MapaMesas({
         a de baixo. No desktop, `sm:contents` desfaz os agrupamentos e devolve
         exatamente a linha única de antes.
       */}
-      <div className="mb-6 space-y-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:space-y-0">
+      <div className="-mx-4 mb-5 space-y-2 border-b border-neutral-900 px-4 pb-4 sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:space-y-0">
         {/* A sangria negativa deixa o primeiro e o último chip encostarem na
             borda da tela ao rolar, em vez de morrerem dentro do padding. */}
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 sm:contents">
@@ -298,7 +304,7 @@ export function MapaMesas({
             onChange={(e) => setBusca(e.target.value)}
             inputMode="numeric"
             placeholder={temTeclado ? "buscar mesa (F4)" : "buscar mesa"}
-            className={`min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none sm:order-2 sm:w-44 sm:flex-none ${TEXTO_DE_CAMPO}`}
+            className={`campo-de-busca min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none sm:order-2 sm:w-44 sm:flex-none ${TEXTO_DE_CAMPO}`}
           />
 
           <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-neutral-400 sm:order-1 sm:ml-auto">

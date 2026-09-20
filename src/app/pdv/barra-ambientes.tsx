@@ -238,7 +238,7 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
 
       {/* ── Celular ───────────────────────────────────────────────────────── */}
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex divide-x divide-neutral-800 border-t border-neutral-800 bg-neutral-900 pb-[env(safe-area-inset-bottom)] sm:hidden">
+      <nav className="barra-do-celular fixed inset-x-0 bottom-0 z-40 flex divide-x divide-neutral-800 border-t border-neutral-800 bg-neutral-900 pb-[env(safe-area-inset-bottom)] sm:hidden">
         {ambientes.map((item) => {
           const ativo = estaAtivo(item.href);
 

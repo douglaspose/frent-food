@@ -50,8 +50,17 @@ export default async function GestaoLayout({ children }: { children: ReactNode }
   const sessao = await exigirSessao();
   if (!temPermissao(sessao, PERMISSAO_DE_GESTAO)) redirect("/pdv");
 
+  /*
+   * O véu da barra do celular precisa sumir no fundo desta tela, não no do
+   * salão. Vai por `style` porque a classe de propriedade arbitrária do
+   * Tailwind não chegou a gerar regra: a classe ficava no elemento e o CSS
+   * não existia, o que deixava uma faixa preta sobre o cinza claro.
+   */
   return (
-    <div className="min-h-screen bg-neutral-100 text-neutral-900">
+    <div
+      className="min-h-screen bg-neutral-100 text-neutral-900"
+      style={{ "--cor-do-veu": "#f5f5f5" } as React.CSSProperties}
+    >
       <BarraAmbientes dados={await dadosDaBarra(sessao)} />
 
       <header className="border-b border-neutral-200 bg-white">
