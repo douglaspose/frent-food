@@ -265,12 +265,52 @@ body {
  * nenhum dos dois: o traço é o que diz QUAL das cinco telas está aberta, e num
  * salão de luz forte a diferença entre dois cinzas some da tela do celular.
  */
+/**
+ * A altura do brilho, como propriedade registrada.
+ *
+ * Sem o `@property`, um `--x` qualquer é só um pedaço de texto para o
+ * navegador: ele não sabe que 40% fica entre 0% e 85%, e a animação vira um
+ * salto no meio do caminho em vez de um crescimento. Declarar o tipo é o que
+ * torna o gradiente animável — não existe transição entre dois
+ * `radial-gradient`.
+ */
+@property --brilho-da-barra {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 85%;
+}
+
 .selecionado-na-barra {
+  /* Também fora da animação: é o estado final, e o que vale se algum
+     navegador não entender o `@property` acima. */
+  --brilho-da-barra: 85%;
+
   background: radial-gradient(
-    110% 85% at 50% 100%,
+    110% var(--brilho-da-barra) at 50% 100%,
     var(--color-neutral-600) 0%,
     var(--color-neutral-800) 45%,
     var(--color-neutral-900) 100%
   );
   box-shadow: inset 0 3px 6px -2px rgb(0 0 0 / 0.75);
+
+  /**
+   * O brilho sobe da base ao abrir a tela.
+   *
+   * 320ms com saída rápida: a navegação já aconteceu, então o movimento
+   * acompanha a tela nova em vez de fazer esperar por ela. Mais longo que
+   * isso e uma barra tocada dezenas de vezes por turno começa a cansar.
+   *
+   * Quem liga "reduzir movimento" não vê nada: a regra global deste arquivo
+   * corta a duração, e o `both` deixa o estado final aplicado na hora.
+   */
+  animation: brilho-sobe-na-barra 320ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+@keyframes brilho-sobe-na-barra {
+  from {
+    --brilho-da-barra: 0%;
+  }
+  to {
+    --brilho-da-barra: 85%;
+  }
 }
