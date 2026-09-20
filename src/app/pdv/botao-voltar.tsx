@@ -21,25 +21,29 @@ import Link from "next/link";
  * própria caixa. A caixa media centrada e o olho via torto, e não havia
  * padding que resolvesse. Num SVG a forma nasce centrada no quadro.
  */
-export function BotaoVoltar({
-  href,
-  rotulo,
-  className = "",
-}: {
-  href: string;
+type Comum = {
   /** Ausente vira um quadrado só com a seta. */
   rotulo?: string;
   /** Para telas onde esta é a única ação e ela merece outra cor. */
   className?: string;
-}) {
-  const forma = rotulo ? "w-fit gap-2 px-4" : "w-12 justify-center";
+};
 
-  return (
-    <Link
-      href={href}
-      aria-label={rotulo ? undefined : "Voltar"}
-      className={`inline-flex h-12 shrink-0 items-center rounded-xl bg-neutral-900 text-base font-medium text-neutral-300 transition hover:bg-neutral-800 hover:text-neutral-100 active:bg-neutral-700 ${forma} ${className}`}
-    >
+/**
+ * Ou navega, ou fecha o que está aberto por cima — nunca os dois.
+ *
+ * As folhas de carrinho e comanda no celular cobrem a tela inteira, então a
+ * saída delas é um voltar como qualquer outro para quem usa; só que por baixo
+ * não há página anterior, e sim a mesma tela com um painel a menos.
+ */
+type Props = Comum &
+  ({ href: string; aoVoltar?: never } | { aoVoltar: () => void; href?: never });
+
+export function BotaoVoltar({ href, aoVoltar, rotulo, className = "" }: Props) {
+  const forma = rotulo ? "w-fit gap-2 px-4" : "w-12 justify-center";
+  const aparencia = `inline-flex h-12 shrink-0 items-center rounded-xl bg-neutral-900 text-base font-medium text-neutral-300 transition hover:bg-neutral-800 hover:text-neutral-100 active:bg-neutral-700 ${forma} ${className}`;
+
+  const miolo = (
+    <>
       <svg
         viewBox="0 0 24 24"
         className="h-5 w-5 shrink-0"
@@ -54,6 +58,22 @@ export function BotaoVoltar({
         <path d="M12 19l-7-7 7-7" />
       </svg>
       {rotulo}
-    </Link>
+    </>
+  );
+
+  const etiqueta = rotulo ? undefined : "Voltar";
+
+  if (href) {
+    return (
+      <Link href={href} aria-label={etiqueta} className={aparencia}>
+        {miolo}
+      </Link>
+    );
+  }
+
+  return (
+    <button type="button" onClick={aoVoltar} aria-label={etiqueta} className={aparencia}>
+      {miolo}
+    </button>
   );
 }

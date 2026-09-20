@@ -421,14 +421,14 @@ export function ComandaScreen({
         <section className={`flex min-h-0 flex-col bg-neutral-950 ${
           painel === "carrinho" ? "fixed inset-0 z-50" : "hidden"
         } lg:static lg:z-auto lg:flex` + " lg:border-r lg:border-neutral-900"}>
-          <h2 className="titulo-de-folha flex shrink-0 items-center gap-2 border-b border-neutral-900 px-3 py-4 text-neutral-100 lg:border-b-0 lg:py-3 lg:text-neutral-400">
+          <h2 className="titulo-de-folha flex min-h-20 shrink-0 items-center gap-4 border-b border-neutral-900 px-4 py-3 text-neutral-100 lg:min-h-0 lg:gap-2 lg:px-3 lg:py-3 lg:border-b-0 lg:text-neutral-400">
+            <BotaoVoltar aoVoltar={() => setPainel(null)} className="lg:hidden" />
             Carrinho
             {carrinho.length > 0 && (
               <span className="rounded-md bg-sky-500 px-2 py-0.5 text-xs font-bold text-white lg:px-1.5 lg:text-[10px]">
                 {carrinho.length}
               </span>
             )}
-            <BotaoFechar aoFechar={() => setPainel(null)} />
           </h2>
           <ul className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 lg:pt-0">
             {carrinho.length === 0 && (
@@ -458,7 +458,18 @@ export function ComandaScreen({
                     {brl.format(item.precoTotal)}
                   </span>
                 </div>
-                <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-neutral-700 bg-neutral-950 p-1">
+                {/*
+                  À direita, e sem borda. A borda vinha de quando o controle
+                  morava sozinho à esquerda e precisava se anunciar; encostado
+                  na margem direita, ele já está onde o polegar cai, e o fundo
+                  mais escuro que o cartão basta para agrupar os três botões.
+
+                  O `-mr-1` cancela o `p-1` do próprio poço. Sem ele o círculo
+                  do "+" para 4px antes da borda do preço logo acima — pouco
+                  para se notar de propósito, o bastante para a coluna da
+                  direita parecer torta.
+                */}
+                <div className="mt-2 -mr-1 ml-auto flex w-fit items-center gap-1 rounded-full bg-neutral-950 p-1">
                   <button
                     onClick={() => agir(() => alterarQuantidade(item.id, -1))}
                     disabled={pendente || fechando}
@@ -540,9 +551,9 @@ export function ComandaScreen({
         <section className={`flex min-h-0 flex-col bg-neutral-950 ${
           painel === "comanda" ? "fixed inset-0 z-50" : "hidden"
         } lg:static lg:z-auto lg:flex`}>
-          <h2 className="titulo-de-folha flex shrink-0 items-center gap-2 border-b border-neutral-900 px-3 py-4 text-neutral-100 lg:border-b-0 lg:py-3 lg:text-neutral-400">
+          <h2 className="titulo-de-folha flex min-h-20 shrink-0 items-center gap-4 border-b border-neutral-900 px-4 py-3 text-neutral-100 lg:min-h-0 lg:gap-2 lg:px-3 lg:py-3 lg:border-b-0 lg:text-neutral-400">
+            <BotaoVoltar aoVoltar={() => setPainel(null)} className="lg:hidden" />
             Comanda
-            <BotaoFechar aoFechar={() => setPainel(null)} />
           </h2>
           <ul className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 lg:pt-0">
             {lancados.length === 0 && (
@@ -711,29 +722,3 @@ export function ComandaScreen({
   );
 }
 
-/**
- * Fecha a folha aberta. Só existe no celular — no desktop carrinho e comanda
- * são colunas fixas, que não abrem nem fecham.
- */
-function BotaoFechar({ aoFechar }: { aoFechar: () => void }) {
-  return (
-    <button
-      onClick={aoFechar}
-      aria-label="Fechar"
-      className="ml-auto flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-900 text-neutral-400 transition active:bg-neutral-800 lg:hidden"
-    >
-      <svg
-        viewBox="0 0 24 24"
-        className="h-5 w-5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        aria-hidden
-      >
-        <path d="M18 6L6 18" />
-        <path d="M6 6l12 12" />
-      </svg>
-    </button>
-  );
-}
