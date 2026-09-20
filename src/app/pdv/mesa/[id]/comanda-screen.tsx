@@ -388,9 +388,18 @@ export function ComandaScreen({
               </li>
             )}
             {carrinho.map((item) => (
+              /*
+                No celular cada item é um cartão com degradê. A linha de
+                `neutral-900` que separava some no preto do salão, e o que
+                sobrava era um bloco contínuo de nomes, preços e botões — com
+                o risco de somar quantidade no item errado. O degradê clareia
+                no topo e escurece na base: dá a borda sem precisar desenhar
+                uma. No desktop a coluna é estreita e densa, e continua como
+                estava.
+              */
               <li
                 key={item.id}
-                className="border-b border-neutral-900 py-3"
+                className="mb-2 rounded-xl bg-gradient-to-b from-neutral-900 to-neutral-950 p-3 ring-1 ring-neutral-800 lg:mb-0 lg:rounded-none lg:bg-none lg:p-0 lg:py-3 lg:ring-0 lg:border-b lg:border-neutral-900"
               >
                 <div className="flex items-start gap-2">
                   <span className="flex-1 text-sm leading-tight">{item.titulo}</span>
@@ -478,9 +487,13 @@ export function ComandaScreen({
               <li className="py-10 text-center text-sm text-neutral-600">Nada lançado ainda</li>
             )}
             {lancados.map((item) => (
+              /* Mesmo cartão do carrinho, e aqui pesa mais: cada linha carrega
+                 horário, status, ponto da carne e o link de cancelar. Sem uma
+                 borda que feche o bloco, é fácil ler o status de um item e o
+                 preço do de baixo. */
               <li
                 key={item.id}
-                className="border-b border-neutral-900 py-3"
+                className="mb-2 rounded-xl bg-gradient-to-b from-neutral-900 to-neutral-950 p-3 ring-1 ring-neutral-800 lg:mb-0 lg:rounded-none lg:bg-none lg:p-0 lg:py-3 lg:ring-0 lg:border-b lg:border-neutral-900"
               >
                 <div className="flex items-start gap-2">
                   <span className="flex-1 text-sm font-medium leading-tight">
