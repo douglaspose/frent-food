@@ -17,10 +17,18 @@ export function GraficoVendas({ dados }: { dados: [string, number][] }) {
   const maximo = Math.max(...dados.map(([, v]) => v), 1);
 
   return (
-    <div className="flex h-56 gap-1.5">
+    /* Catorze colunas não cabem em 375px: espremidas viram traços sem
+       rótulo legível, e a largura mínima delas empurrava a página inteira
+       para 537px — o bastante para desancorar a barra fixa do rodapé. No
+       celular o gráfico rola dentro do próprio cartão. */
+    /* O dir="rtl" só serve para a rolagem começar no fim: sem ele o celular
+       abre o gráfico nos dias mais antigos e esconde justamente o de hoje. O
+       conteúdo volta a ltr logo dentro, então a ordem dos dias não muda. */
+    <div dir="rtl" className="-mx-1 min-w-0 overflow-x-auto px-1">
+      <div dir="ltr" className="flex h-56 min-w-[26rem] gap-1.5 sm:min-w-0">
       {dados.map(([dia, valor]) => (
         <div key={dia} className="group flex min-w-0 flex-1 flex-col items-center gap-1.5">
-          <span className="h-3 text-[10px] font-semibold tabular-nums text-neutral-400 opacity-0 transition group-hover:opacity-100">
+          <span className="h-3 max-w-full truncate text-[10px] font-semibold tabular-nums text-neutral-400 opacity-0 transition group-hover:opacity-100">
             {valor > 0 ? brl.format(valor) : ""}
           </span>
           {/* A altura em % só resolve dentro de um pai com altura definida —
@@ -37,7 +45,8 @@ export function GraficoVendas({ dados }: { dados: [string, number][] }) {
             {rotuloDia(dia)}
           </span>
         </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

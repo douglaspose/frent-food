@@ -265,12 +265,12 @@ export default async function PainelPage() {
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-5">
-        <section className="rounded-xl border border-neutral-200 bg-white p-5 lg:col-span-3">
+        <section className="min-w-0 rounded-xl border border-neutral-200 bg-white p-5 lg:col-span-3">
           <h2 className="mb-4 text-sm font-semibold">Vendas por dia</h2>
           <GraficoVendas dados={[...porDia.entries()].reverse()} />
         </section>
 
-        <section className="rounded-xl border border-neutral-200 bg-white p-5 lg:col-span-2">
+        <section className="min-w-0 rounded-xl border border-neutral-200 bg-white p-5 lg:col-span-2">
           <h2 className="mb-4 text-sm font-semibold">Mais vendidos no período</h2>
           {itensVendidos.length === 0 ? (
             <p className="py-8 text-center text-sm text-neutral-400">Nenhuma venda ainda.</p>
@@ -278,7 +278,7 @@ export default async function PainelPage() {
             <ol className="space-y-3">
               {itensVendidos.map((item) => (
                 <li key={item.produtoId} className="flex items-baseline justify-between gap-3">
-                  <span className="text-sm">
+                  <span className="min-w-0 truncate text-sm">
                     <span className="mr-2 tabular-nums text-neutral-400">
                       {Number(item._sum.quantidade ?? 0)}×
                     </span>
