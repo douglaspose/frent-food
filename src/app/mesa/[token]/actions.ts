@@ -15,7 +15,7 @@ import { emResultado } from "@/lib/erro-de-operacao";
 export async function chamarGarcomPeloQr(token: string) {
   return emResultado(async () => {
     // Sem freio, um engraçadinho com o token faria a mesa piscar sem parar.
-    const freio = verificar(`qr:${token}`);
+    const freio = await verificar(`qr:${token}`);
     if (freio.bloqueado) {
       return { erro: "Já chamamos o garçom. Ele está a caminho." };
     }
@@ -39,7 +39,7 @@ export async function chamarGarcomPeloQr(token: string) {
     const comanda = mesa.comandas[0];
     if (!comanda) return { erro: "Esta mesa ainda não foi aberta." };
 
-    registrarFalha(`qr:${token}`);
+    await registrarFalha(`qr:${token}`);
 
     // Chamado repetido não reinicia o relógio: o tempo de espera conta desde o
     // primeiro pedido de atenção, que é o que o cliente sente.

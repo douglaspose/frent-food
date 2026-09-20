@@ -28,6 +28,19 @@ const modelos: Modelo[] = schema
     temTenantId: /^\s*tenantId\s+String/m.test(bloco),
   }));
 
+/**
+ * Tabelas que não pertencem a restaurante nenhum, e por isso não entram no
+ * script. A lista existe para a isenção ser uma decisão escrita, e não um
+ * esquecimento que passou: quem acrescentar um nome aqui tem que dizer por quê.
+ *
+ * - `tenants` tem política própria, testada mais abaixo.
+ * - `freios_de_tentativa` é o contador de força bruta, consultado **antes**
+ *   do login, quando ainda não se sabe de quem é a tentativa. Não guarda dado
+ *   de negócio — só uma chave de origem e um número — e amarrá-la a um tenant
+ *   daria a quem ataca um jeito de escolher qual contador gastar.
+ */
+const SEM_DONO = new Set(["tenants", "freios_de_tentativa"]);
+
 /** Toda tabela citada entre aspas simples no script. */
 const noScript = new Set([...sql.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]!));
 
@@ -46,7 +59,7 @@ describe("script de RLS", () => {
      * sem política entrega cardápio e preço de todo mundo, e `composicoes`
      * entrega a ficha técnica — a receita da casa.
      */
-    const semTenantId = modelos.filter((m) => !m.temTenantId && m.tabela !== "tenants");
+    const semTenantId = modelos.filter((m) => !m.temTenantId && !SEM_DONO.has(m.tabela));
     const faltando = semTenantId.filter((m) => !noScript.has(m.tabela)).map((m) => m.tabela);
 
     expect(faltando, `tabela-filha sem política: ${faltando.join(", ")}`).toEqual([]);

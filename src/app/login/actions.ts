@@ -60,7 +60,7 @@ async function montarSessao(usuarioId: string): Promise<Sessao | null> {
 
 export async function entrarComSenha(email: string, senha: string) {
   const chave = await origem("senha");
-  const freio = verificar(chave);
+  const freio = await verificar(chave);
   if (freio.bloqueado) return { erro: mensagemDeBloqueio(freio.segundosRestantes) };
 
   const tenant = await tenantAtual();
@@ -73,7 +73,7 @@ export async function entrarComSenha(email: string, senha: string) {
   // Mensagem genérica de propósito: dizer "usuário não existe" entrega quais
   // e-mails estão cadastrados para quem estiver tentando adivinhar.
   if (!usuario?.senhaHash || !(await bcrypt.compare(senha, usuario.senhaHash))) {
-    const veredito = registrarFalha(chave);
+    const veredito = await registrarFalha(chave);
     return {
       erro: veredito.bloqueado
         ? mensagemDeBloqueio(veredito.segundosRestantes)
@@ -84,14 +84,14 @@ export async function entrarComSenha(email: string, senha: string) {
   const sessao = await montarSessao(usuario.id);
   if (!sessao) return { erro: "Usuário sem unidade ou cargo vinculado." };
 
-  limparFalhas(chave);
+  await limparFalhas(chave);
   await criarSessao(sessao);
   redirect("/pdv");
 }
 
 export async function entrarComPin(pin: string) {
   const chave = await origem("pin");
-  const freio = verificar(chave);
+  const freio = await verificar(chave);
   if (freio.bloqueado) return { erro: mensagemDeBloqueio(freio.segundosRestantes) };
 
   const tenant = await tenantAtual();
@@ -109,13 +109,13 @@ export async function entrarComPin(pin: string) {
       const sessao = await montarSessao(usuario.id);
       if (!sessao) return { erro: "Usuário sem unidade ou cargo vinculado." };
 
-      limparFalhas(chave);
+      await limparFalhas(chave);
       await criarSessao(sessao);
       redirect("/pdv");
     }
   }
 
-  const veredito = registrarFalha(chave);
+  const veredito = await registrarFalha(chave);
   return {
     erro: veredito.bloqueado
       ? mensagemDeBloqueio(veredito.segundosRestantes)

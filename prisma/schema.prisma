@@ -1121,3 +1121,19 @@ model AuditLog {
   @@index([tenantId, entidade, entidadeId])
   @@map("audit_logs")
 }
+
+/// Freio de força bruta, compartilhado por todas as instâncias.
+///
+/// Não tem `tenantId` de propósito, e por isso fica fora do guarda de tenant:
+/// a chave é consultada **antes** do login, quando ainda não se sabe de quem é
+/// a tentativa. Amarrar o freio a um restaurante daria a quem ataca um jeito
+/// de escolher qual contador gastar.
+model FreioDeTentativas {
+  chave      String   @id
+  tentativas Int      @default(0)
+  expiraEm   DateTime
+
+  /// Para o expurgo das linhas vencidas não varrer a tabela inteira.
+  @@index([expiraEm])
+  @@map("freios_de_tentativa")
+}

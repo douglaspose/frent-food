@@ -94,9 +94,33 @@ tentativa. O PIN passa pelo mesmo freio de tentativas do login, chaveado pelo
 
 Quem aprova precisa ter PIN. Aprovar o próprio pedido é recusado.
 
-### 7. Testes
+### 7. Freio de força bruta
 
-`npm test` — 194 testes cobrindo o que quebra dinheiro ou vaza dado:
+Cinco tentativas por janela de 15 minutos, no login por PIN, no login por
+e-mail e no PIN de autorização gerencial. Um PIN de 4 dígitos tem 10 mil
+combinações: sem freio, um script acerta em minutos; com ele, a mesma
+varredura leva semanas.
+
+A contagem vive no Postgres, não na memória do processo. Memória resolvia o
+ataque preguiçoso e não o paciente: com duas instâncias atrás de um
+balanceador cada uma contava as suas cinco, e reiniciar a aplicação absolvia
+quem estava no meio da varredura — sem que quem ataca precisasse saber disso
+para se beneficiar.
+
+A soma é um `INSERT ... ON CONFLICT DO UPDATE` só. Ler-somar-gravar em três
+passos deixaria tentativas simultâneas lerem o mesmo valor e gravarem o mesmo
+número, cinco tentativas pelo preço de uma — que é o que um ataque em paralelo
+procura. Assim o banco serializa no bloqueio da linha, e há teste disparando
+cinco ao mesmo tempo para provar.
+
+A tabela `freios_de_tentativa` não tem `tenantId` de propósito, e por isso
+fica fora do guarda de tenant e do RLS: ela é consultada antes do login,
+quando ainda não se sabe de quem é a tentativa. A isenção está escrita em
+`tests/rls.test.ts`, para ser uma decisão e não um esquecimento.
+
+### 8. Testes
+
+`npm test` — 202 testes cobrindo o que quebra dinheiro ou vaza dado:
 
 - **Dinheiro**: taxa de serviço sobre o valor descontado, desconto limitado ao
   consumo, arredondamento de centavo sem erro de float, leitura do preço
@@ -123,6 +147,9 @@ Quem aprova precisa ter PIN. Aprovar o próprio pedido é recusado.
   conta, com sangria e suprimento
 - **Cancelamento**: devolve ao estoque exatamente o que a venda baixou, sem
   mexer no custo médio, e derruba só o ticket que ficou sem item vivo
+- **Freio**: cinco tentativas disparadas ao mesmo tempo custam cinco e não
+  uma, e a janela vencida volta a contar do zero em vez de absolver pela
+  metade
 
 Os testes de banco rodam contra base separada (`TEST_DATABASE_URL`), recriada
 a cada execução.
@@ -190,10 +217,6 @@ aparecer no script quebra a suíte — foi assim que `notas_fiscais` e
 
 ### Outros pontos em aberto
 
-- **Limite de tentativa em memória.** O freio de 5 tentativas por 15 minutos
-  (`src/lib/limite-tentativas.ts`) vive no processo: reiniciar a aplicação
-  zera a contagem, e com duas instâncias cada uma conta a sua. Resolve o
-  ataque preguiçoso, não o paciente.
 - **Token de impressão sem expiração.** Vale até ser trocado à mão.
 - **Diário sem retenção definida.** O `AuditLog` cresce para sempre. Um
   restaurante movimentado gera poucas linhas por dia, então demora a doer —
@@ -209,6 +232,5 @@ Em ordem de risco:
 1. Declarar o tenant na conexão e ligar o RLS (script e verificador prontos,
    ver acima) — a última rede, para o dia em que uma consulta escapar do
    guarda de aplicação
-2. Freio de login compartilhado entre instâncias (hoje é por processo)
-3. Expiração do token de impressão
-4. Política de retenção e exportação do diário
+2. Expiração do token de impressão
+3. Política de retenção e exportação do diário

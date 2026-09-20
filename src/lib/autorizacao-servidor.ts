@@ -98,7 +98,7 @@ export async function aprovarComPin(
   // O freio é por usuário solicitante, não por PIN: chavear pelo PIN diria a
   // quem tenta se aquele PIN existe.
   const chaveDoFreio = `autorizacao:${sessao.usuarioId}`;
-  const freio = verificar(chaveDoFreio);
+  const freio = await verificar(chaveDoFreio);
   if (freio.bloqueado) {
     return { ok: false, motivo: `Muitas tentativas. Tente de novo em ${Math.ceil(freio.segundosRestantes / 60)} min.` };
   }
@@ -129,7 +129,7 @@ export async function aprovarComPin(
   }
 
   if (!aprovador) {
-    const veredito = registrarFalha(chaveDoFreio);
+    const veredito = await registrarFalha(chaveDoFreio);
     return {
       ok: false,
       motivo: veredito.bloqueado
