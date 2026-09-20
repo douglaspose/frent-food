@@ -106,12 +106,25 @@ console.log("\n3. A proteção funciona de verdade\n");
  * Aqui é onde a prova acontece: não se pergunta ao catálogo se a política
  * existe, pergunta-se ao banco o que ele devolve.
  */
-const tenants = (await db.query<{ id: string }>(`select id from tenants limit 2`)).rows;
+/**
+ * O id do restaurante de prova vem de fora, e não de um `select` em `tenants`.
+ *
+ * A primeira versão lia a lista aqui mesmo e falhava dizendo "não há tenants
+ * no banco" — no banco cheio. A política de `tenants` estava fazendo o
+ * trabalho dela: sem tenant declarado, a lista volta vazia. O verificador não
+ * consegue se guiar por uma consulta que a própria proteção precisa cegar.
+ */
+const idDeProva =
+  process.env.TENANT_DE_PROVA ??
+  (await db.query<{ id: string }>(`select "tenantId" id from unidades limit 1`)).rows[0]?.id;
 
-if (tenants.length < 1) {
-  falhou("não há tenants no banco para testar", "Rode com um banco que já tenha ao menos um restaurante.");
+if (!idDeProva) {
+  falhou(
+    "não consegui um id de restaurante para testar",
+    "Passe TENANT_DE_PROVA=<id> — a política esconde a lista de tenants, que é o esperado."
+  );
 } else {
-  const a = tenants[0]!.id;
+  const a = idDeProva;
 
   // 3.1 — sem tenant declarado, nada deve aparecer.
   const semTenant = (await db.query<{ n: number }>(`select count(*)::int n from mesas`)).rows[0]!.n;

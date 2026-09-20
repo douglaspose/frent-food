@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:rls": "node scripts/dev-com-rls.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -14,7 +15,10 @@
     "db:reset": "prisma migrate reset",
     "test": "vitest run",
     "test:watch": "vitest",
-    "rls:verificar": "tsx scripts/verificar-rls.mts"
+    "rls:aplicar": "tsx scripts/aplicar-rls.mts",
+    "rls:verificar": "tsx scripts/verificar-rls.mts",
+    "rls:medir": "tsx scripts/medir-rls.mts",
+    "db:volume": "tsx scripts/volume-de-teste.mts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

@@ -4,8 +4,23 @@
     {
       "name": "gestao-restaurante",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "-p", "3001"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3001"
+      ],
       "port": 3001
+    },
+    {
+      "name": "gestao-restaurante-rls",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/dev-com-rls.mjs",
+        "3002"
+      ],
+      "port": 3002
     }
   ]
 }
