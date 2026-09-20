@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { Viewport } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { exigirSessao, temPermissao } from "@/lib/session";
@@ -11,6 +12,16 @@ import { BarraAmbientes } from "../pdv/barra-ambientes";
  * está atendendo mesa.
  */
 const PERMISSAO_DE_GESTAO = "produto.editar";
+
+/**
+ * A retaguarda pinta a barra de status do celular de branco.
+ *
+ * Instalado na tela de início, o sistema não mostra barra de endereço: a faixa
+ * do relógio assume a cor declarada aqui. Herdar o preto do salão deixaria uma
+ * tarja escura em cima de uma tela clara, como se a página não tivesse
+ * terminado de carregar.
+ */
+export const viewport: Viewport = { themeColor: "#ffffff" };
 
 const MENU = [
   { href: "/gestao", rotulo: "Painel" },
