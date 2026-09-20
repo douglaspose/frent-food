@@ -40,7 +40,7 @@ export default async function Home() {
             href={a.href}
             className="flex items-center gap-4 rounded-xl border border-neutral-800 bg-neutral-900 px-5 py-4 transition hover:border-orange-600 hover:bg-neutral-800"
           >
-            <span className="h-10 w-10 shrink-0 rounded-lg bg-orange-600" />
+            <span className="h-10 w-10 shrink-0 rounded-lg bg-orange-700" />
             <span>
               <span className="block font-semibold">{a.nome}</span>
               <span className="block text-sm text-neutral-500">{a.descricao}</span>

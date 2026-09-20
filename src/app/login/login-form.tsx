@@ -51,7 +51,7 @@ export function LoginForm() {
               setErro(null);
             }}
             className={`flex-1 rounded-md py-2 text-sm font-semibold transition ${
-              modo === m ? "bg-orange-600 text-white" : "text-neutral-400 hover:text-neutral-200"
+              modo === m ? "bg-orange-700 text-white" : "text-neutral-400 hover:text-neutral-200"
             }`}
           >
             {m === "pin" ? "PIN (salão)" : "E-mail e senha"}
@@ -126,7 +126,7 @@ export function LoginForm() {
           <button
             onClick={enviarSenha}
             disabled={pendente || !email || !senha}
-            className="w-full rounded-lg bg-orange-600 py-3 font-semibold text-white transition hover:bg-orange-500 disabled:opacity-40"
+            className="w-full rounded-lg bg-orange-700 py-3 font-semibold text-white transition hover:bg-orange-600 disabled:opacity-40"
           >
             {pendente ? "Entrando..." : "Entrar"}
           </button>

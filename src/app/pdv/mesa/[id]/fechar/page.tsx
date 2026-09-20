@@ -42,7 +42,7 @@ export default async function FecharPage({ params }: { params: Promise<{ id: str
         <BotaoVoltar
           href="/pdv"
           rotulo="Voltar às mesas"
-          className="bg-orange-600 text-white hover:bg-orange-500 hover:text-white active:bg-orange-700"
+          className="bg-orange-700 text-white hover:bg-orange-600 hover:text-white active:bg-orange-800"
         />
       </main>
     );

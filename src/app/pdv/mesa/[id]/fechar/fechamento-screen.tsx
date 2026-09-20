@@ -351,7 +351,7 @@ export function FechamentoScreen({
                   onClick={() => setFormaSelecionada(f.id)}
                   className={`rounded-lg px-3 py-3 text-sm font-semibold transition ${
                     formaSelecionada === f.id
-                      ? "bg-orange-600 text-white"
+                      ? "bg-orange-700 text-white"
                       : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
                   }`}
                 >
@@ -433,7 +433,7 @@ export function FechamentoScreen({
           <button
             onClick={finalizar}
             disabled={pendente || !quitada || !podeFechar}
-            className="w-full rounded-lg bg-orange-600 py-4 text-lg font-semibold text-white transition hover:bg-orange-500 disabled:opacity-30"
+            className="w-full rounded-lg bg-orange-700 py-4 text-lg font-semibold text-white transition hover:bg-orange-600 disabled:opacity-30"
           >
             {pendente ? "Finalizando..." : "Finalizar e liberar mesa"}
           </button>

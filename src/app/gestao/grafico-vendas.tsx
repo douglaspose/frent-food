@@ -36,7 +36,7 @@ export function GraficoVendas({ dados }: { dados: [string, number][] }) {
           <div className="flex w-full min-h-0 flex-1 items-end">
             <div
               className={`w-full rounded-t-md transition ${
-                valor > 0 ? "bg-orange-500 group-hover:bg-orange-600" : "bg-neutral-200"
+                valor > 0 ? "bg-orange-500 group-hover:bg-orange-700" : "bg-neutral-200"
               }`}
               style={{ height: `${Math.max((valor / maximo) * 100, 2)}%` }}
             />

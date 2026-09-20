@@ -92,6 +92,28 @@ export function ComandaScreen({
    */
   const [painel, setPainel] = useState<null | "carrinho" | "comanda">(null);
   const temTeclado = useTemTeclado();
+
+  /**
+   * A linha do cardápio que acabou de entrar no carrinho.
+   *
+   * Lançar um item não mudava nada na tela além de um contador lá embaixo: no
+   * meio do salão, com a mesa falando, não dá para ter certeza de que o toque
+   * pegou — e a dúvida custa um item lançado duas vezes.
+   *
+   * O aviso fica na própria linha, e não numa caixa flutuante, porque é ali
+   * que o dedo encostou e o olho já está. Um aviso noutro canto obriga a
+   * procurar a confirmação de algo que aconteceu debaixo da mão — e, numa
+   * tela em que se toca dezenas de vezes por mesa, algo que aparece e some
+   * dezenas de vezes cansa.
+   */
+  const [itemAceso, setItemAceso] = useState<string | null>(null);
+  const relogioDoAviso = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sair da tela com o relógio armado deixaria um `setState` procurando um
+  // componente que não existe mais.
+  useEffect(() => () => {
+    if (relogioDoAviso.current) clearTimeout(relogioDoAviso.current);
+  }, []);
   const [busca, setBusca] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   // Qual item está com o campo de motivo aberto. Um de cada vez: cancelar é
@@ -124,7 +146,7 @@ export function ComandaScreen({
     );
   }, [busca, categoriaAtiva, categorias, todosItens]);
 
-  function agir(fn: () => Promise<unknown>) {
+  function agir(fn: () => Promise<unknown>, aoConcluir?: () => void) {
     setErro(null);
     iniciar(async () => {
       try {
@@ -135,6 +157,7 @@ export function ComandaScreen({
           setErro(r.erro);
           return;
         }
+        aoConcluir?.();
         router.refresh();
       } catch (e) {
         setErro(e instanceof Error ? e.message : "Algo deu errado.");
@@ -162,14 +185,22 @@ export function ComandaScreen({
 
   function adicionar(item: CardapioItemView) {
     if (item.esgotado) return;
-    agir(() =>
-      adicionarAoCarrinho({
-        comandaId: comanda.id,
-        produtoId: item.produtoId,
-        cardapioItemId: item.id,
-        precoUnitario: item.preco,
-        exigePontoCarne: item.exigePontoCarne,
-      })
+    agir(
+      () =>
+        adicionarAoCarrinho({
+          comandaId: comanda.id,
+          produtoId: item.produtoId,
+          cardapioItemId: item.id,
+          precoUnitario: item.preco,
+          exigePontoCarne: item.exigePontoCarne,
+        }),
+      () => {
+        setItemAceso(item.id);
+        if (relogioDoAviso.current) clearTimeout(relogioDoAviso.current);
+        // Mais curto que um aviso flutuante: está no campo de visão, não
+        // precisa de tempo para ser encontrado.
+        relogioDoAviso.current = setTimeout(() => setItemAceso(null), 1200);
+      }
     );
   }
 
@@ -284,7 +315,7 @@ export function ComandaScreen({
           <button
             onClick={() => agir(() => reabrirComanda(comanda.id))}
             disabled={pendente}
-            className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-orange-500 disabled:opacity-50"
+            className="rounded-lg bg-orange-700 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-orange-600 disabled:opacity-50"
           >
             Reabrir mesa
           </button>
@@ -321,7 +352,7 @@ export function ComandaScreen({
               }}
               className={`h-11 shrink-0 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide transition lg:block lg:h-auto lg:w-full lg:rounded-none lg:border-l-4 lg:px-3 lg:py-3 lg:text-left lg:leading-tight ${
                 categoriaAtiva === c.id && !busca
-                  ? "bg-orange-600 text-white lg:border-orange-500 lg:bg-neutral-900 lg:text-orange-400"
+                  ? "bg-orange-700 text-white lg:border-orange-500 lg:bg-neutral-900 lg:text-orange-400"
                   : "bg-neutral-900 text-neutral-400 lg:border-transparent lg:bg-transparent lg:text-neutral-500 lg:hover:bg-neutral-900/60 lg:hover:text-neutral-300"
               }`}
             >
@@ -351,7 +382,14 @@ export function ComandaScreen({
                 <button
                   onClick={() => adicionar(item)}
                   disabled={item.esgotado || pendente || fechando}
-                  className="flex w-full items-center gap-3 border-b border-neutral-900 px-1 py-3 text-left transition hover:bg-neutral-900 disabled:opacity-40"
+                  /* O traço verde vai por sombra interna, não por borda: uma
+                     borda de verdade empurraria a linha 3px para a direita
+                     toda vez que alguém tocasse nela. */
+                  className={`flex w-full items-center gap-3 border-b border-neutral-900 px-1 py-3 text-left transition disabled:opacity-40 ${
+                    itemAceso === item.id
+                      ? "bg-emerald-500/10 shadow-[inset_3px_0_0_var(--color-emerald-500)]"
+                      : "hover:bg-neutral-900"
+                  }`}
                 >
                   <span className="w-10 shrink-0 text-xs tabular-nums text-neutral-500">
                     {item.codigo}
@@ -362,6 +400,11 @@ export function ComandaScreen({
                       <span className="ml-2 text-[10px] font-bold text-red-500">ESGOTADO</span>
                     )}
                   </span>
+                  {itemAceso === item.id && (
+                    <span className="shrink-0 text-sm font-bold text-emerald-400" aria-hidden>
+                      ✓
+                    </span>
+                  )}
                   <span className="shrink-0 text-sm font-semibold tabular-nums text-orange-400">
                     {brl.format(item.preco)}
                   </span>
@@ -415,21 +458,21 @@ export function ComandaScreen({
                     {brl.format(item.precoTotal)}
                   </span>
                 </div>
-                <div className="mt-2 flex items-center gap-3 lg:gap-2">
+                <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-neutral-700 bg-neutral-950 p-1">
                   <button
                     onClick={() => agir(() => alterarQuantidade(item.id, -1))}
                     disabled={pendente || fechando}
-                    className="h-11 w-11 rounded-lg bg-neutral-800 text-lg text-neutral-300 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:rounded-md lg:text-base"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-800 text-lg leading-none text-neutral-100 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:text-base lg:text-neutral-300"
                   >
                     −
                   </button>
-                  <span className="w-8 text-center text-base font-semibold tabular-nums lg:w-6 lg:text-sm">
+                  <span className="w-7 text-center text-base font-semibold tabular-nums lg:w-6 lg:text-sm">
                     {item.quantidade}
                   </span>
                   <button
                     onClick={() => agir(() => alterarQuantidade(item.id, 1))}
                     disabled={pendente || fechando}
-                    className="h-11 w-11 rounded-lg bg-neutral-800 text-lg text-neutral-300 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:rounded-md lg:text-base"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-800 text-lg leading-none text-neutral-100 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:text-base lg:text-neutral-300"
                   >
                     +
                   </button>
@@ -621,7 +664,7 @@ export function ComandaScreen({
             <button
               onClick={fecharConta}
               disabled={pendente}
-              className="mt-2 w-full rounded-lg bg-orange-600 py-3 text-center font-semibold text-white transition hover:bg-orange-500 disabled:opacity-50"
+              className="mt-2 w-full rounded-lg bg-orange-700 py-3 text-center font-semibold text-white transition hover:bg-orange-600 disabled:opacity-50"
             >
               Fechar conta
               <span className="hidden lg:inline"> (F3)</span>

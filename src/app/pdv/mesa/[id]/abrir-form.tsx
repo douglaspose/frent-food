@@ -57,7 +57,7 @@ export function AbrirForm({
               onClick={() => setPessoas(n)}
               className={`h-12 w-12 rounded-lg text-lg font-semibold tabular-nums transition ${
                 pessoas === n
-                  ? "bg-orange-600 text-white"
+                  ? "bg-orange-700 text-white"
                   : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
               }`}
             >
@@ -88,7 +88,7 @@ export function AbrirForm({
       <button
         onClick={abrir}
         disabled={pendente || (exigeNome && !nome.trim())}
-        className="w-full rounded-lg bg-orange-600 py-4 text-lg font-semibold text-white transition hover:bg-orange-500 disabled:opacity-50"
+        className="w-full rounded-lg bg-orange-700 py-4 text-lg font-semibold text-white transition hover:bg-orange-600 disabled:opacity-50"
       >
         {pendente ? "Abrindo..." : "Abrir mesa"}
       </button>

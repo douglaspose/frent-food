@@ -250,7 +250,7 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
               className={`relative flex h-16 min-w-0 flex-1 flex-col items-center justify-center gap-1 transition ${
                 ativo
                   ? "bg-gradient-to-b from-black to-neutral-950 text-neutral-50 shadow-[inset_0_4px_8px_-2px_rgba(0,0,0,0.9),inset_0_-1px_0_rgba(255,255,255,0.07)]"
-                  : "text-neutral-500"
+                  : "text-neutral-400"
               }`}
             >
               {/*
@@ -293,7 +293,7 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
           aria-expanded={menuAberto}
           aria-label="Turno e saída"
           className={`flex h-16 w-[4.5rem] shrink-0 flex-col items-center justify-center gap-1 transition ${
-            menuAberto ? "text-neutral-50" : "text-neutral-500"
+            menuAberto ? "text-neutral-50" : "text-neutral-400"
           }`}
         >
           <span

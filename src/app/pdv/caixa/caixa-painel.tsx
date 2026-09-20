@@ -194,7 +194,7 @@ export function CaixaPainel({
                 onClick={() => setTurno(t.valor)}
                 className={`rounded-lg px-4 py-3 text-sm font-semibold transition ${
                   turno === t.valor
-                    ? "bg-orange-600 text-white"
+                    ? "bg-orange-700 text-white"
                     : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
                 }`}
               >
@@ -227,7 +227,7 @@ export function CaixaPainel({
         <button
           onClick={abrir}
           disabled={pendente || !podeOperar}
-          className="w-full rounded-lg bg-orange-600 py-4 text-lg font-semibold text-white transition hover:bg-orange-500 disabled:opacity-50"
+          className="w-full rounded-lg bg-orange-700 py-4 text-lg font-semibold text-white transition hover:bg-orange-600 disabled:opacity-50"
         >
           {pendente ? "Abrindo..." : "Abrir caixa"}
         </button>
@@ -366,7 +366,7 @@ export function CaixaPainel({
               <button
                 onClick={() => movimentar()}
                 disabled={pendente || !valorMov.trim() || !descricaoMov.trim()}
-                className="flex-1 rounded-lg bg-orange-600 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:opacity-30"
+                className="flex-1 rounded-lg bg-orange-700 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:opacity-30"
               >
                 {pendente ? "Registrando..." : "Registrar"}
               </button>

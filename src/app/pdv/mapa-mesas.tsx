@@ -276,7 +276,7 @@ export function MapaMesas({
             onClick={() => guardarArea(null)}
             className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition ${
               areaAtiva === null
-                ? "bg-orange-600 text-white"
+                ? "bg-orange-700 text-white"
                 : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
             }`}
           >
@@ -288,7 +288,7 @@ export function MapaMesas({
               onClick={() => guardarArea(a.id)}
               className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition ${
                 areaAtiva === a.id
-                  ? "bg-orange-600 text-white"
+                  ? "bg-orange-700 text-white"
                   : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
               }`}
             >
