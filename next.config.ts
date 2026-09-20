@@ -22,7 +22,12 @@ function enderecosDaRedeLocal() {
 
 const nextConfig: NextConfig = {
   // Só tem efeito em `next dev`; em produção a opção não existe.
-  allowedDevOrigins: enderecosDaRedeLocal(),
+  //
+  // `127.0.0.1` entra à mão porque a busca acima descarta as interfaces
+  // internas. O Next libera `localhost` sozinho, mas não o endereço numérico —
+  // e os dois são hosts diferentes para o navegador. Abrir por ele dava
+  // exatamente a página morta que este arquivo existe para evitar.
+  allowedDevOrigins: ["127.0.0.1", ...enderecosDaRedeLocal()],
 };
 
 export default nextConfig;
