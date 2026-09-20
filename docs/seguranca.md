@@ -118,9 +118,100 @@ fica fora do guarda de tenant e do RLS: ela é consultada antes do login,
 quando ainda não se sabe de quem é a tentativa. A isenção está escrita em
 `tests/rls.test.ts`, para ser uma decisão e não um esquecimento.
 
-### 8. Testes
+### 8. RLS no Postgres — o isolamento no banco
 
-`npm test` — 202 testes cobrindo o que quebra dinheiro ou vaza dado:
+Até aqui, tudo depende da aplicação lembrar de filtrar. O RLS é a rede embaixo:
+mesmo que uma consulta escape do guarda, o Postgres devolve vazio.
+
+**Como funciona.** Cada consulta sai declarada:
+
+```sql
+select set_config('app.tenant_id', $1, true);   -- true = LOCAL, morre no commit
+```
+
+Não é `SET LOCAL app.tenant_id = $1`: **`SET` não aceita parâmetro**, e montar
+a string à mão abriria injeção no lugar exato que deveria proteger. O `true` no
+terceiro argumento também não é detalhe — sem ele a variável gruda na conexão e
+o próximo a pegá-la no pool herda o restaurante do anterior.
+
+**Onde isso acontece.** Em `src/lib/adaptador-rls.ts`, que embrulha o adapter do
+Prisma. Consulta solta vira `BEGIN → declaração → consulta → COMMIT`; transação
+aberta pelo código recebe a declaração como primeiro comando. Nenhuma server
+action precisou mudar: o isolamento é propriedade da conexão, não disciplina de
+quem escreve consulta.
+
+Foram medidas as duas formas possíveis contra as seis consultas do painel, com
+duas semanas de movimento no banco: uma transação por requisição e uma por
+consulta empataram (~3,4 ms por tela). Ficou a segunda, porque a primeira
+enfileiraria o que hoje sai em paralelo e prenderia uma conexão por requisição
+inteira. `npm run rls:medir` refaz a conta.
+
+**De onde vem o restaurante.** Do `tenantId` assinado dentro do cookie de
+sessão. O adapter **pergunta** (`tenant-da-sessao.ts`) em vez de esperar que
+alguém declare — e essa inversão não foi escolha de estilo:
+
+- `AsyncLocalStorage.enterWith` **não sobe para quem chamou**. Como o
+  `lerSessao()` dá `await` no cookie antes de declarar, a continuação de quem
+  o chamou já tinha contexto próprio, criado antes da marca.
+- O `cache()` do React resolve isso na renderização de página, mas o escopo
+  dele é a renderização: numa **server action** cada chamada devolve uma caixa
+  nova, e o que foi guardado some.
+
+As duas falhas são silenciosas — as consultas simplesmente voltam vazias. O
+cookie não tem o problema porque não depende de contexto: `cookies()` funciona
+nos três lugares de onde uma consulta pode sair (renderização, server action,
+route handler). Custa verificar um JWT por consulta, dezenas de microssegundos
+contra os ~3 ms da consulta.
+
+`declararTenant()` continua existindo para os dois casos sem cookie — login
+(depois de achar o restaurante pelo endereço) e agente de impressão (depois de
+identificar a unidade pelo token). Nos dois, a declaração e as consultas ficam
+no **mesmo corpo de função**, que é a condição em que `enterWith` vale. Há
+teste registrando essa limitação em `src/lib/tenant-atual.test.ts`.
+
+**As duas exceções**, e não há outras. Ambas precisam responder algo antes de
+existir um restaurante conhecido:
+
+| onde | pergunta | por quê |
+|---|---|---|
+| login | de quem é este subdomínio? | sem isso a tela de login não abre para ninguém |
+| `/api/impressao` | de que unidade é este token? | o agente é serviço, não pessoa: não tem sessão |
+
+As duas usam o cliente `dbSemRls` (role com `BYPASSRLS`, `DATABASE_URL_SEM_RLS`)
+e são marcadas com `atravessandoRestaurantes(motivo, …)`. A marca existe para
+separar "atravessa de propósito" de "esqueceu de declarar" — a segunda vira
+aviso no log de desenvolvimento. O pool desse cliente tem 3 conexões: se
+precisar de mais, ele deixou de ser exceção e virou caminho.
+
+**Como ligar num banco.**
+
+1. `npm run rls:aplicar` com `DATABASE_URL` de superusuário e
+   `SENHA_APP_GESTAO` — cria a role `app_gestao` (`NOBYPASSRLS`) e as políticas
+   de `prisma/rls.sql`, que cobrem as 27 tabelas com `tenantId`, as 9
+   tabelas-filhas (pela política do pai) e a própria `tenants`.
+2. Trocar a `DATABASE_URL` da aplicação para `app_gestao`, e apontar
+   `DATABASE_URL_SEM_RLS` para a role de travessia.
+3. **`npm run rls:verificar`**, com `TENANT_DE_PROVA=<id>`.
+
+O passo 3 não é formalidade, e "o script aplicou sem erro" não prova nada. Ele
+confere que a role não é superusuário nem tem `BYPASSRLS` e então **pergunta ao
+banco o que ele devolve**: sem tenant declarado tem que vir vazio; com o
+tenant, só o que é dele; gravar no nome de outro tem que ser recusado com
+`42501`. Sai com código 1 em qualquer falha — serve como portão de deploy.
+
+O `TENANT_DE_PROVA` vem de fora porque a política de `tenants` esconde a lista
+de tenants. O verificador não consegue se guiar por uma consulta que a própria
+proteção precisa cegar.
+
+**Em desenvolvimento.** O `prisma dev` é Postgres wasm rodando como
+superusuário: aceita todo o script e não aplica nada — ali o isolamento parece
+funcionar mesmo quando não está. Para ver o sistema como o cliente vai vê-lo,
+`npm run dev:rls` sobe o Next contra o Postgres local pela role `app_gestao`,
+sem mexer no `.env`.
+
+### 9. Testes
+
+`npm test` — 240 testes cobrindo o que quebra dinheiro ou vaza dado:
 
 - **Dinheiro**: taxa de serviço sobre o valor descontado, desconto limitado ao
   consumo, arredondamento de centavo sem erro de float, leitura do preço
@@ -135,8 +226,12 @@ quando ainda não se sabe de quem é a tentativa. A isenção está escrita em
   a mesa de destino herda o estado da conta
 - **Acesso ao caixa**: a tela do turno é só de quem opera a gaveta; garçom não
   entra nem pela URL
-- **RLS**: o script não envelhece em relação ao schema — tabela nova sem
-  política quebra a suíte
+- **RLS**: o script não envelhece em relação ao schema (tabela nova sem
+  política quebra a suíte); e, contra um Postgres de verdade pela role
+  `app_gestao`, o isolamento é provado de ponta a ponta — declarado como A,
+  pedir explicitamente os dados de B volta vazio; duas consultas simultâneas de
+  restaurantes diferentes não se misturam; gravar no nome do vizinho é
+  recusado; e nenhuma conexão volta ao pool com transação aberta
 - **Mensagens**: regra de negócio volta como valor e chega ao usuário em
   produção; bug de programação continua subindo como exceção
 - **Autorização**: a liberação não serve para outra mesa, outro garçom, outro
@@ -156,65 +251,6 @@ a cada execução.
 
 ## O que ainda NÃO protege
 
-### RLS no Postgres — script completo, aplicação ainda não declara o tenant
-
-`prisma/rls.sql` cobre hoje **todas** as tabelas: as 27 que carregam
-`tenantId`, as 9 tabelas-filhas (pela política do pai) e a própria `tenants`.
-Ele **não roda junto com as migrations**, de propósito.
-
-Hoje o isolamento é garantido pela aplicação: as actions filtram, o guarda
-verifica, os testes provam. É bom, mas é uma linha só. Se uma consulta nova
-escapar do guarda, o banco entrega os dados.
-
-#### O que falta
-
-Uma coisa só, e é a difícil: **a aplicação precisa declarar o tenant em cada
-requisição**. A política lê `app.tenant_id`; sem isso, ligar o script deixa
-todas as consultas vazias e o restaurante para.
-
-A declaração tem que valer para a mesma conexão que roda a consulta, e o pool
-do Prisma não garante isso entre consultas soltas — então implica envelopar as
-consultas de cada requisição numa transação:
-
-```sql
-select set_config('app.tenant_id', $1, true);   -- true = LOCAL, morre no commit
-```
-
-Não é `SET LOCAL app.tenant_id = $1`: **`SET` não aceita parâmetro**, e montar
-a string à mão abriria injeção no lugar exato que deveria proteger.
-
-#### Como ligar, na ordem
-
-1. `psql < prisma/rls.sql` — cria a role `app_gestao` (NOBYPASSRLS) e as
-   políticas.
-2. Trocar a `DATABASE_URL` da aplicação para a role `app_gestao`.
-3. Implementar o item acima na aplicação.
-4. **`npm run rls:verificar`** com a URL da aplicação.
-
-O passo 4 não é formalidade. Ele conecta, confere que a role não é
-superusuário nem tem `BYPASSRLS`, e então **pergunta ao banco o que ele
-devolve**: sem tenant declarado tem que vir vazio; com o tenant, só o que é
-dele; gravar no nome de outro tem que ser recusado com `42501`. Sai com código
-1 em qualquer falha — serve como portão de deploy.
-
-#### Por que o verificador existe
-
-Porque "o script aplicou sem erro" não prova nada. No banco de
-desenvolvimento (`prisma dev`, que é Postgres compilado para wasm), todo o
-script é aceito **e nenhuma política é aplicada**: a conexão ignora o usuário
-informado — aceita até senha errada — e roda tudo como superusuário, que
-atravessa RLS por definição. Rodar `npm run rls:verificar` ali devolve 11
-falhas, e é o comportamento correto.
-
-Consequência prática: **RLS não pode ser testado em desenvolvimento**. A
-verificação de verdade acontece na VPS, com o Postgres do
-`docker-compose.yml`, e leva um minuto.
-
-O teste `tests/rls.test.ts` cobre a parte que dá para provar aqui: que o
-script não envelheceu em relação ao schema. Tabela nova com `tenantId` que não
-aparecer no script quebra a suíte — foi assim que `notas_fiscais` e
-`perfis_fiscais` apareceram, e elas guardam as notas fiscais do cliente.
-
 ### Outros pontos em aberto
 
 - **Token de impressão sem expiração.** Vale até ser trocado à mão.
@@ -229,8 +265,5 @@ aparecer no script quebra a suíte — foi assim que `notas_fiscais` e
 
 Em ordem de risco:
 
-1. Declarar o tenant na conexão e ligar o RLS (script e verificador prontos,
-   ver acima) — a última rede, para o dia em que uma consulta escapar do
-   guarda de aplicação
-2. Expiração do token de impressão
-3. Política de retenção e exportação do diário
+1. Expiração do token de impressão
+2. Política de retenção e exportação do diário
