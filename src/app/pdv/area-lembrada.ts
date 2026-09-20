@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 const CHAVE = "pdv.areaFiltrada";
 
@@ -15,6 +15,10 @@ const CHAVE = "pdv.areaFiltrada";
  * relógio em `use-agora`: o sessionStorage é estado externo ao React. No
  * servidor o snapshot é nulo — ler o armazenamento do navegador durante o
  * render do servidor não existe, e fingir que sim quebraria a hidratação.
+ *
+ * Quem decide se a lembrança sobrevive à ida à comanda é o mapa, apagando-a
+ * ao sair da tela. Aqui dentro não cabe: este módulo responde "qual área está
+ * filtrada agora", e uma resposta só.
  */
 const ouvintes = new Set<() => void>();
 
@@ -49,11 +53,7 @@ export function guardarArea(areaId: string | null) {
   for (const notificar of ouvintes) notificar();
 }
 
-/**
- * Devolve a área lembrada, ou `null` quando a unidade prefere sempre abrir
- * mostrando o salão inteiro.
- */
-export function useAreaLembrada(lembrar: boolean) {
-  const ler = useCallback(() => (lembrar ? snapshot() : null), [lembrar]);
-  return useSyncExternalStore(subscribe, ler, snapshotDoServidor);
+/** A área filtrada agora, ou `null` para o salão inteiro. */
+export function useAreaLembrada() {
+  return useSyncExternalStore(subscribe, snapshot, snapshotDoServidor);
 }

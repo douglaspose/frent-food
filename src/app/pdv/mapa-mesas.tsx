@@ -141,12 +141,26 @@ export function MapaMesas({
   areas: AreaView[];
   ajustes: AjustesDoMapa;
 }) {
-  // A área filtrada vive fora do React quando a unidade pede para lembrá-la,
-  // para sobreviver à ida e volta da tela da comanda.
-  const areaAtiva = useAreaLembrada(!ajustes.voltarParaAreas);
+  // A área filtrada vive fora do React para sobreviver à ida e volta da tela
+  // da comanda.
+  const areaAtiva = useAreaLembrada();
   const [busca, setBusca] = useState("");
   const [soOcupadas, setSoOcupadas] = useState(false);
   const buscaRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * "Mostrar todas as áreas ao voltar de uma conta" é esquecer na saída, não
+   * ignorar na leitura.
+   *
+   * Antes o ajuste zerava a área em toda leitura, e como o padrão é ligado os
+   * botões de área não filtravam nada: o clique gravava, o chip não acendia e
+   * a lista não mudava. O ajuste fala da próxima visita ao mapa, então é na
+   * saída desta tela que ele age.
+   */
+  useEffect(() => {
+    if (!ajustes.voltarParaAreas) return;
+    return () => guardarArea(null);
+  }, [ajustes.voltarParaAreas]);
 
   // Dois relógios diferentes: este conta o tempo que passa no próprio
   // navegador ("chamou há 4min" sobe sozinho), enquanto o useAoVivo traz os
