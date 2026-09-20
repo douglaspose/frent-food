@@ -94,19 +94,24 @@ export function ComandaScreen({
   const temTeclado = useTemTeclado();
 
   /**
-   * A linha do cardápio que acabou de entrar no carrinho.
+   * O que a pílula de "item lançado" está dizendo.
    *
    * Lançar um item não mudava nada na tela além de um contador lá embaixo: no
    * meio do salão, com a mesa falando, não dá para ter certeza de que o toque
    * pegou — e a dúvida custa um item lançado duas vezes.
    *
-   * O aviso fica na própria linha, e não numa caixa flutuante, porque é ali
-   * que o dedo encostou e o olho já está. Um aviso noutro canto obriga a
-   * procurar a confirmação de algo que aconteceu debaixo da mão — e, numa
-   * tela em que se toca dezenas de vezes por mesa, algo que aparece e some
-   * dezenas de vezes cansa.
+   * Este aviso já morou na própria linha, acendendo em verde. A ideia era boa
+   * no papel — o retorno onde o dedo encostou —, e na tela não se sustentou:
+   * o sistema fala laranja, e uma segunda cor piscando dezenas de vezes por
+   * turno para dizer algo que envelhece em dois segundos pesava mais do que
+   * ajudava.
+   *
+   * O que ficou no lugar do dedo é o `active:` da linha, que não tem cor e
+   * acende na hora. A pílula responde a outra pergunta — "entrou no
+   * carrinho?" — e por isso pode morar longe, perto do carrinho, que é para
+   * onde o item foi.
    */
-  const [itemAceso, setItemAceso] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<{ titulo: string; vez: number } | null>(null);
   const relogioDoAviso = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sair da tela com o relógio armado deixaria um `setState` procurando um
@@ -195,11 +200,12 @@ export function ComandaScreen({
           exigePontoCarne: item.exigePontoCarne,
         }),
       () => {
-        setItemAceso(item.id);
+        // A `vez` remonta a pílula quando o mesmo item é lançado duas vezes
+        // seguidas: sem ela o React não veria mudança e a animação não
+        // repetiria — e lançar dois espetos iguais é o caso mais comum aqui.
+        setAviso((anterior) => ({ titulo: item.titulo, vez: (anterior?.vez ?? 0) + 1 }));
         if (relogioDoAviso.current) clearTimeout(relogioDoAviso.current);
-        // Mais curto que um aviso flutuante: está no campo de visão, não
-        // precisa de tempo para ser encontrado.
-        relogioDoAviso.current = setTimeout(() => setItemAceso(null), 1200);
+        relogioDoAviso.current = setTimeout(() => setAviso(null), 1600);
       }
     );
   }
@@ -350,7 +356,16 @@ export function ComandaScreen({
                 setCategoriaAtiva(c.id);
                 setBusca("");
               }}
-              className={`h-11 shrink-0 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide transition lg:block lg:h-auto lg:w-full lg:rounded-none lg:border-l-4 lg:px-3 lg:py-3 lg:text-left lg:leading-tight ${
+              /**
+                Afundar, e não clarear: o chip aceso é laranja e o apagado é
+                cinza, e mexer no fundo deles embaralharia o sinal de qual
+                está selecionado com o sinal de que o toque pegou.
+
+                Só no celular. No balcão estes viram uma coluna lateral de
+                largura inteira, e uma faixa dessas encolhendo a cada clique
+                de mouse chama mais atenção do que o filtro merece.
+              */
+              className={`realce-ao-toque h-11 shrink-0 touch-manipulation rounded-lg px-4 text-xs font-semibold uppercase tracking-wide transition duration-100 active:scale-95 lg:block lg:h-auto lg:w-full lg:rounded-none lg:border-l-4 lg:px-3 lg:py-3 lg:text-left lg:leading-tight lg:active:scale-100 ${
                 categoriaAtiva === c.id && !busca
                   ? "bg-orange-700 text-white lg:border-orange-500 lg:bg-neutral-900 lg:text-orange-400"
                   : "bg-neutral-900 text-neutral-400 lg:border-transparent lg:bg-transparent lg:text-neutral-500 lg:hover:bg-neutral-900/60 lg:hover:text-neutral-300"
@@ -382,14 +397,25 @@ export function ComandaScreen({
                 <button
                   onClick={() => adicionar(item)}
                   disabled={item.esgotado || pendente || fechando}
-                  /* O traço verde vai por sombra interna, não por borda: uma
-                     borda de verdade empurraria a linha 3px para a direita
-                     toda vez que alguém tocasse nela. */
-                  className={`flex w-full items-center gap-3 border-b border-neutral-900 px-1 py-3 text-left transition disabled:opacity-40 ${
-                    itemAceso === item.id
-                      ? "bg-emerald-500/10 shadow-[inset_3px_0_0_var(--color-emerald-500)]"
-                      : "hover:bg-neutral-900"
-                  }`}
+                  /**
+                   * Dois retornos diferentes, e os dois precisam existir.
+                   *
+                   * O `active:` diz "o toque pegou" e acende no próprio dedo.
+                   * Sem ele, quem está no salão com a mesa falando não sabe se
+                   * tocou, e lança o item duas vezes — o erro que esta tela
+                   * mais produz. O que diz "entrou no carrinho" é a pílula lá
+                   * embaixo, e essa só pode acender depois do servidor
+                   * responder.
+                   *
+                   * A linha já foi acender em verde, e o verde saiu: o sistema
+                   * fala laranja, e uma segunda cor aparecendo dezenas de vezes
+                   * por turno para dizer algo que envelhece em dois segundos
+                   * custava mais do que rendia.
+                   *
+                   * O `hover:` sozinho não resolvia: o Tailwind o embrulha em
+                   * `@media (hover: hover)`, então no celular ele não existe.
+                   */
+                  className="realce-ao-toque flex w-full touch-manipulation items-center gap-3 border-b border-neutral-900 px-1 py-3 text-left transition duration-100 hover:bg-neutral-900 active:bg-neutral-800 disabled:opacity-40"
                 >
                   <span className="w-10 shrink-0 text-xs tabular-nums text-neutral-500">
                     {item.codigo}
@@ -400,11 +426,6 @@ export function ComandaScreen({
                       <span className="ml-2 text-[10px] font-bold text-red-500">ESGOTADO</span>
                     )}
                   </span>
-                  {itemAceso === item.id && (
-                    <span className="shrink-0 text-sm font-bold text-emerald-400" aria-hidden>
-                      ✓
-                    </span>
-                  )}
                   <span className="shrink-0 text-sm font-semibold tabular-nums text-orange-400">
                     {brl.format(item.preco)}
                   </span>
@@ -446,66 +467,102 @@ export function ComandaScreen({
                 uma. No desktop a coluna é estreita e densa, e continua como
                 estava.
               */
-              <li
-                key={item.id}
-                className="mb-2 rounded-xl bg-neutral-900 p-3 lg:mb-0 lg:rounded-none lg:bg-transparent lg:p-0 lg:py-3 lg:border-b lg:border-neutral-900"
-              >
-                <div className="flex items-start gap-2">
-                  <span className="flex-1 text-base font-semibold leading-tight lg:text-sm lg:font-normal">
-                    {item.titulo}
-                  </span>
-                  <span className="shrink-0 text-base font-semibold tabular-nums lg:text-sm">
-                    {brl.format(item.precoTotal)}
-                  </span>
-                </div>
-                {/*
-                  À direita, e sem borda. A borda vinha de quando o controle
-                  morava sozinho à esquerda e precisava se anunciar; encostado
-                  na margem direita, ele já está onde o polegar cai, e o fundo
-                  mais escuro que o cartão basta para agrupar os três botões.
+              <li key={item.id} className="mb-2 flex items-stretch gap-2 lg:mb-0 lg:gap-1.5">
+                <div className="min-w-0 flex-1 rounded-lg bg-neutral-900 p-3 lg:rounded-none lg:bg-transparent lg:p-0 lg:py-3 lg:border-b lg:border-neutral-900">
+                  <div className="flex items-start gap-2">
+                    <span className="min-w-0 flex-1 text-base font-semibold leading-tight lg:text-sm lg:font-normal">
+                      {/*
+                        A quantidade aparece sempre, inclusive em 1 — e aqui
+                        está a diferença para a comanda, onde o "1×" é
+                        escondido. Lá é leitura; aqui é o número que se está
+                        editando, e vê-lo sumir ao descer de 2 para 1 leria
+                        como "o item saiu".
 
-                  O `-mr-1` cancela o `p-1` do próprio poço. Sem ele o círculo
-                  do "+" para 4px antes da borda do preço logo acima — pouco
-                  para se notar de propósito, o bastante para a coluna da
-                  direita parecer torta.
+                        Em laranja porque é a única coisa desta linha que muda
+                        quando alguém toca nos botões ao lado. O preço, que já
+                        é grande e em negrito, dá conta de se fazer notar.
+                      */}
+                      <span className="mr-1.5 font-bold tabular-nums text-orange-400">
+                        {item.quantidade}×
+                      </span>
+                      {item.titulo}
+                    </span>
+                    {/*
+                      `leading-tight` igual ao do nome, e não por capricho: sem
+                      isto o preço traz a entrelinha padrão de 24px, vira o
+                      mais alto da linha e manda na altura dela — sobrando 4px
+                      embaixo do nome, que é a palavra que o olho acompanha. O
+                      padding do cartão é simétrico; era a entrelinha que não
+                      era.
+                    */}
+                    <span className="shrink-0 text-base font-semibold leading-tight tabular-nums lg:text-sm">
+                      {brl.format(item.precoTotal)}
+                    </span>
+                  </div>
+                  {item.exigePontoCarne && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {PONTOS.map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => agir(() => definirPontoCarne(item.id, p))}
+                          disabled={pendente || fechando}
+                          className={`realce-ao-toque h-10 touch-manipulation rounded-lg px-3 text-xs font-bold tracking-wide transition duration-100 active:scale-95 disabled:opacity-40 lg:h-auto lg:rounded-md lg:px-2 lg:py-1 lg:text-[10px] ${
+                            item.pontoCarne === p
+                              ? "bg-red-600 text-white"
+                              : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/*
+                  Os botões saem do cartão e ficam à direita dele.
+
+                  Dentro, eles obrigavam o item a ter duas linhas — nome em
+                  cima, controle embaixo —, e um carrinho de seis itens não
+                  cabia na tela sem rolar. Do lado, o item volta a ser uma
+                  linha só e a altura do carrinho cai quase pela metade, que é
+                  o que se vê de uma vez num celular.
+
+                  Eles não têm altura própria no celular: o `items-stretch`
+                  desta caixa faz os dois acompanharem o cartão, seja ele de
+                  uma linha ou de duas quando o nome quebra. Assim a linha do
+                  item é um retângulo só, sem sobra de fundo em cima e embaixo
+                  dos botões.
+
+                  O `max-h-16` é o freio. Item que pede ponto da carne leva
+                  três botões a mais dentro do cartão e vai a 156px; sem o
+                  limite, o "+" ficava perdido no meio de uma coluna escura
+                  dessa altura. Com ele, os dois param de crescer em 64px e
+                  sobem para o topo — ao lado do nome e do preço, que é onde o
+                  dedo procura.
+
+                  No balcão eles voltam a ter tamanho fixo e centrado: lá o
+                  cartão não tem fundo — é uma linha com borda embaixo —, e um
+                  botão esticado viraria uma coluna escura ao lado do texto.
                 */}
-                <div className="mt-2 -mr-1 ml-auto flex w-fit items-center gap-1 rounded-full bg-neutral-950 p-1">
+                <div className="flex shrink-0 items-stretch gap-1 lg:items-center">
                   <button
                     onClick={() => agir(() => alterarQuantidade(item.id, -1))}
                     disabled={pendente || fechando}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-800 text-lg leading-none text-neutral-100 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:text-base lg:text-neutral-300"
+                    aria-label={`Menos um ${item.titulo}`}
+                    className="realce-ao-toque flex max-h-16 w-11 touch-manipulation items-center justify-center rounded-lg bg-neutral-900 text-xl leading-none text-neutral-200 transition duration-100 active:scale-95 active:bg-neutral-800 disabled:opacity-40 lg:h-8 lg:w-8 lg:text-base lg:text-neutral-400"
                   >
                     −
                   </button>
-                  <span className="w-7 text-center text-base font-semibold tabular-nums lg:w-6 lg:text-sm">
-                    {item.quantidade}
-                  </span>
                   <button
                     onClick={() => agir(() => alterarQuantidade(item.id, 1))}
                     disabled={pendente || fechando}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-neutral-800 text-lg leading-none text-neutral-100 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:text-base lg:text-neutral-300"
+                    aria-label={`Mais um ${item.titulo}`}
+                    className="realce-ao-toque flex max-h-16 w-11 touch-manipulation items-center justify-center rounded-lg bg-neutral-900 text-xl leading-none text-neutral-200 transition duration-100 active:scale-95 active:bg-neutral-800 disabled:opacity-40 lg:h-8 lg:w-8 lg:text-base lg:text-neutral-400"
                   >
                     +
                   </button>
                 </div>
-                {item.exigePontoCarne && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {PONTOS.map((p) => (
-                      <button
-                        key={p}
-                        onClick={() => agir(() => definirPontoCarne(item.id, p))}
-                        disabled={pendente || fechando}
-                        className={`h-10 rounded-lg px-3 text-xs font-bold tracking-wide transition disabled:opacity-40 lg:h-auto lg:rounded-md lg:px-2 lg:py-1 lg:text-[10px] ${
-                          item.pontoCarne === p
-                            ? "bg-red-600 text-white"
-                            : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </li>
             ))}
           </ul>
@@ -691,6 +748,30 @@ export function ComandaScreen({
         "Nenhum pedido no carrinho" reservava 241px enquanto o cardápio se
         espremia em 247px.
       */}
+      {/**
+       * "Entrou no carrinho", e só isso.
+       *
+       * Fica logo acima da barra, alinhada ao centro, e some sozinha. Não
+       * recebe toque (`pointer-events-none`) porque um aviso que intercepta o
+       * dedo transforma o segundo lançamento em toque perdido — e aqui se
+       * lança dois espetos iguais o tempo todo.
+       *
+       * `aria-live="polite"` para o leitor de tela anunciar sem atropelar o
+       * que estiver falando, e `key` pelo contador de vezes para a entrada
+       * repetir quando o mesmo item é lançado de novo.
+       */}
+      {aviso && (
+        <div
+          key={aviso.vez}
+          aria-live="polite"
+          className="pilula-de-aviso pointer-events-none fixed inset-x-0 bottom-[calc(6.5rem+env(safe-area-inset-bottom))] z-50 flex justify-center px-4 lg:bottom-6"
+        >
+          <span className="max-w-full truncate rounded-full border border-neutral-700 bg-neutral-800 px-3.5 py-2 text-xs font-semibold text-neutral-300 shadow-lg">
+            {aviso.titulo} <span className="text-neutral-500">+1</span>
+          </span>
+        </div>
+      )}
+
       <div className="fixed inset-x-0 bottom-0 z-40 flex items-stretch gap-2 border-t border-neutral-800 bg-neutral-900 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] lg:hidden">
         <button
           onClick={() => setPainel("comanda")}

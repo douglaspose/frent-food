@@ -331,3 +331,30 @@ body {
   -webkit-tap-highlight-color: rgb(255 255 255 / 0.14);
 }
 
+
+/**
+ * A entrada da pílula de "item lançado".
+ *
+ * Sobe um pouco enquanto aparece — é o que a faz ser notada sem piscar nem
+ * mudar de cor. A saída não existe de propósito: o React tira o elemento da
+ * árvore, e animar a saída exigiria segurá-lo montado por mais tempo, o que
+ * atrasaria a pílula seguinte. Num lugar onde se lança um item atrás do outro,
+ * a pílula nova chegando importa mais que a antiga se despedindo.
+ *
+ * A regra de "reduzir movimento" deste arquivo corta a duração; o `both`
+ * deixa o estado final aplicado, então ela aparece sem subir.
+ */
+.pilula-de-aviso {
+  animation: pilula-sobe 180ms ease-out both;
+}
+
+@keyframes pilula-sobe {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
