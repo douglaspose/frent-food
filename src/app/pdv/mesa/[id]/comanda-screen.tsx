@@ -78,6 +78,16 @@ export function ComandaScreen({
   categorias: Categoria[];
 }) {
   const [categoriaAtiva, setCategoriaAtiva] = useState(categorias[0]?.id ?? "");
+
+  /**
+   * Qual painel está aberto por cima do cardápio, no celular.
+   *
+   * No desktop as quatro colunas convivem e isto não é usado. No celular elas
+   * viravam quatro faixas de 245px — o cardápio inteiro lido por uma janela de
+   * quatro linhas, com três rolagens disputando o mesmo dedo. Aqui o cardápio
+   * fica com a tela toda e carrinho e comanda sobem sob demanda.
+   */
+  const [painel, setPainel] = useState<null | "carrinho" | "comanda">(null);
   const [busca, setBusca] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   // Qual item está com o campo de motivo aberto. Um de cada vez: cancelar é
@@ -224,7 +234,7 @@ export function ComandaScreen({
   const tempoNaMesa = decorrido(agora, comanda.abertaEm);
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-tela flex-col">
       <header className="relative flex shrink-0 items-center gap-4 border-b border-neutral-900 px-4 py-3">
         <BotaoVoltar href="/pdv" />
         <div>
@@ -283,9 +293,21 @@ export function ComandaScreen({
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[11rem_1fr_20rem_20rem]">
+      {/*
+        `grid-rows-[auto_1fr]` no celular: a faixa de categorias toma a altura
+        que precisa e o cardápio fica com todo o resto. Sem isso as linhas se
+        dividem em partes iguais e sobra um vazio embaixo das categorias — o
+        espaço que o cardápio deveria estar usando.
+      */}
+      <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[11rem_1fr_20rem_20rem]">
         {/* Categorias */}
-        <nav className="hidden overflow-y-auto border-r border-neutral-900 lg:block">
+        {/*
+          No celular isto não existia — era `hidden lg:block`. Como a lista
+          mostra só a categoria ativa, e a ativa começava fixa na primeira, o
+          garçom pelo telefone via um pedaço do cardápio e mais nada: o resto
+          só chegava decorando o código na busca.
+        */}
+        <nav className="flex shrink-0 gap-2 overflow-x-auto border-b border-neutral-900 px-3 py-2 lg:block lg:gap-0 lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-0">
           {categorias.map((c) => (
             <button
               key={c.id}
@@ -293,10 +315,10 @@ export function ComandaScreen({
                 setCategoriaAtiva(c.id);
                 setBusca("");
               }}
-              className={`block w-full border-l-4 px-3 py-3 text-left text-xs font-semibold uppercase leading-tight tracking-wide transition ${
+              className={`h-11 shrink-0 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide transition lg:block lg:h-auto lg:w-full lg:rounded-none lg:border-l-4 lg:px-3 lg:py-3 lg:text-left lg:leading-tight ${
                 categoriaAtiva === c.id && !busca
-                  ? "border-orange-500 bg-neutral-900 text-orange-400"
-                  : "border-transparent text-neutral-500 hover:bg-neutral-900/60 hover:text-neutral-300"
+                  ? "bg-orange-600 text-white lg:border-orange-500 lg:bg-neutral-900 lg:text-orange-400"
+                  : "bg-neutral-900 text-neutral-400 lg:border-transparent lg:bg-transparent lg:text-neutral-500 lg:hover:bg-neutral-900/60 lg:hover:text-neutral-300"
               }`}
             >
               {c.nome}
@@ -305,7 +327,7 @@ export function ComandaScreen({
         </nav>
 
         {/* Produtos */}
-        <section className="flex min-h-0 flex-col border-r border-neutral-900">
+        <section className="flex min-h-0 flex-1 flex-col border-r border-neutral-900 lg:flex-none">
           <div className="shrink-0 p-3">
             <input
               ref={buscaRef}
@@ -315,7 +337,9 @@ export function ComandaScreen({
               className={`w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none ${TEXTO_DE_CAMPO}`}
             />
           </div>
-          <ul className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          {/* O espaço embaixo é a altura da barra fixa: sem ele o último
+              produto da lista nasce atrás dela e não dá para tocar. */}
+          <ul className="min-h-0 flex-1 overflow-y-auto px-3 pb-28 lg:pb-3">
             {resultados.map((item) => (
               <li key={item.id}>
                 <button
@@ -345,14 +369,17 @@ export function ComandaScreen({
         </section>
 
         {/* Carrinho — o que ainda não foi para a cozinha */}
-        <section className="flex min-h-0 flex-col border-r border-neutral-900">
-          <h2 className="shrink-0 px-3 py-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+        <section className={`flex min-h-0 flex-col bg-neutral-950 ${
+          painel === "carrinho" ? "fixed inset-0 z-50" : "hidden"
+        } lg:static lg:z-auto lg:flex` + " lg:border-r lg:border-neutral-900"}>
+          <h2 className="flex shrink-0 items-center gap-2 border-b border-neutral-900 px-3 py-3 text-xs font-semibold uppercase tracking-widest text-neutral-500 lg:border-b-0">
             Carrinho
             {carrinho.length > 0 && (
-              <span className="ml-2 rounded bg-sky-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+              <span className="rounded bg-sky-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                 {carrinho.length}
               </span>
             )}
+            <BotaoFechar aoFechar={() => setPainel(null)} />
           </h2>
           <ul className="min-h-0 flex-1 overflow-y-auto px-3">
             {carrinho.length === 0 && (
@@ -361,28 +388,31 @@ export function ComandaScreen({
               </li>
             )}
             {carrinho.map((item) => (
-              <li key={item.id} className="border-b border-neutral-900 py-3">
+              <li
+                key={item.id}
+                className="border-b border-neutral-900 py-3"
+              >
                 <div className="flex items-start gap-2">
                   <span className="flex-1 text-sm leading-tight">{item.titulo}</span>
                   <span className="shrink-0 text-sm font-semibold tabular-nums">
                     {brl.format(item.precoTotal)}
                   </span>
                 </div>
-                <div className="mt-2 flex items-center gap-2">
+                <div className="mt-2 flex items-center gap-3 lg:gap-2">
                   <button
                     onClick={() => agir(() => alterarQuantidade(item.id, -1))}
                     disabled={pendente || fechando}
-                    className="h-7 w-7 rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 disabled:opacity-40"
+                    className="h-11 w-11 rounded-lg bg-neutral-800 text-lg text-neutral-300 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:rounded lg:text-base"
                   >
                     −
                   </button>
-                  <span className="w-6 text-center text-sm font-semibold tabular-nums">
+                  <span className="w-8 text-center text-base font-semibold tabular-nums lg:w-6 lg:text-sm">
                     {item.quantidade}
                   </span>
                   <button
                     onClick={() => agir(() => alterarQuantidade(item.id, 1))}
                     disabled={pendente || fechando}
-                    className="h-7 w-7 rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 disabled:opacity-40"
+                    className="h-11 w-11 rounded-lg bg-neutral-800 text-lg text-neutral-300 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:rounded lg:text-base"
                   >
                     +
                   </button>
@@ -394,7 +424,7 @@ export function ComandaScreen({
                         key={p}
                         onClick={() => agir(() => definirPontoCarne(item.id, p))}
                         disabled={pendente || fechando}
-                        className={`rounded px-2 py-1 text-[10px] font-bold tracking-wide transition disabled:opacity-40 ${
+                        className={`h-10 rounded-lg px-3 text-xs font-bold tracking-wide transition disabled:opacity-40 lg:h-auto lg:rounded lg:px-2 lg:py-1 lg:text-[10px] ${
                           item.pontoCarne === p
                             ? "bg-red-600 text-white"
                             : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
@@ -436,16 +466,22 @@ export function ComandaScreen({
         </section>
 
         {/* Comanda — o que já foi lançado */}
-        <section className="flex min-h-0 flex-col">
-          <h2 className="shrink-0 px-3 py-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+        <section className={`flex min-h-0 flex-col bg-neutral-950 ${
+          painel === "comanda" ? "fixed inset-0 z-50" : "hidden"
+        } lg:static lg:z-auto lg:flex`}>
+          <h2 className="flex shrink-0 items-center gap-2 border-b border-neutral-900 px-3 py-3 text-xs font-semibold uppercase tracking-widest text-neutral-500 lg:border-b-0">
             Comanda
+            <BotaoFechar aoFechar={() => setPainel(null)} />
           </h2>
           <ul className="min-h-0 flex-1 overflow-y-auto px-3">
             {lancados.length === 0 && (
               <li className="py-10 text-center text-sm text-neutral-600">Nada lançado ainda</li>
             )}
             {lancados.map((item) => (
-              <li key={item.id} className="border-b border-neutral-900 py-3">
+              <li
+                key={item.id}
+                className="border-b border-neutral-900 py-3"
+              >
                 <div className="flex items-start gap-2">
                   <span className="flex-1 text-sm font-medium leading-tight">
                     {item.quantidade > 1 && (
@@ -560,6 +596,68 @@ export function ComandaScreen({
           </div>
         </section>
       </div>
+
+      {/*
+        O resumo mora no rodapé, no alcance do polegar, e o carrinho sobe só
+        quando é hora de conferir. Assim o cardápio fica com a tela inteira em
+        vez de dividi-la com dois painéis quase sempre vazios — antes o
+        "Nenhum pedido no carrinho" reservava 241px enquanto o cardápio se
+        espremia em 247px.
+      */}
+      <div className="fixed inset-x-0 bottom-0 z-40 flex items-stretch gap-2 border-t border-neutral-800 bg-neutral-900 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] lg:hidden">
+        <button
+          onClick={() => setPainel("comanda")}
+          className="flex h-16 flex-1 flex-col items-start justify-center rounded-lg bg-neutral-950 px-4 transition active:bg-neutral-800"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
+            Comanda
+          </span>
+          <span className="text-base font-bold tabular-nums text-orange-400">
+            {brl.format(subtotal + taxa)}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setPainel("carrinho")}
+          className={`flex h-16 flex-1 flex-col items-start justify-center rounded-lg px-4 transition ${
+            carrinho.length > 0
+              ? "bg-emerald-600 text-white active:bg-emerald-700"
+              : "bg-neutral-950 text-neutral-500 active:bg-neutral-800"
+          }`}
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-widest opacity-80">
+            Carrinho{carrinho.length > 0 ? ` · ${carrinho.length}` : ""}
+          </span>
+          <span className="text-base font-bold tabular-nums">{brl.format(totalCarrinho)}</span>
+        </button>
+      </div>
     </div>
+  );
+}
+
+/**
+ * Fecha a folha aberta. Só existe no celular — no desktop carrinho e comanda
+ * são colunas fixas, que não abrem nem fecham.
+ */
+function BotaoFechar({ aoFechar }: { aoFechar: () => void }) {
+  return (
+    <button
+      onClick={aoFechar}
+      aria-label="Fechar"
+      className="ml-auto flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-900 text-neutral-400 transition active:bg-neutral-800 lg:hidden"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        aria-hidden
+      >
+        <path d="M18 6L6 18" />
+        <path d="M6 6l12 12" />
+      </svg>
+    </button>
   );
 }

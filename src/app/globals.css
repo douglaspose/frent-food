@@ -24,3 +24,21 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/**
+ * Altura de uma tela, contando o que o navegador do celular ocupa.
+ *
+ * `100vh` no Safari do iPhone é a altura da tela **sem** as barras do
+ * navegador — que estão lá. O resultado é um container mais alto que a área
+ * visível: no lançamento de itens, a barra com Carrinho e Comanda ficava
+ * abaixo da dobra, invisível e inalcançável, porque não é `fixed` e sim o
+ * último filho de uma coluna de altura travada.
+ *
+ * As duas declarações são de propósito: `dvh` acompanha as barras entrando e
+ * saindo, e quem não o conhece (iOS antes do 15.4) fica com o `vh` da linha
+ * de cima em vez de ficar sem altura nenhuma.
+ */
+.h-tela {
+  height: 100vh;
+  height: 100dvh;
+}
