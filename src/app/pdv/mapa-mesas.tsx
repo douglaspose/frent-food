@@ -238,49 +238,62 @@ export function MapaMesas({
         </div>
       )}
 
-      <div className="mb-6 flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => guardarArea(null)}
-          className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
-            areaAtiva === null
-              ? "bg-orange-600 text-white"
-              : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
-          }`}
-        >
-          Todas
-        </button>
-        {areas.map((a) => (
+      {/*
+        No celular isto ocupava três faixas antes da primeira mesa: as áreas
+        quebravam em duas linhas e a busca tomava a terceira. Agora são duas —
+        as áreas rolam de lado numa faixa só, e busca e "só ocupadas" dividem
+        a de baixo. No desktop, `sm:contents` desfaz os agrupamentos e devolve
+        exatamente a linha única de antes.
+      */}
+      <div className="mb-6 space-y-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:space-y-0">
+        {/* A sangria negativa deixa o primeiro e o último chip encostarem na
+            borda da tela ao rolar, em vez de morrerem dentro do padding. */}
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 sm:contents">
           <button
-            key={a.id}
-            onClick={() => guardarArea(a.id)}
-            className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
-              areaAtiva === a.id
+            onClick={() => guardarArea(null)}
+            className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition ${
+              areaAtiva === null
                 ? "bg-orange-600 text-white"
                 : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
             }`}
           >
-            {a.nome}
+            Todas
           </button>
-        ))}
+          {areas.map((a) => (
+            <button
+              key={a.id}
+              onClick={() => guardarArea(a.id)}
+              className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                areaAtiva === a.id
+                  ? "bg-orange-600 text-white"
+                  : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
+              }`}
+            >
+              {a.nome}
+            </button>
+          ))}
+        </div>
 
-        <label className="ml-auto flex cursor-pointer items-center gap-2 text-sm text-neutral-400">
+        <div className="flex items-center gap-3 sm:contents">
           <input
-            type="checkbox"
-            checked={soOcupadas}
-            onChange={(e) => setSoOcupadas(e.target.checked)}
-            className="h-4 w-4 accent-orange-600"
+            ref={buscaRef}
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            inputMode="numeric"
+            placeholder="buscar mesa (F4)"
+            className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none sm:order-2 sm:w-44 sm:flex-none"
           />
-          Só ocupadas
-        </label>
 
-        <input
-          ref={buscaRef}
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          inputMode="numeric"
-          placeholder="buscar mesa (F4)"
-          className="w-44 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none"
-        />
+          <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-neutral-400 sm:order-1 sm:ml-auto">
+            <input
+              type="checkbox"
+              checked={soOcupadas}
+              onChange={(e) => setSoOcupadas(e.target.checked)}
+              className="h-4 w-4 accent-orange-600"
+            />
+            Só ocupadas
+          </label>
+        </div>
       </div>
 
       {visiveis.length === 0 ? (
