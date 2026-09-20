@@ -249,3 +249,28 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
 }
+
+/**
+ * O item aberto na barra inferior do celular.
+ *
+ * O brilho nasce na base do botão e morre antes do topo: é a luz do dedo que
+ * acabou de tocar ali. Antes era um gradiente de cima para baixo, que só
+ * escurecia — funcionava como marca, mas parecia um buraco e não um destaque.
+ *
+ * A parada de fora é a própria cor da barra, e não um cinza parecido: se um
+ * dia a barra mudar de tom, o brilho continua desaparecendo nela em vez de
+ * deixar uma emenda visível na borda do botão.
+ *
+ * O poço no topo continua, e o traço branco também. O brilho não substitui
+ * nenhum dos dois: o traço é o que diz QUAL das cinco telas está aberta, e num
+ * salão de luz forte a diferença entre dois cinzas some da tela do celular.
+ */
+.selecionado-na-barra {
+  background: radial-gradient(
+    110% 85% at 50% 100%,
+    var(--color-neutral-600) 0%,
+    var(--color-neutral-800) 45%,
+    var(--color-neutral-900) 100%
+  );
+  box-shadow: inset 0 3px 6px -2px rgb(0 0 0 / 0.75);
+}

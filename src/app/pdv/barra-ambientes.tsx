@@ -16,8 +16,9 @@ const TRACO = {
 
 /**
  * O ícone recebe o tamanho de fora porque os dois lugares pedem tamanhos
- * diferentes: 20px ao lado do rótulo na barra de cima, 24px acima dele no
- * rodapé do celular, onde o ícone é quem carrega o reconhecimento.
+ * diferentes: 20px ao lado do rótulo na barra de cima, 28px acima dele no
+ * rodapé do celular, onde o ícone é quem carrega o reconhecimento — a barra é
+ * lida de relance, com o celular na mão e a mesa falando.
  */
 const ICONE = {
   mesas: (classe: string) => (
@@ -58,6 +59,17 @@ const ICONE = {
       <rect x="17" y="4" width="4" height="15" rx="1" />
     </svg>
   ),
+  /**
+   * Quem está no turno. No lugar das iniciais num disco, que pesavam como um
+   * sexto destaque numa fileira de traços finos — o nome logo abaixo já diz
+   * quem é, e diz melhor que duas letras.
+   */
+  identidade: (classe: string) => (
+    <svg viewBox="0 0 24 24" className={classe} {...TRACO} aria-hidden>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+    </svg>
+  ),
 };
 
 const SAIDA = (classe: string) => (
@@ -67,14 +79,6 @@ const SAIDA = (classe: string) => (
     <path d="M21 12H9" />
   </svg>
 );
-
-/** "Dono do Restaurante" vira DR — primeira e última palavra, artigos fora. */
-function iniciais(nome: string) {
-  const palavras = nome.trim().split(/\s+/).filter((p) => p.length > 2);
-  const primeira = palavras[0] ?? nome.trim();
-  const ultima = palavras.length > 1 ? palavras[palavras.length - 1] : "";
-  return ((primeira[0] ?? "") + (ultima[0] ?? "")).toUpperCase();
-}
 
 /**
  * Navegação entre ambientes.
@@ -248,9 +252,7 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
               href={item.href}
               aria-current={ativo ? "page" : undefined}
               className={`relative flex h-16 min-w-0 flex-1 flex-col items-center justify-center gap-1 transition ${
-                ativo
-                  ? "bg-gradient-to-b from-black to-neutral-950 text-neutral-50 shadow-[inset_0_4px_8px_-2px_rgba(0,0,0,0.9),inset_0_-1px_0_rgba(255,255,255,0.07)]"
-                  : "text-neutral-400"
+                ativo ? "selecionado-na-barra text-neutral-50" : "text-neutral-400"
               }`}
             >
               {/*
@@ -266,7 +268,7 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
               )}
 
               <span className="relative block">
-                {item.icone("h-6 w-6")}
+                {item.icone("h-7 w-7")}
 
                 {item.contador !== undefined && item.contador > 0 && (
                   <span className="absolute -right-2.5 -top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-extrabold text-neutral-900">
@@ -281,7 +283,7 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
                 )}
               </span>
 
-              <span className="max-w-full truncate px-1 text-[10px] font-semibold">
+              <span className="max-w-full truncate px-1 text-xs font-semibold">
                 {item.rotulo}
               </span>
             </Link>
@@ -292,18 +294,18 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
           onClick={() => setMenuEm((v) => (v === caminho ? null : caminho))}
           aria-expanded={menuAberto}
           aria-label="Turno e saída"
-          className={`flex h-16 w-[4.5rem] shrink-0 flex-col items-center justify-center gap-1 transition ${
+          /**
+           * Mesma largura dos outros: `flex-1` no lugar da medida fixa de
+           * 4,5rem. Ele era o único estreito da fileira, e a sobra caía toda
+           * nos vizinhos — com cinco itens a barra ficava torta, e com três
+           * ficava mais ainda.
+           */
+          className={`flex h-16 min-w-0 flex-1 flex-col items-center justify-center gap-1 transition ${
             menuAberto ? "text-neutral-50" : "text-neutral-400"
           }`}
         >
-          <span
-            className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
-              menuAberto ? "bg-neutral-100 text-neutral-900" : "bg-neutral-800 text-neutral-300"
-            }`}
-          >
-            {iniciais(dados.usuario.nome)}
-          </span>
-          <span className="max-w-full truncate px-1 text-[10px] font-semibold">
+          {ICONE.identidade("h-7 w-7")}
+          <span className="max-w-full truncate px-1 text-xs font-semibold">
             {dados.usuario.nome.split(/\s+/)[0]}
           </span>
         </button>
