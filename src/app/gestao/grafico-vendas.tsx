@@ -28,20 +28,20 @@ export function GraficoVendas({ dados }: { dados: [string, number][] }) {
       <div dir="ltr" className="flex h-56 min-w-[26rem] gap-1.5 sm:min-w-0">
       {dados.map(([dia, valor]) => (
         <div key={dia} className="group flex min-w-0 flex-1 flex-col items-center gap-1.5">
-          <span className="h-3 max-w-full truncate text-[10px] font-semibold tabular-nums text-neutral-400 opacity-0 transition group-hover:opacity-100">
+          <span className="h-3 max-w-full truncate text-[10px] font-semibold tabular-nums text-neutral-500 opacity-0 transition group-hover:opacity-100">
             {valor > 0 ? brl.format(valor) : ""}
           </span>
           {/* A altura em % só resolve dentro de um pai com altura definida —
               por isso a barra mora neste trilho flex-1, e não solta na coluna. */}
           <div className="flex w-full min-h-0 flex-1 items-end">
             <div
-              className={`w-full rounded-t transition ${
+              className={`w-full rounded-t-md transition ${
                 valor > 0 ? "bg-orange-500 group-hover:bg-orange-600" : "bg-neutral-200"
               }`}
               style={{ height: `${Math.max((valor / maximo) * 100, 2)}%` }}
             />
           </div>
-          <span className="truncate text-[10px] tabular-nums text-neutral-400">
+          <span className="truncate text-[10px] tabular-nums text-neutral-500">
             {rotuloDia(dia)}
           </span>
         </div>

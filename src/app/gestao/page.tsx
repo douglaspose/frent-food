@@ -273,13 +273,13 @@ export default async function PainelPage() {
         <section className="min-w-0 rounded-xl border border-neutral-200 bg-white p-5 lg:col-span-2">
           <h2 className="mb-4 text-sm font-semibold">Mais vendidos no período</h2>
           {itensVendidos.length === 0 ? (
-            <p className="py-8 text-center text-sm text-neutral-400">Nenhuma venda ainda.</p>
+            <p className="py-8 text-center text-sm text-neutral-500">Nenhuma venda ainda.</p>
           ) : (
             <ol className="space-y-3">
               {itensVendidos.map((item) => (
                 <li key={item.produtoId} className="flex items-baseline justify-between gap-3">
                   <span className="min-w-0 truncate text-sm">
-                    <span className="mr-2 tabular-nums text-neutral-400">
+                    <span className="mr-2 tabular-nums text-neutral-500">
                       {Number(item._sum.quantidade ?? 0)}×
                     </span>
                     {nomePorId.get(item.produtoId) ?? "—"}

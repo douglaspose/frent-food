@@ -1,6 +1,8 @@
 "use client";
 
 import { temErro } from "@/lib/erro-de-operacao";
+import { tituloDeTodasAsEstacoes } from "@/lib/estacoes";
+import { guardarEstacao, useEstacaoLembrada } from "./estacao-lembrada";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { avancarPedido } from "./actions";
@@ -149,7 +151,16 @@ export function KdsBoard({
   alertaAtrasoMin: number;
   alertaRetiradaMin: number;
 }) {
-  const [estacaoAtiva, setEstacaoAtiva] = useState<string | null>(null);
+  /**
+   * A estação lembrada só vale se ainda existir.
+   *
+   * Quem apaga uma estação na retaguarda não sabe que há um monitor preso a
+   * ela; sem esta conferência aquele aparelho ficaria com a tela vazia para
+   * sempre, sem dizer por quê. Some da lista, volta a mostrar tudo.
+   */
+  const lembrada = useEstacaoLembrada();
+  const estacaoAtiva = estacoes.some((e) => e.id === lembrada) ? lembrada : null;
+  const estacao = estacoes.find((e) => e.id === estacaoAtiva);
   const [erro, setErro] = useState<string | null>(null);
   const [pendente, iniciar] = useTransition();
   const router = useRouter();
@@ -199,10 +210,27 @@ export function KdsBoard({
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-neutral-950 pb-16 text-neutral-100 sm:pb-0">
       <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-neutral-900 px-4 py-3">
-        <h1 className="mr-4 text-lg font-bold tracking-tight">Cozinha</h1>
+        {/*
+          O título diz o que está na tela, não o nome do ambiente. Filtrado no
+          bar, ele lê "Bar" — e some a duplicação de ter "Cozinha" no título e
+          "Cozinha" também como uma das estações, onde o filtro parecia mostrar
+          tudo o que o título prometia.
+
+          A cor vem da estação e fica no ponto, não no texto: as cores são
+          vivas para marcar ticket e não seguram contraste como letra.
+        */}
+        <h1 className="mr-4 flex items-center gap-2 text-lg font-bold tracking-tight">
+          {estacao?.corHex && (
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: estacao.corHex }}
+            />
+          )}
+          {estacao?.nome ?? tituloDeTodasAsEstacoes(estacoes.map((e) => e.nome))}
+        </h1>
 
         <button
-          onClick={() => setEstacaoAtiva(null)}
+          onClick={() => guardarEstacao(null)}
           className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
             estacaoAtiva === null
               ? "bg-neutral-100 text-neutral-900"
@@ -214,7 +242,7 @@ export function KdsBoard({
         {estacoes.map((e) => (
           <button
             key={e.id}
-            onClick={() => setEstacaoAtiva(e.id)}
+            onClick={() => guardarEstacao(e.id)}
             style={estacaoAtiva === e.id && e.corHex ? { backgroundColor: e.corHex } : undefined}
             className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
               estacaoAtiva === e.id
@@ -273,14 +301,14 @@ export function KdsBoard({
           const daColuna = visiveis.filter((p) => p.status === coluna.status);
           return (
             <section key={coluna.status} className="flex min-h-0 flex-col bg-neutral-950">
-              <h2 className="shrink-0 px-4 py-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+              <h2 className="shrink-0 px-4 py-3 texto-etiqueta text-neutral-400">
                 {coluna.titulo}
-                <span className="ml-2 font-normal text-neutral-700">{daColuna.length}</span>
+                <span className="ml-2 font-normal text-neutral-500">{daColuna.length}</span>
               </h2>
 
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-4">
                 {daColuna.length === 0 && (
-                  <p className="py-10 text-center text-sm text-neutral-700">Vazio</p>
+                  <p className="py-10 text-center text-sm text-neutral-500">Vazio</p>
                 )}
 
                 {daColuna.map((pedido) => {
@@ -339,12 +367,12 @@ export function KdsBoard({
                                 ele precisa ver que aquilo mudou. */}
                             <div
                               className={`flex gap-2 text-base font-semibold leading-tight ${
-                                item.cancelado ? "text-neutral-600 line-through" : ""
+                                item.cancelado ? "text-neutral-500 line-through" : ""
                               }`}
                             >
                               <span
                                 className={`tabular-nums ${
-                                  item.cancelado ? "text-neutral-600" : "text-orange-400"
+                                  item.cancelado ? "text-neutral-500" : "text-orange-400"
                                 }`}
                               >
                                 {item.quantidade}×
@@ -352,7 +380,7 @@ export function KdsBoard({
                               <span>{item.titulo}</span>
                             </div>
                             {item.cancelado && (
-                              <span className="mt-1 inline-block rounded bg-neutral-700 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-neutral-200">
+                              <span className="mt-1 inline-block rounded-md bg-neutral-700 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-neutral-200">
                                 cancelado
                               </span>
                             )}
@@ -360,13 +388,13 @@ export function KdsBoard({
                                 prato voltar. Merecem peso visual maior que o
                                 nome do produto. */}
                             {item.pontoCarne && !item.cancelado && (
-                              <span className="mt-1 inline-flex items-center gap-1.5 rounded bg-red-600 px-2 py-1 text-xs font-bold text-white">
+                              <span className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-red-600 px-2 py-1 text-xs font-bold text-white">
                                 {ICONE.fogo}
                                 {item.pontoCarne}
                               </span>
                             )}
                             {item.observacao && !item.cancelado && (
-                              <span className="mt-1 flex items-start gap-1.5 rounded bg-amber-400/15 px-2 py-1 text-sm font-semibold text-amber-300">
+                              <span className="mt-1 flex items-start gap-1.5 rounded-md bg-amber-400/15 px-2 py-1 text-sm font-semibold text-amber-300">
                                 <span className="mt-0.5 shrink-0">{ICONE.alerta}</span>
                                 {item.observacao}
                               </span>

@@ -47,7 +47,7 @@ export function AbrirForm({
   return (
     <div className="mt-8 space-y-5">
       <div>
-        <label className="mb-2 block text-xs font-semibold uppercase tracking-widest text-neutral-500">
+        <label className="mb-2 block texto-etiqueta text-neutral-400">
           Pessoas
         </label>
         <div className="flex gap-2">
@@ -69,7 +69,7 @@ export function AbrirForm({
 
       {exigeNome && (
         <div>
-          <label className="mb-2 block text-xs font-semibold uppercase tracking-widest text-neutral-500">
+          <label className="mb-2 block texto-etiqueta text-neutral-400">
             Nome do cliente{" "}
             <span className="font-normal normal-case tracking-normal">(obrigatório)</span>
           </label>

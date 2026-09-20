@@ -42,3 +42,92 @@ body {
   height: 100vh;
   height: 100dvh;
 }
+
+/**
+ * Os cinco papéis do texto.
+ *
+ * Eles já existiam espalhados — etiqueta de seção, título de tela, título de
+ * bloco, corpo e apoio — só não tinham nome, e por isso variavam: título de
+ * tela aparecia em 20px, 24px e 30px conforme o dia. Nomear é o que impede a
+ * próxima tela de inventar um sexto.
+ *
+ * O corpo continua em 14px de propósito. Num mapa de 46 mesas cada ponto a
+ * mais é uma fileira a menos na tela, e a sensação de interface organizada
+ * vem do contraste entre os níveis, não do tamanho de todos eles.
+ *
+ * O espaçamento negativo nos títulos e o positivo nas etiquetas é o que dá o
+ * acabamento: letra grande pede letra junta, letra pequena em caixa alta pede
+ * letra solta, senão vira borrão.
+ */
+.texto-tela {
+  font-size: 1.875rem;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  font-weight: 700;
+}
+
+.texto-titulo {
+  font-size: 1.25rem;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  font-weight: 700;
+}
+
+.texto-etiqueta {
+  font-size: 0.6875rem;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.texto-apoio {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/**
+ * Três raios, e só.
+ *
+ * Havia oito variantes para elementos parecidos — `rounded`, `md`, `lg`,
+ * `xl`, `2xl` — o que dá aquele desalinho que ninguém aponta mas todo mundo
+ * sente. Os papéis são: miúdo para o que tem menos de 30px de altura
+ * (etiquetas, contadores), padrão para o que se toca (botões, campos, itens
+ * de lista) e grande para o que contém outras coisas (cartões, painéis,
+ * folhas). Pílula continua sendo `rounded-full`.
+ *
+ * Os valores sobem em relação ao que o Tailwind traz: 8px num botão de 48px
+ * lê como quina, e o canto macio é metade da diferença entre uma interface
+ * que parece feita e uma que parece montada.
+ */
+@theme {
+  --radius-lg: 0.625rem;
+  --radius-xl: 1rem;
+}
+
+/**
+ * O cabeçalho de "Carrinho" e "Comanda" troca de papel com a largura.
+ *
+ * No celular cada um abre como folha em tela cheia, e aquele texto é o título
+ * da tela — precisa do mesmo peso que "Bar & Cozinha" tem no KDS. No balcão
+ * são duas colunas de 320px lado a lado e o mesmo texto vira o rótulo da
+ * coluna: ali um título de 20px roubaria a altura de dois itens da lista, que
+ * é o que o operador quer ver.
+ */
+.titulo-de-folha {
+  font-size: 1.25rem;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  font-weight: 700;
+  text-transform: none;
+}
+
+@media (min-width: 1024px) {
+  .titulo-de-folha {
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0.12em;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+}

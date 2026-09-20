@@ -183,7 +183,7 @@ export function FichaTela({
                         }
                         className="w-24 rounded-lg border border-neutral-300 px-3 py-2 text-right tabular-nums disabled:bg-neutral-50"
                       />
-                      <span className="text-xs text-neutral-400">
+                      <span className="text-xs text-neutral-500">
                         {insumo?.unidadeMedida ?? ""}
                       </span>
                     </span>
@@ -200,7 +200,7 @@ export function FichaTela({
                         onClick={() =>
                           setLinhas((atual) => atual.filter((_, i) => i !== indice))
                         }
-                        className="text-neutral-400 hover:text-red-600"
+                        className="text-neutral-500 hover:text-red-600"
                       >
                         remover
                       </button>
@@ -213,7 +213,7 @@ export function FichaTela({
         </table>
 
         {linhas.length === 0 && (
-          <p className="py-12 text-center text-sm text-neutral-400">
+          <p className="py-12 text-center text-sm text-neutral-500">
             Nenhum insumo na ficha ainda.
           </p>
         )}

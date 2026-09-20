@@ -122,7 +122,7 @@ export function CardapioEditor({
           >
             <h2 className="border-b border-neutral-200 bg-neutral-50 px-5 py-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
               {categoria.nome}
-              <span className="ml-2 font-normal text-neutral-400">{categoria.itens.length}</span>
+              <span className="ml-2 font-normal text-neutral-500">{categoria.itens.length}</span>
             </h2>
 
             <ul className="divide-y divide-neutral-100">
@@ -133,21 +133,21 @@ export function CardapioEditor({
                     item.produtoAtivo ? "" : "opacity-50"
                   }`}
                 >
-                  <span className="w-10 shrink-0 text-xs tabular-nums text-neutral-400">
+                  <span className="w-10 shrink-0 text-xs tabular-nums text-neutral-500">
                     {item.codigo}
                   </span>
 
                   <span className="min-w-0 flex-1 text-sm">
                     {item.titulo}
                     {!item.produtoAtivo && (
-                      <span className="ml-2 text-[10px] font-bold uppercase text-neutral-400">
+                      <span className="ml-2 text-[10px] font-bold uppercase text-neutral-500">
                         inativo
                       </span>
                     )}
                   </span>
 
                   <label className="flex shrink-0 items-center gap-2">
-                    <span className="text-xs text-neutral-400">R$</span>
+                    <span className="text-xs text-neutral-500">R$</span>
                     <input
                       // A chave no preço força o campo a renascer quando o
                       // valor salvo muda. Sem isso ele continuava exibindo o
@@ -161,7 +161,7 @@ export function CardapioEditor({
                       }}
                       disabled={!podeEditar}
                       inputMode="decimal"
-                      className={`w-24 rounded-lg border px-3 py-1.5 text-right text-sm tabular-nums transition focus:outline-none disabled:bg-neutral-50 disabled:text-neutral-400 ${
+                      className={`w-24 rounded-lg border px-3 py-1.5 text-right text-sm tabular-nums transition focus:outline-none disabled:bg-neutral-50 disabled:text-neutral-500 ${
                         salvo === item.id
                           ? "border-emerald-500 bg-emerald-50"
                           : "border-neutral-300 focus:border-neutral-900"
@@ -188,7 +188,7 @@ export function CardapioEditor({
       </div>
 
       {visiveis.length === 0 && (
-        <p className="py-16 text-center text-sm text-neutral-400">Nenhum item encontrado.</p>
+        <p className="py-16 text-center text-sm text-neutral-500">Nenhum item encontrado.</p>
       )}
     </div>
   );

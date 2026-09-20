@@ -7,6 +7,7 @@ import { decorrido, useAgora } from "./use-agora";
 import { useAoVivo } from "./use-ao-vivo";
 import { SeloAoVivo } from "./selo-ao-vivo";
 import { guardarArea, useAreaLembrada } from "./area-lembrada";
+import { useTemTeclado } from "./teclado";
 
 type StatusMesa = "LIVRE" | "OCUPADA" | "FECHANDO" | "RESERVADA" | "SUJA";
 
@@ -148,6 +149,7 @@ export function MapaMesas({
   const [busca, setBusca] = useState("");
   const [soOcupadas, setSoOcupadas] = useState(false);
   const buscaRef = useRef<HTMLInputElement>(null);
+  const temTeclado = useTemTeclado();
 
   /**
    * "Mostrar todas as áreas ao voltar de uma conta" é esquecer na saída, não
@@ -228,7 +230,7 @@ export function MapaMesas({
             <dt className="text-xs uppercase tracking-wide text-neutral-500">Ocupadas</dt>
             <dd className="text-lg font-semibold tabular-nums">
               {ocupadas}
-              <span className="text-neutral-600">/{todas.length}</span>
+              <span className="text-neutral-500">/{todas.length}</span>
             </dd>
           </div>
           <div>
@@ -295,7 +297,7 @@ export function MapaMesas({
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             inputMode="numeric"
-            placeholder="buscar mesa (F4)"
+            placeholder={temTeclado ? "buscar mesa (F4)" : "buscar mesa"}
             className={`min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none sm:order-2 sm:w-44 sm:flex-none ${TEXTO_DE_CAMPO}`}
           />
 
@@ -312,13 +314,13 @@ export function MapaMesas({
       </div>
 
       {visiveis.length === 0 ? (
-        <p className="py-16 text-center text-neutral-600">Nenhuma mesa encontrada.</p>
+        <p className="py-16 text-center text-neutral-500">Nenhuma mesa encontrada.</p>
       ) : (
         visiveis.map((area) => (
           <section key={area.id} className="mb-8">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+            <h2 className="mb-3 texto-etiqueta text-neutral-400">
               {area.nome}
-              <span className="ml-2 font-normal text-neutral-700">{area.mesas.length}</span>
+              <span className="ml-2 font-normal text-neutral-500">{area.mesas.length}</span>
             </h2>
 
             <div className="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-3">
@@ -344,7 +346,7 @@ export function MapaMesas({
                       </span>
                     )}
 
-                    <span className="text-3xl font-bold tabular-nums text-neutral-100">
+                    <span className="texto-tela tabular-nums text-neutral-100">
                       {mesa.numero}
                     </span>
 

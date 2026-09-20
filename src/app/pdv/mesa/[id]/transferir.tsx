@@ -115,10 +115,10 @@ export function Transferir({
 
       {erro && <p className="mb-3 text-sm text-red-400">{erro}</p>}
 
-      {mesas === null && !erro && <p className="py-6 text-center text-sm text-neutral-600">Carregando…</p>}
+      {mesas === null && !erro && <p className="py-6 text-center text-sm text-neutral-500">Carregando…</p>}
 
       {mesas !== null && visiveis.length === 0 && (
-        <p className="py-6 text-center text-sm text-neutral-600">
+        <p className="py-6 text-center text-sm text-neutral-500">
           {mesas.length === 0 ? "Nenhuma mesa livre no salão." : "Nenhuma mesa com esse número."}
         </p>
       )}

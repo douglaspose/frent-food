@@ -52,8 +52,8 @@ export default async function CaixaPage() {
       <>
         <BarraAmbientes dados={await dadosDaBarra(sessao)} />
         <main className="mx-auto flex max-w-md flex-col justify-center px-6 pt-16 pb-28 sm:pb-16">
-        <h1 className="text-3xl font-bold">Caixa fechado</h1>
-        <p className="mt-1 text-sm text-neutral-500">{unidade.nome}</p>
+        <h1 className="texto-tela">Caixa fechado</h1>
+        <p className="texto-apoio mt-1 text-neutral-500">{unidade.nome}</p>
           <CaixaPainel
             unidadeId={unidade.id}
             caixa={null}
@@ -82,7 +82,7 @@ export default async function CaixaPage() {
     <>
       <BarraAmbientes dados={await dadosDaBarra(sessao)} />
       <main className="mx-auto max-w-2xl px-6 pt-8 pb-28 sm:pb-8">
-      <h1 className="text-3xl font-bold">Caixa aberto</h1>
+      <h1 className="texto-tela">Caixa aberto</h1>
       <p className="mt-1 text-sm text-neutral-500">
         Turno {caixa.turno.toLowerCase()} · aberto por {caixa.abertoPor.nome} ·{" "}
         {caixa.abertoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}

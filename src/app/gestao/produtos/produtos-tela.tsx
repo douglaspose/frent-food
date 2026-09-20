@@ -165,16 +165,16 @@ export function ProdutosTela({
           <tbody className="divide-y divide-neutral-100">
             {filtrados.map((p) => (
               <tr key={p.id} className={p.ativo ? "" : "opacity-50"}>
-                <td className="px-4 py-3 tabular-nums text-neutral-400">{p.codigo}</td>
+                <td className="px-4 py-3 tabular-nums text-neutral-500">{p.codigo}</td>
                 <td className="px-4 py-3">
                   {p.titulo}
                   {p.exigePontoCarne && (
-                    <span className="ml-2 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
+                    <span className="ml-2 rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
                       PONTO
                     </span>
                   )}
                   {p.maiorDeIdade && (
-                    <span className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
+                    <span className="ml-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
                       +18
                     </span>
                   )}
@@ -192,7 +192,7 @@ export function ProdutosTela({
                       </button>
                       <button
                         onClick={() => agir(() => alternarProdutoAtivo(p.id, !p.ativo))}
-                        className="text-neutral-400 hover:text-red-600"
+                        className="text-neutral-500 hover:text-red-600"
                       >
                         {p.ativo ? "desativar" : "reativar"}
                       </button>
@@ -205,7 +205,7 @@ export function ProdutosTela({
         </table>
 
         {filtrados.length === 0 && (
-          <p className="py-16 text-center text-sm text-neutral-400">Nenhum produto encontrado.</p>
+          <p className="py-16 text-center text-sm text-neutral-500">Nenhum produto encontrado.</p>
         )}
       </div>
     </>

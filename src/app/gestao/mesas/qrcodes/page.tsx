@@ -91,7 +91,7 @@ export default async function QrCodesPage() {
               </p>
               <p className="mt-1 text-3xl font-bold leading-none">Mesa {cartao.numero}</p>
               {cartao.area && (
-                <p className="text-[10px] uppercase tracking-wide text-neutral-400">
+                <p className="text-[10px] uppercase tracking-wide text-neutral-500">
                   {cartao.area}
                 </p>
               )}

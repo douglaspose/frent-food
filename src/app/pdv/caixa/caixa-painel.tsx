@@ -184,7 +184,7 @@ export function CaixaPainel({
     return (
       <div className="mt-8 space-y-5">
         <div>
-          <label className="mb-2 block text-xs font-semibold uppercase tracking-widest text-neutral-500">
+          <label className="mb-2 block texto-etiqueta text-neutral-400">
             Turno
           </label>
           <div className="flex flex-wrap gap-2">
@@ -205,7 +205,7 @@ export function CaixaPainel({
         </div>
 
         <div>
-          <label className="mb-2 block text-xs font-semibold uppercase tracking-widest text-neutral-500">
+          <label className="mb-2 block texto-etiqueta text-neutral-400">
             Fundo de caixa
           </label>
           <input
@@ -252,7 +252,7 @@ export function CaixaPainel({
   return (
     <div className="mt-8 space-y-6">
       <section className="rounded-xl border border-neutral-800 bg-neutral-900 p-5">
-        <h2 className="mb-4 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+        <h2 className="mb-4 texto-etiqueta text-neutral-400">
           Movimento
         </h2>
         <dl className="space-y-2 text-sm">
@@ -267,7 +267,7 @@ export function CaixaPainel({
             </div>
           ))}
           {caixa.recebidoPorForma.length === 0 && (
-            <p className="py-2 text-neutral-600">Nenhum recebimento ainda.</p>
+            <p className="py-2 text-neutral-500">Nenhum recebimento ainda.</p>
           )}
           <div className="flex justify-between border-t border-neutral-800 pt-3 text-base font-bold">
             <dt>Recebido</dt>
@@ -292,7 +292,7 @@ export function CaixaPainel({
 
       <section className="rounded-xl border border-neutral-800 bg-neutral-900 p-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-widest text-neutral-500">
+          <h2 className="texto-etiqueta text-neutral-400">
             Gaveta
           </h2>
           {!abrirMovimento && (
@@ -375,7 +375,7 @@ export function CaixaPainel({
         )}
 
         {caixa.movimentos.length === 0 ? (
-          <p className="text-sm text-neutral-600">
+          <p className="text-sm text-neutral-500">
             Nenhuma sangria ou suprimento neste turno.
           </p>
         ) : (
@@ -408,7 +408,7 @@ export function CaixaPainel({
       </section>
 
       <section className="rounded-xl border border-neutral-800 bg-neutral-900 p-5">
-        <h2 className="mb-1 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+        <h2 className="mb-1 texto-etiqueta text-neutral-400">
           Fechar caixa
         </h2>
         <p className="mb-4 text-sm text-neutral-500">

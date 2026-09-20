@@ -66,7 +66,7 @@ export function PainelAutorizacao({
    */
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/80 p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
+      <div className="w-full max-w-sm rounded-xl border border-neutral-800 bg-neutral-900 p-6 shadow-2xl">
         <p className="text-center text-base font-semibold text-amber-300">
           {TIPOS_DE_AUTORIZACAO[tipo].titulo}
         </p>

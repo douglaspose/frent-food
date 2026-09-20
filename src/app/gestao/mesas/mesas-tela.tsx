@@ -108,7 +108,7 @@ export function MesasTela({
                 setAviso(`${r.geradas} QR Code(s) gerado(s).`);
               })
             }
-            className="rounded bg-amber-800 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-900"
+            className="rounded-md bg-amber-800 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-900"
           >
             Gerar agora
           </button>
@@ -189,9 +189,9 @@ export function MesasTela({
             ) : (
               <>
                 <h2 className="text-sm font-bold uppercase tracking-widest">{area.nome}</h2>
-                <span className="text-xs text-neutral-400">{area.mesas.length} mesa(s)</span>
+                <span className="text-xs text-neutral-500">{area.mesas.length} mesa(s)</span>
                 {!area.ativo && (
-                  <span className="rounded bg-neutral-200 px-2 py-0.5 text-[10px] font-bold text-neutral-600">
+                  <span className="rounded-md bg-neutral-200 px-2 py-0.5 text-[10px] font-bold text-neutral-600">
                     INATIVA
                   </span>
                 )}
@@ -204,7 +204,7 @@ export function MesasTela({
                   onClick={() => agir(() => moverArea(area.id, -1))}
                   disabled={indice === 0}
                   title="Subir no mapa de mesas"
-                  className="text-neutral-400 hover:text-neutral-900 disabled:opacity-30"
+                  className="text-neutral-500 hover:text-neutral-900 disabled:opacity-30"
                 >
                   ↑
                 </button>
@@ -212,7 +212,7 @@ export function MesasTela({
                   onClick={() => agir(() => moverArea(area.id, 1))}
                   disabled={indice === areas.length - 1}
                   title="Descer no mapa de mesas"
-                  className="text-neutral-400 hover:text-neutral-900 disabled:opacity-30"
+                  className="text-neutral-500 hover:text-neutral-900 disabled:opacity-30"
                 >
                   ↓
                 </button>
@@ -230,7 +230,7 @@ export function MesasTela({
                 </button>
                 <button
                   onClick={() => agir(() => alternarAreaAtiva(area.id, !area.ativo))}
-                  className="text-neutral-400 hover:text-red-600"
+                  className="text-neutral-500 hover:text-red-600"
                 >
                   {area.ativo ? "desativar" : "reativar"}
                 </button>
@@ -316,7 +316,7 @@ function ListaMesas({
 }) {
   if (mesas.length === 0) {
     return (
-      <p className="py-10 text-center text-sm text-neutral-400">
+      <p className="py-10 text-center text-sm text-neutral-500">
         Nenhuma mesa nesta área ainda.
       </p>
     );
@@ -403,7 +403,7 @@ function ListaMesas({
               <td className="px-5 py-3">
                 <span className="text-base font-bold tabular-nums">{mesa.numero}</span>
                 {!mesa.ativo && (
-                  <span className="ml-2 text-[10px] font-bold uppercase text-neutral-400">
+                  <span className="ml-2 text-[10px] font-bold uppercase text-neutral-500">
                     inativa
                   </span>
                 )}
@@ -411,7 +411,7 @@ function ListaMesas({
               <td className="px-5 py-3 text-neutral-500">{mesa.capacidade} lugares</td>
               <td className="px-5 py-3">
                 <span
-                  className={`rounded px-2 py-1 text-xs font-semibold ${
+                  className={`rounded-md px-2 py-1 text-xs font-semibold ${
                     CORES_STATUS[mesa.status] ?? ""
                   }`}
                 >
@@ -432,13 +432,13 @@ function ListaMesas({
                     </button>
                     <button
                       onClick={() => agir(() => alternarMesaAtiva(mesa.id, !mesa.ativo))}
-                      className="text-neutral-400 hover:text-neutral-900"
+                      className="text-neutral-500 hover:text-neutral-900"
                     >
                       {mesa.ativo ? "desativar" : "reativar"}
                     </button>
                     <button
                       onClick={() => agir(() => excluirMesa(mesa.id))}
-                      className="text-neutral-400 hover:text-red-600"
+                      className="text-neutral-500 hover:text-red-600"
                       title="Só é possível excluir mesa que nunca teve comanda"
                     >
                       excluir

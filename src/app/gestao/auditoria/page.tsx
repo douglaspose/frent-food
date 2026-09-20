@@ -100,7 +100,7 @@ export default async function AuditoriaPage({
                   <td className="whitespace-nowrap px-4 py-3 font-medium">
                     {/* Usuário desativado continua aparecendo: o diário guarda
                         o que aconteceu, não quem ainda trabalha aqui. */}
-                    {r.usuario?.nome ?? <span className="text-neutral-400">removido</span>}
+                    {r.usuario?.nome ?? <span className="text-neutral-500">removido</span>}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     {ACOES[r.acao as Acao] ?? r.acao}
@@ -108,7 +108,7 @@ export default async function AuditoriaPage({
                   <td className="px-4 py-3 text-neutral-600">
                     <Detalhe antes={r.antes} depois={r.depois} />
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-neutral-400">
+                  <td className="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-neutral-500">
                     {r.ip ?? "—"}
                   </td>
                 </tr>

@@ -130,16 +130,16 @@ export function EquipeTela({
                 <td className="px-4 py-3 font-medium">
                   {u.nome}
                   {u.id === usuarioAtualId && (
-                    <span className="ml-2 text-xs font-normal text-neutral-400">você</span>
+                    <span className="ml-2 text-xs font-normal text-neutral-500">você</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-neutral-500">{u.email}</td>
                 <td className="px-4 py-3">
-                  <span className="rounded bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-600">
+                  <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-600">
                     {u.cargoNome}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-neutral-400">
+                <td className="px-4 py-3 text-neutral-500">
                   {u.temPin ? "configurado" : "sem PIN"}
                 </td>
                 <td className="px-4 py-3 text-right">
@@ -154,7 +154,7 @@ export function EquipeTela({
                       {u.id !== usuarioAtualId && (
                         <button
                           onClick={() => agir(() => alternarUsuarioAtivo(u.id, !u.ativo))}
-                          className="text-neutral-400 hover:text-red-600"
+                          className="text-neutral-500 hover:text-red-600"
                         >
                           {u.ativo ? "desativar" : "reativar"}
                         </button>

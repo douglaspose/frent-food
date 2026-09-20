@@ -103,7 +103,7 @@ export function FilaTela({
           <div className="mt-4">
             {tokenNovo ? (
               <div className="rounded-lg bg-neutral-900 p-4">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
                   Copie agora — não será mostrado de novo
                 </p>
                 <code className="block break-all font-mono text-sm text-emerald-400">
@@ -142,7 +142,7 @@ export function FilaTela({
             Impressoras
           </h3>
           {impressoras.length === 0 ? (
-            <p className="text-sm text-neutral-400">
+            <p className="text-sm text-neutral-500">
               Nenhuma impressora cadastrada. Sem endereço configurado, os papéis ficam na fila.
             </p>
           ) : (
@@ -150,7 +150,7 @@ export function FilaTela({
               {impressoras.map((i) => (
                 <li key={i.id} className="flex gap-3">
                   <span className="font-medium">{i.nome}</span>
-                  <span className="text-neutral-400">
+                  <span className="text-neutral-500">
                     {i.conexao} {i.endereco ?? "— sem endereço"}
                   </span>
                 </li>
@@ -166,7 +166,7 @@ export function FilaTela({
             <h2 className="text-sm font-semibold">{vendo.titulo}</h2>
             <button
               onClick={() => setVendo(null)}
-              className="text-sm text-neutral-400 hover:text-neutral-900"
+              className="text-sm text-neutral-500 hover:text-neutral-900"
             >
               fechar
             </button>
@@ -192,7 +192,7 @@ export function FilaTela({
           <tbody className="divide-y divide-neutral-100">
             {trabalhos.map((t) => (
               <tr key={t.id}>
-                <td className="whitespace-nowrap px-4 py-3 tabular-nums text-neutral-400">
+                <td className="whitespace-nowrap px-4 py-3 tabular-nums text-neutral-500">
                   {new Date(t.criadoEm).toLocaleTimeString("pt-BR", {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -205,12 +205,12 @@ export function FilaTela({
                 <td className="px-4 py-3 text-neutral-500">{t.impressora ?? "—"}</td>
                 <td className="px-4 py-3">
                   <span
-                    className={`rounded px-2 py-1 text-xs font-semibold ${CORES[t.status] ?? ""}`}
+                    className={`rounded-md px-2 py-1 text-xs font-semibold ${CORES[t.status] ?? ""}`}
                   >
                     {t.status}
                   </span>
                   {t.tentativas > 0 && (
-                    <span className="ml-2 text-xs text-neutral-400">{t.tentativas} tentativa(s)</span>
+                    <span className="ml-2 text-xs text-neutral-500">{t.tentativas} tentativa(s)</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right">
@@ -232,7 +232,7 @@ export function FilaTela({
                     {podeEditar && t.status === "PENDENTE" && (
                       <button
                         onClick={() => agir(() => descartar(t.id))}
-                        className="text-neutral-400 hover:text-red-600"
+                        className="text-neutral-500 hover:text-red-600"
                       >
                         descartar
                       </button>
@@ -245,7 +245,7 @@ export function FilaTela({
         </table>
 
         {trabalhos.length === 0 && (
-          <p className="py-16 text-center text-sm text-neutral-400">Nada impresso ainda.</p>
+          <p className="py-16 text-center text-sm text-neutral-500">Nada impresso ainda.</p>
         )}
       </div>
     </>

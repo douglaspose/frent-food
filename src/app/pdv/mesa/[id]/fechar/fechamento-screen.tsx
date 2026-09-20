@@ -138,13 +138,13 @@ export function FechamentoScreen({
       <header className="mb-6 flex items-center gap-4">
         <BotaoVoltar href={`/pdv/mesa/${mesa.id}`} />
         <div>
-          <h1 className="text-xl font-bold">
+          <h1 className="texto-titulo">
             Fechar mesa {mesa.numero}
             {comanda.nomeCliente && (
               <span className="ml-2 font-normal text-neutral-400">· {comanda.nomeCliente}</span>
             )}
           </h1>
-          <p className="text-xs text-neutral-500">
+          <p className="texto-apoio text-neutral-500">
             Comanda #{comanda.numero} · {comanda.pessoas} pessoa(s)
           </p>
         </div>
@@ -187,7 +187,7 @@ export function FechamentoScreen({
         {/* Consumo e totais */}
         <section className="min-w-0 space-y-4">
           <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+            <h2 className="mb-3 texto-etiqueta text-neutral-400">
               Consumo
             </h2>
             <ul className="mb-4 max-h-64 space-y-2 overflow-y-auto">
@@ -256,7 +256,11 @@ export function FechamentoScreen({
                         }}
                         inputMode="numeric"
                         aria-label="Número de pessoas"
-                        className="w-10 rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-center tabular-nums text-neutral-300 focus:border-orange-600 focus:outline-none"
+                        /* O tamanho vem escrito porque este campo não tem
+                           tamanho próprio: herda o `text-xs` da linha, e 12px
+                           no iPhone dispara o zoom (ver src/lib/campo.ts). No
+                           balcão volta aos 12px do resto da linha. */
+                        className="w-10 rounded-md border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-center text-base tabular-nums text-neutral-300 focus:border-orange-600 focus:outline-none sm:text-xs"
                       />
                     ) : (
                       `(${pessoas})`
@@ -277,17 +281,18 @@ export function FechamentoScreen({
               disabled={pendente}
               className="mt-4 w-full rounded-lg bg-neutral-800 py-3 text-sm font-semibold transition hover:bg-neutral-700 disabled:opacity-40"
             >
-              {impressaCount === 0 ? "Imprimir conferência (F10)" : "Imprimir 2ª via (F10)"}
+              {impressaCount === 0 ? "Imprimir conferência" : "Imprimir 2ª via"}
+              <span className="hidden lg:inline"> (F10)</span>
             </button>
           </div>
 
           <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+            <h2 className="mb-3 texto-etiqueta text-neutral-400">
               Desconto
               {/* O bloco era escondido de quem não tem a permissão. Agora
                   aparece: sem o cargo, o caminho é o PIN de quem tem. */}
               {!podeDescontar && (
-                <span className="ml-2 font-normal normal-case tracking-normal text-neutral-600">
+                <span className="ml-2 font-normal normal-case tracking-normal text-neutral-500">
                   precisa de autorização
                 </span>
               )}
@@ -335,7 +340,7 @@ export function FechamentoScreen({
         {/* Recebimento */}
         <section className="min-w-0 space-y-4">
           <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+            <h2 className="mb-3 texto-etiqueta text-neutral-400">
               Receber
             </h2>
 
@@ -379,11 +384,11 @@ export function FechamentoScreen({
           </div>
 
           <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
+            <h2 className="mb-3 texto-etiqueta text-neutral-400">
               Pagamentos
             </h2>
             {comanda.pagamentos.length === 0 && (
-              <p className="py-3 text-center text-sm text-neutral-600">Nenhum pagamento ainda.</p>
+              <p className="py-3 text-center text-sm text-neutral-500">Nenhum pagamento ainda.</p>
             )}
             <ul className="space-y-2">
               {comanda.pagamentos.map((p) => (
@@ -400,7 +405,7 @@ export function FechamentoScreen({
                     <span className="tabular-nums">{brl.format(p.valor - p.troco)}</span>
                     <button
                       onClick={() => agir(() => estornarPagamento(p.id))}
-                      className="text-xs text-neutral-600 hover:text-red-400"
+                      className="text-xs text-neutral-500 hover:text-red-400"
                     >
                       estornar
                     </button>

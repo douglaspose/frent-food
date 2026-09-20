@@ -200,12 +200,12 @@ export function EstoqueTela({
                 <td className="px-4 py-3">
                   {p.titulo}
                   {p.temFicha && (
-                    <span className="ml-2 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">
+                    <span className="ml-2 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">
                       FICHA
                     </span>
                   )}
                   {p.estoqueMinimo !== null && (
-                    <span className="ml-2 text-xs text-neutral-400">
+                    <span className="ml-2 text-xs text-neutral-500">
                       mín {qtd.format(p.estoqueMinimo)}
                     </span>
                   )}
@@ -220,7 +220,7 @@ export function EstoqueTela({
                   }`}
                 >
                   {qtd.format(p.quantidade)}{" "}
-                  <span className="text-xs text-neutral-400">{p.unidadeMedida}</span>
+                  <span className="text-xs text-neutral-500">{p.unidadeMedida}</span>
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums text-neutral-500">
                   {p.custoMedio > 0 ? brl.format(p.custoMedio) : "—"}
@@ -265,7 +265,7 @@ export function EstoqueTela({
                             })
                           )
                         }
-                        className="text-neutral-400 hover:text-neutral-900"
+                        className="text-neutral-500 hover:text-neutral-900"
                         title="Dá baixa direto na venda, sem ficha técnica"
                       >
                         {p.controlaEstoque ? "não controlar" : "controlar"}
@@ -279,7 +279,7 @@ export function EstoqueTela({
         </table>
 
         {visiveis.length === 0 && (
-          <p className="py-16 text-center text-sm text-neutral-400">
+          <p className="py-16 text-center text-sm text-neutral-500">
             Nenhum item de estoque. Marque produtos como &quot;controlar&quot; ou monte fichas
             técnicas.
           </p>
@@ -302,7 +302,7 @@ export function EstoqueTela({
           <tbody className="divide-y divide-neutral-100">
             {movimentos.map((m) => (
               <tr key={m.id}>
-                <td className="whitespace-nowrap px-4 py-3 tabular-nums text-neutral-400">
+                <td className="whitespace-nowrap px-4 py-3 tabular-nums text-neutral-500">
                   {new Date(m.criadoEm).toLocaleString("pt-BR", {
                     day: "2-digit",
                     month: "2-digit",
@@ -313,7 +313,7 @@ export function EstoqueTela({
                 <td className="px-4 py-3">{m.produto}</td>
                 <td className="px-4 py-3">
                   <span
-                    className={`rounded px-2 py-1 text-xs font-semibold ${CORES_MOVIMENTO[m.tipo] ?? ""}`}
+                    className={`rounded-md px-2 py-1 text-xs font-semibold ${CORES_MOVIMENTO[m.tipo] ?? ""}`}
                   >
                     {m.tipo.replace("_", " ")}
                   </span>
@@ -336,7 +336,7 @@ export function EstoqueTela({
         </table>
 
         {movimentos.length === 0 && (
-          <p className="py-16 text-center text-sm text-neutral-400">Nenhuma movimentação ainda.</p>
+          <p className="py-16 text-center text-sm text-neutral-500">Nenhuma movimentação ainda.</p>
         )}
       </div>
     </>

@@ -319,7 +319,7 @@ export function FiscalTela({
                 <td className="px-4 py-3">
                   {p.nome}
                   {p.padrao && (
-                    <span className="ml-2 rounded bg-neutral-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    <span className="ml-2 rounded-md bg-neutral-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
                       PADRÃO
                     </span>
                   )}
@@ -362,7 +362,7 @@ export function FiscalTela({
         </table>
 
         {perfis.length === 0 && (
-          <p className="py-12 text-center text-sm text-neutral-400">
+          <p className="py-12 text-center text-sm text-neutral-500">
             Nenhum perfil criado. Sem perfil, os produtos usam a tributação padrão do Simples.
           </p>
         )}
@@ -389,14 +389,14 @@ export function FiscalTela({
                     {n.numero}/{n.serie}
                   </span>
                   {n.chaveAcesso && (
-                    <span className="mt-0.5 block font-mono text-[10px] text-neutral-400">
+                    <span className="mt-0.5 block font-mono text-[10px] text-neutral-500">
                       {n.chaveAcesso}
                     </span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-neutral-500">
                   {n.mesa ? `Mesa ${n.mesa}` : n.comandaNumero ? `Comanda #${n.comandaNumero}` : "—"}
-                  <span className="mt-0.5 block text-xs text-neutral-400">
+                  <span className="mt-0.5 block text-xs text-neutral-500">
                     {new Date(n.criadoEm).toLocaleString("pt-BR", {
                       day: "2-digit",
                       month: "2-digit",
@@ -407,11 +407,11 @@ export function FiscalTela({
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums">{brl.format(n.valorTotal)}</td>
                 <td className="px-4 py-3">
-                  <span className={`rounded px-2 py-1 text-xs font-semibold ${CORES[n.status] ?? ""}`}>
+                  <span className={`rounded-md px-2 py-1 text-xs font-semibold ${CORES[n.status] ?? ""}`}>
                     {n.status}
                   </span>
                   {n.ambiente === "HOMOLOGACAO" && (
-                    <span className="ml-1 text-[10px] text-neutral-400">homolog.</span>
+                    <span className="ml-1 text-[10px] text-neutral-500">homolog.</span>
                   )}
                   {n.motivoRejeicao && (
                     <span className="mt-1 block max-w-xs text-xs text-red-600">
@@ -445,7 +445,7 @@ export function FiscalTela({
                             );
                             if (motivo) agir(() => cancelarNota(n.id, motivo));
                           }}
-                          className="text-neutral-400 hover:text-red-600"
+                          className="text-neutral-500 hover:text-red-600"
                         >
                           cancelar
                         </button>
@@ -459,7 +459,7 @@ export function FiscalTela({
         </table>
 
         {notas.length === 0 && (
-          <p className="py-12 text-center text-sm text-neutral-400">Nenhuma nota emitida ainda.</p>
+          <p className="py-12 text-center text-sm text-neutral-500">Nenhuma nota emitida ainda.</p>
         )}
       </div>
     </>

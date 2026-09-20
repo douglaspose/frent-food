@@ -324,7 +324,7 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
              */
             className="fixed inset-x-0 top-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-50 bg-black/60 sm:hidden"
           />
-          <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-[60] rounded-t-2xl border-t border-neutral-800 bg-neutral-950 px-4 pb-4 pt-3 sm:hidden">
+          <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-[60] rounded-t-xl border-t border-neutral-800 bg-neutral-950 px-4 pb-4 pt-3 sm:hidden">
             <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-neutral-800" />
 
             <p className="text-[10px] uppercase tracking-wide text-neutral-500">

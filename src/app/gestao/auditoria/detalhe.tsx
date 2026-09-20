@@ -69,7 +69,7 @@ export function Detalhe({ antes, depois }: { antes: Json; depois: Json }) {
   const a = objeto(antes);
   const d = objeto(depois);
 
-  if (!a && !d) return <span className="text-neutral-400">—</span>;
+  if (!a && !d) return <span className="text-neutral-500">—</span>;
 
   // Campos do "depois" primeiro, que é o estado que interessa; os que só
   // existem no "antes" (um pagamento estornado, por exemplo) vêm depois.
@@ -87,11 +87,11 @@ export function Detalhe({ antes, depois }: { antes: Json; depois: Json }) {
 
         return (
           <li key={chave}>
-            <span className="text-neutral-400">{ROTULOS[chave] ?? chave}: </span>
+            <span className="text-neutral-500">{ROTULOS[chave] ?? chave}: </span>
             {mudou ? (
               <>
-                <span className="text-neutral-400 line-through">{texto(chave, a[chave])}</span>
-                <span className="text-neutral-400"> → </span>
+                <span className="text-neutral-500 line-through">{texto(chave, a[chave])}</span>
+                <span className="text-neutral-500"> → </span>
                 <span className="font-medium text-neutral-900">{texto(chave, d[chave])}</span>
               </>
             ) : (

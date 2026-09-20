@@ -36,7 +36,7 @@ export function ChamarGarcom({ token, jaChamou }: { token: string; jaChamou: boo
       disabled={pendente}
       // Botão grande de propósito: é usado com uma mão só, no escuro, com a
       // mesa cheia de copo.
-      className="mt-12 w-full max-w-xs rounded-2xl bg-orange-600 px-8 py-8 text-2xl font-bold text-white transition hover:bg-orange-500 active:scale-95 disabled:opacity-50"
+      className="mt-12 w-full max-w-xs rounded-xl bg-orange-600 px-8 py-8 text-2xl font-bold text-white transition hover:bg-orange-500 active:scale-95 disabled:opacity-50"
     >
       {pendente ? "Chamando..." : "Chamar garçom"}
     </button>

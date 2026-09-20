@@ -1,6 +1,7 @@
 "use client";
 
 import { temErro } from "@/lib/erro-de-operacao";
+import { useTemTeclado } from "../../teclado";
 import { BotaoVoltar } from "../../botao-voltar";
 import { TEXTO_DE_CAMPO } from "@/lib/campo";
 import Link from "next/link";
@@ -45,7 +46,9 @@ const CORES_STATUS: Record<string, string> = {
   ENVIADO: "text-sky-400",
   EM_PREPARO: "text-amber-400",
   PRONTO: "text-emerald-400",
-  ENTREGUE: "text-neutral-500",
+  // Entregue é o estado morto do ticket, mas ainda precisa ser lido sobre o
+  // cinza do cartão.
+  ENTREGUE: "text-neutral-400",
 };
 
 function horaCurta(iso: string) {
@@ -88,6 +91,7 @@ export function ComandaScreen({
    * fica com a tela toda e carrinho e comanda sobem sob demanda.
    */
   const [painel, setPainel] = useState<null | "carrinho" | "comanda">(null);
+  const temTeclado = useTemTeclado();
   const [busca, setBusca] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   // Qual item está com o campo de motivo aberto. Um de cada vez: cancelar é
@@ -244,7 +248,7 @@ export function ComandaScreen({
               <span className="ml-2 font-normal text-neutral-400">· {comanda.nomeCliente}</span>
             )}
           </h1>
-          <p className="text-xs text-neutral-500">
+          <p className="texto-apoio text-neutral-500">
             Comanda #{comanda.numero} · {comanda.pessoas}p
             {tempoNaMesa && ` · ${tempoNaMesa}`}
             {mesa.area && ` · ${mesa.area}`}
@@ -333,7 +337,7 @@ export function ComandaScreen({
               ref={buscaRef}
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="digite o código do produto (F4)"
+              placeholder={temTeclado ? "digite o código do produto (F4)" : "digite o código do produto"}
               className={`w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none ${TEXTO_DE_CAMPO}`}
             />
           </div>
@@ -347,7 +351,7 @@ export function ComandaScreen({
                   disabled={item.esgotado || pendente || fechando}
                   className="flex w-full items-center gap-3 border-b border-neutral-900 px-1 py-3 text-left transition hover:bg-neutral-900 disabled:opacity-40"
                 >
-                  <span className="w-10 shrink-0 text-xs tabular-nums text-neutral-600">
+                  <span className="w-10 shrink-0 text-xs tabular-nums text-neutral-500">
                     {item.codigo}
                   </span>
                   <span className="flex-1 text-sm leading-tight">
@@ -363,7 +367,7 @@ export function ComandaScreen({
               </li>
             ))}
             {resultados.length === 0 && (
-              <li className="py-10 text-center text-sm text-neutral-600">Nada encontrado.</li>
+              <li className="py-10 text-center text-sm text-neutral-500">Nada encontrado.</li>
             )}
           </ul>
         </section>
@@ -372,18 +376,18 @@ export function ComandaScreen({
         <section className={`flex min-h-0 flex-col bg-neutral-950 ${
           painel === "carrinho" ? "fixed inset-0 z-50" : "hidden"
         } lg:static lg:z-auto lg:flex` + " lg:border-r lg:border-neutral-900"}>
-          <h2 className="flex shrink-0 items-center gap-2 border-b border-neutral-900 px-3 py-3 text-xs font-semibold uppercase tracking-widest text-neutral-500 lg:border-b-0">
+          <h2 className="titulo-de-folha flex shrink-0 items-center gap-2 border-b border-neutral-900 px-3 py-4 text-neutral-100 lg:border-b-0 lg:py-3 lg:text-neutral-400">
             Carrinho
             {carrinho.length > 0 && (
-              <span className="rounded bg-sky-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+              <span className="rounded-md bg-sky-500 px-2 py-0.5 text-xs font-bold text-white lg:px-1.5 lg:text-[10px]">
                 {carrinho.length}
               </span>
             )}
             <BotaoFechar aoFechar={() => setPainel(null)} />
           </h2>
-          <ul className="min-h-0 flex-1 overflow-y-auto px-3">
+          <ul className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 lg:pt-0">
             {carrinho.length === 0 && (
-              <li className="py-10 text-center text-sm text-neutral-600">
+              <li className="py-10 text-center text-sm text-neutral-500">
                 Nenhum pedido no carrinho
               </li>
             )}
@@ -399,11 +403,13 @@ export function ComandaScreen({
               */
               <li
                 key={item.id}
-                className="mb-2 rounded-xl bg-gradient-to-b from-neutral-900 to-neutral-950 p-3 ring-1 ring-neutral-800 lg:mb-0 lg:rounded-none lg:bg-none lg:p-0 lg:py-3 lg:ring-0 lg:border-b lg:border-neutral-900"
+                className="mb-2 rounded-xl bg-neutral-900 p-3 lg:mb-0 lg:rounded-none lg:bg-transparent lg:p-0 lg:py-3 lg:border-b lg:border-neutral-900"
               >
                 <div className="flex items-start gap-2">
-                  <span className="flex-1 text-sm leading-tight">{item.titulo}</span>
-                  <span className="shrink-0 text-sm font-semibold tabular-nums">
+                  <span className="flex-1 text-base font-semibold leading-tight lg:text-sm lg:font-normal">
+                    {item.titulo}
+                  </span>
+                  <span className="shrink-0 text-base font-semibold tabular-nums lg:text-sm">
                     {brl.format(item.precoTotal)}
                   </span>
                 </div>
@@ -411,7 +417,7 @@ export function ComandaScreen({
                   <button
                     onClick={() => agir(() => alterarQuantidade(item.id, -1))}
                     disabled={pendente || fechando}
-                    className="h-11 w-11 rounded-lg bg-neutral-800 text-lg text-neutral-300 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:rounded lg:text-base"
+                    className="h-11 w-11 rounded-lg bg-neutral-800 text-lg text-neutral-300 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:rounded-md lg:text-base"
                   >
                     −
                   </button>
@@ -421,7 +427,7 @@ export function ComandaScreen({
                   <button
                     onClick={() => agir(() => alterarQuantidade(item.id, 1))}
                     disabled={pendente || fechando}
-                    className="h-11 w-11 rounded-lg bg-neutral-800 text-lg text-neutral-300 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:rounded lg:text-base"
+                    className="h-11 w-11 rounded-lg bg-neutral-800 text-lg text-neutral-300 transition active:bg-neutral-700 disabled:opacity-40 lg:h-7 lg:w-7 lg:rounded-md lg:text-base"
                   >
                     +
                   </button>
@@ -433,7 +439,7 @@ export function ComandaScreen({
                         key={p}
                         onClick={() => agir(() => definirPontoCarne(item.id, p))}
                         disabled={pendente || fechando}
-                        className={`h-10 rounded-lg px-3 text-xs font-bold tracking-wide transition disabled:opacity-40 lg:h-auto lg:rounded lg:px-2 lg:py-1 lg:text-[10px] ${
+                        className={`h-10 rounded-lg px-3 text-xs font-bold tracking-wide transition disabled:opacity-40 lg:h-auto lg:rounded-md lg:px-2 lg:py-1 lg:text-[10px] ${
                           item.pontoCarne === p
                             ? "bg-red-600 text-white"
                             : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
@@ -468,7 +474,14 @@ export function ComandaScreen({
                 disabled={carrinho.length === 0 || pendente || fechando}
                 className="flex-1 rounded-lg bg-emerald-600 py-3 font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-30"
               >
-                {pendente ? "Enviando..." : "Enviar para cozinha (F2)"}
+                {pendente ? (
+                  "Enviando..."
+                ) : (
+                  <>
+                    Enviar para cozinha
+                    <span className="hidden lg:inline"> (F2)</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -478,13 +491,13 @@ export function ComandaScreen({
         <section className={`flex min-h-0 flex-col bg-neutral-950 ${
           painel === "comanda" ? "fixed inset-0 z-50" : "hidden"
         } lg:static lg:z-auto lg:flex`}>
-          <h2 className="flex shrink-0 items-center gap-2 border-b border-neutral-900 px-3 py-3 text-xs font-semibold uppercase tracking-widest text-neutral-500 lg:border-b-0">
+          <h2 className="titulo-de-folha flex shrink-0 items-center gap-2 border-b border-neutral-900 px-3 py-4 text-neutral-100 lg:border-b-0 lg:py-3 lg:text-neutral-400">
             Comanda
             <BotaoFechar aoFechar={() => setPainel(null)} />
           </h2>
-          <ul className="min-h-0 flex-1 overflow-y-auto px-3">
+          <ul className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 lg:pt-0">
             {lancados.length === 0 && (
-              <li className="py-10 text-center text-sm text-neutral-600">Nada lançado ainda</li>
+              <li className="py-10 text-center text-sm text-neutral-500">Nada lançado ainda</li>
             )}
             {lancados.map((item) => (
               /* Mesmo cartão do carrinho, e aqui pesa mais: cada linha carrega
@@ -493,28 +506,28 @@ export function ComandaScreen({
                  preço do de baixo. */
               <li
                 key={item.id}
-                className="mb-2 rounded-xl bg-gradient-to-b from-neutral-900 to-neutral-950 p-3 ring-1 ring-neutral-800 lg:mb-0 lg:rounded-none lg:bg-none lg:p-0 lg:py-3 lg:ring-0 lg:border-b lg:border-neutral-900"
+                className="mb-2 rounded-xl bg-neutral-900 p-3 lg:mb-0 lg:rounded-none lg:bg-transparent lg:p-0 lg:py-3 lg:border-b lg:border-neutral-900"
               >
                 <div className="flex items-start gap-2">
-                  <span className="flex-1 text-sm font-medium leading-tight">
+                  <span className="flex-1 text-base font-semibold leading-tight lg:text-sm lg:font-medium">
                     {item.quantidade > 1 && (
-                      <span className="mr-1 text-neutral-500">{item.quantidade}×</span>
+                      <span className="mr-1 text-neutral-400">{item.quantidade}×</span>
                     )}
                     {item.titulo}
                   </span>
-                  <span className="shrink-0 text-sm font-semibold tabular-nums">
+                  <span className="shrink-0 text-base font-semibold tabular-nums lg:text-sm">
                     {brl.format(item.precoTotal)}
                   </span>
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-400">
                   <span className="tabular-nums">{horaCurta(item.lancadoEm)}</span>
                   {ajustes.exibirNomeGarcom && <span>{item.lancadoPor}</span>}
-                  <span className={`font-bold ${CORES_STATUS[item.status] ?? "text-neutral-500"}`}>
+                  <span className={`font-bold ${CORES_STATUS[item.status] ?? "text-neutral-400"}`}>
                     {item.status}
                   </span>
                 </div>
                 {item.pontoCarne && (
-                  <span className="mt-1 inline-block rounded bg-red-600/20 px-2 py-0.5 text-[10px] font-bold text-red-400">
+                  <span className="mt-1 inline-block rounded-md bg-red-600/20 px-2 py-0.5 text-[10px] font-bold text-red-400">
                     {item.pontoCarne}
                   </span>
                 )}
@@ -531,7 +544,7 @@ export function ComandaScreen({
                        segue pelo PIN do gerente, então o botão deixou de ser
                        um caminho sem saída. Discreto porque é exceção, não
                        algo para se esbarrar com o dedo no meio do serviço. */
-                    className="mt-1 text-[11px] text-neutral-600 transition hover:text-red-400 disabled:opacity-40"
+                    className="mt-1 text-[11px] text-neutral-400 transition hover:text-red-400 disabled:opacity-40"
                   >
                     cancelar item{podeCancelar ? "" : " (com autorização)"}
                   </button>
@@ -563,19 +576,19 @@ export function ComandaScreen({
                         if (e.key === "Escape") setCancelando(null);
                       }}
                       placeholder="Motivo (obrigatório)"
-                      className={`w-full rounded bg-neutral-950 px-2 py-2 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-red-500 ${TEXTO_DE_CAMPO}`}
+                      className={`w-full rounded-md bg-neutral-950 px-2 py-2 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-red-500 ${TEXTO_DE_CAMPO}`}
                     />
                     <div className="flex gap-2">
                       <button
                         onClick={() => setCancelando(null)}
-                        className="rounded bg-neutral-800 px-3 py-1.5 text-xs text-neutral-400 transition hover:bg-neutral-700"
+                        className="rounded-md bg-neutral-800 px-3 py-1.5 text-xs text-neutral-400 transition hover:bg-neutral-700"
                       >
                         Voltar
                       </button>
                       <button
                         onClick={() => confirmarCancelamento(item.id)}
                         disabled={!motivo.trim() || pendente}
-                        className="flex-1 rounded bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500 disabled:opacity-30"
+                        className="flex-1 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500 disabled:opacity-30"
                       >
                         Cancelar {item.titulo}
                       </button>
@@ -604,7 +617,8 @@ export function ComandaScreen({
               disabled={pendente}
               className="mt-2 w-full rounded-lg bg-orange-600 py-3 text-center font-semibold text-white transition hover:bg-orange-500 disabled:opacity-50"
             >
-              Fechar conta (F3)
+              Fechar conta
+              <span className="hidden lg:inline"> (F3)</span>
             </button>
           </div>
         </section>
