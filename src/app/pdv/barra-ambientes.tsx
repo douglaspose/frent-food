@@ -265,7 +265,19 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
               key={item.href}
               href={item.href}
               aria-current={ativo ? "page" : undefined}
-              className={`relative flex h-16 min-w-0 flex-1 flex-col items-center justify-center gap-1 transition ${
+              /**
+               * O afundamento vai no conteúdo, não na faixa.
+               *
+               * Estas faixas são coladas umas nas outras e a divisória entre
+               * elas é uma borda do próprio elemento — encolher a faixa faria
+               * a linha andar junto e abriria uma fresta na barra a cada
+               * toque. Encolhendo só o ícone e o rótulo, o botão afunda e a
+               * grade fica parada.
+               *
+               * O `group` aqui é o que deixa os filhos enxergarem o `:active`
+               * deste link.
+               */
+              className={`realce-ao-toque group relative flex h-16 min-w-0 flex-1 touch-manipulation flex-col items-center justify-center gap-1 transition ${
                 ativo ? "selecionado-na-barra text-neutral-50" : "text-neutral-400"
               }`}
             >
@@ -281,7 +293,7 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
                 <span className="absolute inset-x-[30%] top-0 h-0.5 rounded-full bg-neutral-50" />
               )}
 
-              <span className="relative block">
+              <span className="relative block transition duration-100 group-active:scale-90">
                 {item.icone("h-7 w-7")}
 
                 {item.contador !== undefined && item.contador > 0 && (
@@ -297,7 +309,7 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
                 )}
               </span>
 
-              <span className="max-w-full truncate px-1 text-xs font-semibold">
+              <span className="max-w-full truncate px-1 text-xs font-semibold transition duration-100 group-active:scale-90">
                 {item.rotulo}
               </span>
             </Link>
@@ -314,12 +326,12 @@ export function BarraAmbientes({ dados }: { dados: DadosBarra }) {
            * nos vizinhos — com cinco itens a barra ficava torta, e com três
            * ficava mais ainda.
            */
-          className={`flex h-16 min-w-0 flex-1 flex-col items-center justify-center gap-1 transition ${
+          className={`realce-ao-toque group flex h-16 min-w-0 flex-1 touch-manipulation flex-col items-center justify-center gap-1 transition ${
             menuAberto ? "text-neutral-50" : "text-neutral-400"
           }`}
         >
-          {ICONE.identidade("h-7 w-7")}
-          <span className="max-w-full truncate px-1 text-xs font-semibold">
+          {ICONE.identidade("h-7 w-7 transition duration-100 group-active:scale-90")}
+          <span className="max-w-full truncate px-1 text-xs font-semibold transition duration-100 group-active:scale-90">
             {dados.usuario.nome.split(/\s+/)[0]}
           </span>
         </button>

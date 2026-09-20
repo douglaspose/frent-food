@@ -280,7 +280,10 @@ export function MapaMesas({
         <div className="sem-barra-de-rolagem -mx-4 flex gap-2 overflow-x-auto px-4 sm:contents">
           <button
             onClick={() => guardarArea(null)}
-            className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition ${
+            /* Afundar ao toque, e não mudar de fundo: o laranja já diz qual
+               área está filtrando, e mexer nele confundiria "selecionado" com
+               "o toque pegou". Vale para os dois chips desta linha. */
+            className={`realce-ao-toque shrink-0 touch-manipulation rounded-lg px-3 py-2 text-sm font-medium transition duration-100 active:scale-95 ${
               areaAtiva === null
                 ? "bg-orange-700 text-white"
                 : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
@@ -292,7 +295,7 @@ export function MapaMesas({
             <button
               key={a.id}
               onClick={() => guardarArea(a.id)}
-              className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition ${
+              className={`realce-ao-toque shrink-0 touch-manipulation rounded-lg px-3 py-2 text-sm font-medium transition duration-100 active:scale-95 ${
                 areaAtiva === a.id
                   ? "bg-orange-700 text-white"
                   : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
@@ -365,7 +368,24 @@ export function MapaMesas({
                   <Link
                     key={mesa.id}
                     href={`/pdv/mesa/${mesa.id}`}
-                    className={`relative flex h-28 flex-col items-center justify-center rounded-xl border-2 transition hover:brightness-125 focus:outline-none focus:ring-2 focus:ring-orange-500 ${estilo.classe}`}
+                    /**
+                     * `active:` porque no celular não existe `hover:`.
+                     *
+                     * O Tailwind embrulha `hover:` em `@media (hover: hover)`,
+                     * então o único retorno que este card dava não chegava ao
+                     * iPhone: o toque não mudava nada na tela. Num salão isso
+                     * custa caro — sem sinal de que pegou, o garçom toca de
+                     * novo, e o segundo toque abre a mesa duas vezes.
+                     *
+                     * Afundar é melhor que clarear aqui: a cor do card é
+                     * informação (azul em consumo, laranja fechando), e mexer
+                     * no brilho mexe na leitura do salão de longe.
+                     *
+                     * `touch-manipulation` tira a espera de 300ms que o Safari
+                     * guarda para ver se vem um segundo toque — sem isso o
+                     * afundamento chega depois do dedo já ter saído.
+                     */
+                    className={`realce-ao-toque relative flex h-28 touch-manipulation flex-col items-center justify-center rounded-xl border-2 transition duration-100 hover:brightness-125 focus:outline-none focus:ring-2 focus:ring-orange-500 active:scale-[0.96] active:brightness-95 ${estilo.classe}`}
                   >
                     {aviso && (
                       <span

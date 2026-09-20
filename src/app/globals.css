@@ -314,3 +314,20 @@ body {
     --brilho-da-barra: 85%;
   }
 }
+
+/**
+ * O realce nativo do iOS ao encostar o dedo.
+ *
+ * O Safari já pinta um véu sobre o elemento tocado, mas o padrão é um cinza
+ * translúcido que some num card escuro — que é por que a tela de mesas parecia
+ * não responder ao toque no iPhone. Aqui ele vira um véu claro, visível sobre
+ * qualquer cor de status.
+ *
+ * Vale junto com o `active:` do Tailwind, e não no lugar dele: este é o único
+ * que o Safari dispara sempre, enquanto o `:active` em link depende de haver um
+ * ouvinte de toque na página. No desktop não existe e não atrapalha.
+ */
+.realce-ao-toque {
+  -webkit-tap-highlight-color: rgb(255 255 255 / 0.14);
+}
+
