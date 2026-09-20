@@ -12,7 +12,14 @@ export function AbrirForm({
 }: {
   mesaId: string;
   capacidade: number;
-  /** A unidade recusa a abertura sem nome — a tela precisa dizer isso antes. */
+  /**
+   * Decide se o campo existe, não só se ele é obrigatório.
+   *
+   * Onde o nome não é exigido, ele quase nunca era preenchido — e um campo em
+   * branco entre o número de pessoas e o botão custa um toque e uma leitura a
+   * cada abertura de mesa, no horário em que há fila na porta. Quem precisa da
+   * conta com dono liga o ajuste; para os outros, some da tela.
+   */
   exigeNome: boolean;
 }) {
   const [pessoas, setPessoas] = useState(capacidade);
@@ -60,21 +67,21 @@ export function AbrirForm({
         </div>
       </div>
 
-      <div>
-        <label className="mb-2 block text-xs font-semibold uppercase tracking-widest text-neutral-500">
-          Nome do cliente{" "}
-          <span className="font-normal normal-case tracking-normal">
-            {exigeNome ? "(obrigatório)" : "(opcional)"}
-          </span>
-        </label>
-        <input
-          value={nome}
-          onChange={(e) => setNome(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && abrir()}
-          placeholder="Ex.: Douglas"
-          className="w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none"
-        />
-      </div>
+      {exigeNome && (
+        <div>
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-widest text-neutral-500">
+            Nome do cliente{" "}
+            <span className="font-normal normal-case tracking-normal">(obrigatório)</span>
+          </label>
+          <input
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && abrir()}
+            placeholder="Ex.: Douglas"
+            className="w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-3 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none"
+          />
+        </div>
+      )}
 
       {erro && <p className="text-sm text-red-400">{erro}</p>}
 

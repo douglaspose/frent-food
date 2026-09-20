@@ -43,7 +43,7 @@ export const PARAMETROS: Parametro[] = [
     tipo: "bool",
     rotulo: "Exigir nome do cliente ao abrir a mesa",
     explicacao:
-      "Sem o nome, a abertura é recusada. Útil onde a conta anda pelo salão e precisa de dono.",
+      "Desligado, o campo nem aparece ao abrir a mesa. Ligado, ele aparece e a abertura é recusada sem ele — útil onde a conta anda pelo salão e precisa de dono.",
     padrao: false,
   },
   {
