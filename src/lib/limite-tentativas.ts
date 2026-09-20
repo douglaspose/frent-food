@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { atravessandoRestaurantes } from "./tenant-atual";
 
 /**
  * Freio contra força bruta no login.
@@ -17,6 +18,19 @@ import { db } from "./db";
 const MAX_TENTATIVAS = 5;
 const JANELA_MS = 15 * 60 * 1000;
 const EXPURGO_A_CADA = 200;
+
+/**
+ * O freio conta tentativas por origem — um IP, não um restaurante. Sua tabela
+ * não tem `tenantId` e é a única, junto com `tenants`, que o RLS deixa de
+ * fora; a lista está no `rls.test.ts`.
+ *
+ * A marca existe para a distinção entre "atravessa de propósito" e "esqueceu
+ * de declarar" continuar valendo: estas consultas acontecem antes do login,
+ * quando não há restaurante nenhum para declarar, e sem a marca apareceriam
+ * como descuido a cada tentativa de entrar.
+ */
+const semDono = <T>(fn: () => Promise<T>) =>
+  atravessandoRestaurantes("freio de tentativas: conta por IP, não por restaurante", fn);
 
 let operacoes = 0;
 
@@ -51,20 +65,22 @@ export async function registrarFalha(chave: string, agora = Date.now()): Promise
   const momento = new Date(agora);
   const novoFim = new Date(agora + JANELA_MS);
 
-  const [linha] = await db.$queryRaw<{ tentativas: number; expiraEm: Date }[]>`
-    INSERT INTO freios_de_tentativa (chave, tentativas, "expiraEm")
-    VALUES (${chave}, 1, ${novoFim})
-    ON CONFLICT (chave) DO UPDATE SET
-      tentativas = CASE
-        WHEN freios_de_tentativa."expiraEm" <= ${momento} THEN 1
-        ELSE freios_de_tentativa.tentativas + 1
-      END,
-      "expiraEm" = CASE
-        WHEN freios_de_tentativa."expiraEm" <= ${momento} THEN ${novoFim}
-        ELSE freios_de_tentativa."expiraEm"
-      END
-    RETURNING tentativas, "expiraEm"
-  `;
+  const [linha] = await semDono(
+    () => db.$queryRaw<{ tentativas: number; expiraEm: Date }[]>`
+      INSERT INTO freios_de_tentativa (chave, tentativas, "expiraEm")
+      VALUES (${chave}, 1, ${novoFim})
+      ON CONFLICT (chave) DO UPDATE SET
+        tentativas = CASE
+          WHEN freios_de_tentativa."expiraEm" <= ${momento} THEN 1
+          ELSE freios_de_tentativa.tentativas + 1
+        END,
+        "expiraEm" = CASE
+          WHEN freios_de_tentativa."expiraEm" <= ${momento} THEN ${novoFim}
+          ELSE freios_de_tentativa."expiraEm"
+        END
+      RETURNING tentativas, "expiraEm"
+    `
+  );
 
   await talvezExpurgar(momento);
 
@@ -72,10 +88,12 @@ export async function registrarFalha(chave: string, agora = Date.now()): Promise
 }
 
 export async function verificar(chave: string, agora = Date.now()): Promise<Veredito> {
-  const registro = await db.freioDeTentativas.findUnique({
-    where: { chave },
-    select: { tentativas: true, expiraEm: true },
-  });
+  const registro = await semDono(() =>
+    db.freioDeTentativas.findUnique({
+      where: { chave },
+      select: { tentativas: true, expiraEm: true },
+    })
+  );
 
   if (!registro) return liberado();
   return julgar(registro.tentativas, registro.expiraEm, agora);
@@ -83,7 +101,7 @@ export async function verificar(chave: string, agora = Date.now()): Promise<Vere
 
 /** Login certo zera o contador — quem sabe a senha não deve ficar de castigo. */
 export async function limparFalhas(chave: string) {
-  await db.freioDeTentativas.deleteMany({ where: { chave } });
+  await semDono(() => db.freioDeTentativas.deleteMany({ where: { chave } }));
 }
 
 /**
@@ -95,11 +113,11 @@ export async function limparFalhas(chave: string) {
  */
 async function talvezExpurgar(agora: Date) {
   if (++operacoes % EXPURGO_A_CADA !== 0) return;
-  await db.freioDeTentativas.deleteMany({ where: { expiraEm: { lte: agora } } });
+  await semDono(() => db.freioDeTentativas.deleteMany({ where: { expiraEm: { lte: agora } } }));
 }
 
 /** Só para os testes: devolve o freio ao estado inicial. */
 export async function zerarTudo() {
-  await db.freioDeTentativas.deleteMany({});
+  await semDono(() => db.freioDeTentativas.deleteMany({}));
   operacoes = 0;
 }

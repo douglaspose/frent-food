@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { db, dbSemRls } from "@/lib/db";
+import { atravessandoRestaurantes, declararTenant } from "@/lib/tenant-atual";
 
 export const dynamic = "force-dynamic";
 
@@ -16,10 +17,20 @@ async function unidadeDoToken(request: NextRequest) {
   const token = cabecalho.replace(/^Bearer\s+/i, "").trim();
   if (!token) return null;
 
-  return db.unidade.findUnique({
-    where: { tokenImpressao: token },
-    select: { id: true, nome: true, ativo: true },
-  });
+  /**
+   * O token é a credencial e o endereço ao mesmo tempo: é ele que diz de qual
+   * restaurante é esta chamada. Como a pergunta vem antes da resposta, ela
+   * atravessa — e é a segunda e última do sistema que precisa disso.
+   *
+   * O que vem depois já roda declarado: o agente só enxerga a fila do próprio
+   * restaurante mesmo que o `unidadeId` seja adulterado adiante.
+   */
+  return atravessandoRestaurantes("agente de impressão: identificar pelo token", () =>
+    dbSemRls.unidade.findUnique({
+      where: { tokenImpressao: token },
+      select: { id: true, nome: true, ativo: true, tenantId: true },
+    })
+  );
 }
 
 /** GET — devolve o que está esperando para ser impresso. */
@@ -28,6 +39,14 @@ export async function GET(request: NextRequest) {
   if (!unidade?.ativo) {
     return NextResponse.json({ erro: "Token inválido." }, { status: 401 });
   }
+
+  /**
+   * A declaração acontece aqui, e não dentro do `unidadeDoToken`, porque
+   * `enterWith` não sobe para quem chamou: declarada lá, ela não valeria para
+   * as consultas abaixo. O agente não tem sessão, então não há cookie de onde
+   * o adapter pudesse tirar o restaurante sozinho.
+   */
+  declararTenant(unidade.tenantId);
 
   const trabalhos = await db.filaImpressao.findMany({
     where: { unidadeId: unidade.id, status: "PENDENTE" },
@@ -56,6 +75,9 @@ export async function POST(request: NextRequest) {
   if (!unidade?.ativo) {
     return NextResponse.json({ erro: "Token inválido." }, { status: 401 });
   }
+
+  // No corpo do handler, pelo mesmo motivo do GET acima.
+  declararTenant(unidade.tenantId);
 
   const corpo = (await request.json()) as { id?: string; ok?: boolean; erro?: string };
   if (!corpo.id) return NextResponse.json({ erro: "Informe o id." }, { status: 400 });
