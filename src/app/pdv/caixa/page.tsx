@@ -25,7 +25,7 @@ export default async function CaixaPage() {
   const unidade = await db.unidade.findFirst({ where: { id: sessao.unidadeId } });
   if (!unidade) {
     return (
-      <main className="flex min-h-screen items-center justify-center text-neutral-400">
+      <main className="flex min-h-tela items-center justify-center text-neutral-400">
         Nenhuma unidade encontrada.
       </main>
     );

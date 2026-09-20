@@ -271,7 +271,7 @@ export function MapaMesas({
       <div className="-mx-4 mb-5 space-y-2 border-b border-neutral-900 px-4 pb-4 sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:space-y-0">
         {/* A sangria negativa deixa o primeiro e o último chip encostarem na
             borda da tela ao rolar, em vez de morrerem dentro do padding. */}
-        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 sm:contents">
+        <div className="sem-barra-de-rolagem -mx-4 flex gap-2 overflow-x-auto px-4 sm:contents">
           <button
             onClick={() => guardarArea(null)}
             className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition ${
@@ -297,7 +297,7 @@ export function MapaMesas({
           ))}
         </div>
 
-        <div className="flex items-center gap-3 sm:contents">
+        <div className="flex items-stretch gap-3 sm:contents">
           <input
             ref={buscaRef}
             value={busca}
@@ -307,14 +307,35 @@ export function MapaMesas({
             className={`campo-de-busca min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 placeholder:text-neutral-600 focus:border-orange-600 focus:outline-none sm:order-2 sm:w-44 sm:flex-none ${TEXTO_DE_CAMPO}`}
           />
 
-          <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-neutral-400 sm:order-1 sm:ml-auto">
+          {/*
+            Ganha corpo de chip para parar de flutuar entre a busca e os
+            filtros de área — ele é um filtro como os outros e estava escrito
+            como legenda solta.
+
+            Aceso, usa laranja translúcido com um fio em volta, e não o
+            laranja sólido dos chips de área: aqueles são exclusivos entre si,
+            este soma. Cor igual faria parecer que ligar aqui desliga a área.
+
+            A caixinha continua à vista de propósito — é o que diz, sem
+            precisar tocar, que este liga e desliga.
+          */}
+          <label
+            /* A borda existe nos dois estados, só muda de cor: é ela que
+               fecha os 2px que faltavam para bater com a altura da busca, que
+               tem borda e este não tinha. */
+            className={`flex shrink-0 cursor-pointer select-none items-center gap-2 rounded-lg border px-3 text-sm font-medium transition sm:order-1 sm:ml-auto sm:py-2 ${
+              soOcupadas
+                ? "border-orange-600/50 bg-orange-600/15 text-orange-300"
+                : "border-neutral-800 bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
+            }`}
+          >
             <input
               type="checkbox"
               checked={soOcupadas}
               onChange={(e) => setSoOcupadas(e.target.checked)}
               className="h-4 w-4 accent-orange-600"
             />
-            Só ocupadas
+            Mesas ocupadas
           </label>
         </div>
       </div>

@@ -29,7 +29,7 @@ export default async function Home() {
   if (!sessao) redirect("/login");
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-neutral-950 px-6 text-neutral-100">
+    <main className="flex min-h-tela flex-col items-center justify-center bg-neutral-950 px-6 text-neutral-100">
       <h1 className="text-2xl font-bold tracking-tight">Gestão de Restaurantes</h1>
       <p className="mt-1 text-sm text-neutral-500">Selecione o ambiente</p>
 

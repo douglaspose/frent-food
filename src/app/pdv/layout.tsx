@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "PDV" };
  */
 export default function PdvLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 antialiased">
+    <div className="min-h-tela bg-neutral-950 text-neutral-100 antialiased">
       {children}
     </div>
   );

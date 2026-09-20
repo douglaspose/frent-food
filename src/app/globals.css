@@ -217,3 +217,35 @@ body {
   background: linear-gradient(to top, var(--cor-do-veu), transparent);
   pointer-events: none;
 }
+
+/**
+ * Rola, mas não mostra a barra.
+ *
+ * Nas faixas de filtro do celular — áreas no mapa, categorias na comanda — a
+ * barra de rolagem atravessa a linha inteira por causa de dois ou três chips
+ * que não couberam, e fica pesada numa tira de 40px de altura. O que indica
+ * que há mais coisa é o próprio chip cortado na borda.
+ *
+ * Só some a barra: o dedo continua arrastando e a roda do mouse também.
+ */
+.sem-barra-de-rolagem {
+  scrollbar-width: none;
+}
+
+.sem-barra-de-rolagem::-webkit-scrollbar {
+  display: none;
+}
+
+/**
+ * Altura mínima de uma tela, medida como o celular realmente mostra.
+ *
+ * Irmã de `.h-tela`, pelo mesmo motivo: `min-height: 100vh` no Safari do
+ * iPhone reserva a tela **sem** as barras do navegador, que estão lá. O
+ * conteúdo passa a ter altura mínima maior que a área visível e aparece
+ * rolagem em telas curtas — a de abrir mesa, com um título e três controles,
+ * rolava sem ter o que rolar.
+ */
+.min-h-tela {
+  min-height: 100vh;
+  min-height: 100dvh;
+}

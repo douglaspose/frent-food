@@ -37,7 +37,7 @@ export default async function FecharPage({ params }: { params: Promise<{ id: str
 
   if (!comanda) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+      <main className="flex min-h-tela flex-col items-center justify-center gap-4 px-6 text-center">
         <p className="text-neutral-400">A mesa {mesa.numero} não tem comanda aberta.</p>
         <BotaoVoltar
           href="/pdv"

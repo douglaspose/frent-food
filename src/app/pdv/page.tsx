@@ -27,7 +27,7 @@ export default async function PdvMesasPage() {
 
   if (!unidade) {
     return (
-      <main className="flex min-h-screen items-center justify-center p-6 text-center">
+      <main className="flex min-h-tela items-center justify-center p-6 text-center">
         <p className="text-neutral-400">
           Nenhuma unidade encontrada. Rode <code className="text-orange-400">npm run db:seed</code>.
         </p>

@@ -134,7 +134,7 @@ export function FechamentoScreen({
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-4 py-6">
+    <main className="mx-auto min-h-tela max-w-5xl px-4 py-6">
       <header className="mb-6 flex items-center gap-4">
         <BotaoVoltar href={`/pdv/mesa/${mesa.id}`} />
         <div>

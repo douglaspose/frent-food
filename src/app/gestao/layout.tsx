@@ -58,7 +58,7 @@ export default async function GestaoLayout({ children }: { children: ReactNode }
    */
   return (
     <div
-      className="min-h-screen bg-neutral-100 text-neutral-900"
+      className="min-h-tela bg-neutral-100 text-neutral-900"
       style={{ "--cor-do-veu": "#f5f5f5" } as React.CSSProperties}
     >
       <BarraAmbientes dados={await dadosDaBarra(sessao)} />

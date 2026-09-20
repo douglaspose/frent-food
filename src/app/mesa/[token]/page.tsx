@@ -40,7 +40,7 @@ export default async function MesaPublicaPage({
   const comanda = mesa.comandas[0];
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-neutral-950 px-6 text-center text-neutral-100">
+    <main className="flex min-h-tela flex-col items-center justify-center bg-neutral-950 px-6 text-center text-neutral-100">
       <p className="text-sm uppercase tracking-widest text-neutral-500">{mesa.unidade.nome}</p>
       <h1 className="mt-2 text-5xl font-bold">Mesa {mesa.numero}</h1>
 

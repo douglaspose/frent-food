@@ -311,7 +311,7 @@ export function ComandaScreen({
           garçom pelo telefone via um pedaço do cardápio e mais nada: o resto
           só chegava decorando o código na busca.
         */}
-        <nav className="flex shrink-0 gap-2 overflow-x-auto border-b border-neutral-900 px-3 py-2 lg:block lg:gap-0 lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-0">
+        <nav className="sem-barra-de-rolagem flex shrink-0 gap-2 overflow-x-auto border-b border-neutral-900 px-3 py-2 lg:block lg:gap-0 lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-0">
           {categorias.map((c) => (
             <button
               key={c.id}

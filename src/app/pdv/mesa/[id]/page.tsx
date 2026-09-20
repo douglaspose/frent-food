@@ -146,7 +146,7 @@ function AberturaDeMesa({
   exigeNome: boolean;
 }) {
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
+    <main className="mx-auto flex min-h-tela max-w-md flex-col justify-center px-6">
       <BotaoVoltar href="/pdv" rotulo="Mesas" className="mb-6" />
       <h1 className="texto-tela">Mesa {numero}</h1>
       <p className="texto-apoio mt-1 text-neutral-500">
