@@ -210,15 +210,21 @@ export function MapaMesas({
   return (
     <main className="mx-auto max-w-7xl px-4 pt-6 pb-24 sm:pb-6">
       {/*
-        `items-end`, não `items-baseline`.
+        `items-center`, depois de já ter sido `items-baseline` e `items-end`.
 
-        A propriedade com "baseline" no nome é a que erra aqui: o bloco da
-        direita é um flex, e a primeira linha de base dele vem do rótulo
-        pequeno ("OCUPADAS"), não dos números. O título acabava alinhado à
-        legenda e flutuava 24px acima do valor.
+        `items-baseline` erra porque o bloco da direita é um flex, e a primeira
+        linha de base dele vem do rótulo pequeno ("OCUPADAS"), não dos números:
+        o título alinhava com a legenda e flutuava 24px acima do valor.
 
-        Com `items-end` a base de "Mesas" cai exatamente sobre a de "4/46" —
-        medido, não estimado.
+        `items-end` corrigia isso — a base de "Mesas" caía exatamente sobre a
+        de "8/46" —, mas comprava uma coisa que não se vê pagando com uma que
+        se vê. A faixa tem 44px porque o bloco da direita tem duas linhas; com
+        o título empurrado para a base dela sobravam 19,5px de folga acima do
+        texto e 6,5px abaixo, e ele ficava visivelmente baixo. O casamento de
+        bases, esse, só se lê quando os dois textos estão perto — e aqui eles
+        estão em pontas opostas de um cabeçalho que passa de 1000px.
+
+        Centrado, a folga fica 13,5 acima e 12,5 abaixo. Medido, não estimado.
       */}
       {/*
         As duas linhas dividem a tela em três faixas, como na comanda: quem
@@ -226,7 +232,7 @@ export function MapaMesas({
         negativa faz a linha atravessar o padding do container em vez de parar
         onde o texto para.
       */}
-      <header className="-mx-4 mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-neutral-900 px-4 pb-4">
+      <header className="-mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-neutral-900 px-4 pb-4">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold tracking-tight">Mesas</h1>
           <SeloAoVivo estado={aoVivo} />
