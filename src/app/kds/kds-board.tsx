@@ -327,11 +327,28 @@ export function KdsBoard({
                   return (
                     <article
                       key={pedido.id}
+                      /**
+                       * O atraso é uma faixa na lateral, não um contorno.
+                       *
+                       * O cabeçalho deste cartão já é colorido — ele carrega a
+                       * cor da estação. Um contorno vermelho em volta disputava
+                       * com ela e ainda emoldurava o cartão: com vários
+                       * atrasados, a tela virava um quadriculado.
+                       *
+                       * De longe, que é como a cozinha lê, as faixas se alinham
+                       * numa coluna vertical e achar o atrasado vira uma
+                       * olhada. De perto, não mexem no fundo atrás do nome dos
+                       * pratos, que é o texto que precisa ser lido com pressa.
+                       *
+                       * Vai por sombra interna, e não por um filho posicionado
+                       * com `overflow-hidden`: o selo do relógio fica para fora
+                       * do cartão e seria cortado.
+                       */
                       className={`relative rounded-xl border-2 bg-neutral-900 ${
                         pedido.contaPedida
                           ? "border-orange-500"
                           : atrasado
-                            ? "border-red-600"
+                            ? "border-neutral-800 shadow-[inset_6px_0_0_var(--color-red-600)]"
                             : "border-neutral-800"
                       }`}
                     >
