@@ -54,7 +54,7 @@ export default async function KdsPage() {
     Number(alerta.find((a) => a.chave === chave)?.valor ?? padrao);
 
   return (
-    <div className="flex h-screen flex-col bg-neutral-950">
+    <div className="flex h-tela flex-col bg-neutral-950">
     <BarraAmbientes dados={await dadosDaBarra(sessao)} />
     <KdsBoard
       estacoes={estacoes.map((e) => ({ id: e.id, nome: e.nome, corHex: e.corHex }))}
