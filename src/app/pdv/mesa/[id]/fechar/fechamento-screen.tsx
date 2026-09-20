@@ -1,6 +1,7 @@
 "use client";
 
 import { temErro } from "@/lib/erro-de-operacao";
+import { BotaoVoltar } from "../../../botao-voltar";
 import { TEXTO_DE_CAMPO } from "@/lib/campo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -135,12 +136,7 @@ export function FechamentoScreen({
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-4 py-6">
       <header className="mb-6 flex items-center gap-4">
-        <Link
-          href={`/pdv/mesa/${mesa.id}`}
-          className="rounded-lg px-2 py-1 text-xl text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
-        >
-          ←
-        </Link>
+        <BotaoVoltar href={`/pdv/mesa/${mesa.id}`} />
         <div>
           <h1 className="text-xl font-bold">
             Fechar mesa {mesa.numero}

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { BotaoVoltar } from "../../../botao-voltar";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
@@ -39,9 +39,11 @@ export default async function FecharPage({ params }: { params: Promise<{ id: str
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
         <p className="text-neutral-400">A mesa {mesa.numero} não tem comanda aberta.</p>
-        <Link href="/pdv" className="text-orange-400 hover:text-orange-300">
-          ← Voltar às mesas
-        </Link>
+        <BotaoVoltar
+          href="/pdv"
+          rotulo="Voltar às mesas"
+          className="bg-orange-600 text-white hover:bg-orange-500 hover:text-white active:bg-orange-700"
+        />
       </main>
     );
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import { temErro } from "@/lib/erro-de-operacao";
+import { BotaoVoltar } from "../../botao-voltar";
 import { TEXTO_DE_CAMPO } from "@/lib/campo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -225,12 +226,7 @@ export function ComandaScreen({
   return (
     <div className="flex h-screen flex-col">
       <header className="relative flex shrink-0 items-center gap-4 border-b border-neutral-900 px-4 py-3">
-        <Link
-          href="/pdv"
-          className="rounded-lg px-2 py-1 text-xl text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
-        >
-          ←
-        </Link>
+        <BotaoVoltar href="/pdv" />
         <div>
           <h1 className="font-bold leading-tight">
             Mesa {mesa.numero}

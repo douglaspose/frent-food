@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { BotaoVoltar } from "../../botao-voltar";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { exigirSessao, temPermissao } from "@/lib/session";
@@ -147,9 +147,7 @@ function AberturaDeMesa({
 }) {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
-      <Link href="/pdv" className="mb-8 text-sm text-neutral-500 hover:text-neutral-300">
-        ← Mesas
-      </Link>
+      <BotaoVoltar href="/pdv" rotulo="Mesas" className="mb-6" />
       <h1 className="text-3xl font-bold">Mesa {numero}</h1>
       <p className="mt-1 text-sm text-neutral-500">
         {area ?? "Sem área"} · {capacidade} lugares · livre
