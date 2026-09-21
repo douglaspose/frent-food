@@ -48,7 +48,19 @@ export default async function GestaoLayout({ children }: { children: ReactNode }
       className="area-de-gestao min-h-tela bg-neutral-100 text-neutral-900"
       style={{ "--cor-do-veu": "#f5f5f5" } as React.CSSProperties}
     >
-      <BarraAmbientes dados={await dadosDaBarra(sessao)} />
+      {/*
+        O preto por trás da barra de ambientes.
+
+        Ela é `bg-neutral-950/80` — translúcida —, e sobre o cinza claro da
+        gestão desbotava: a mesma barra ficava de um tom em Mesas e de outro
+        aqui. Com o preto por trás, a translucidez cai sobre o mesmo fundo do
+        salão, e as duas telas passam a mostrar exatamente a mesma cor.
+
+        Só ela: o menu da gestão, logo abaixo, continua branco.
+      */}
+      <div className="bg-neutral-950">
+        <BarraAmbientes dados={await dadosDaBarra(sessao)} />
+      </div>
 
       <header className="border-b border-neutral-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center gap-x-6 gap-y-2 px-6 py-3">
