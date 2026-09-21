@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ORDEM_DOS_ATALHOS, PERIODOS, type ChaveDePeriodo } from "@/lib/periodo";
+import { CampoDeData } from "./campo-de-data";
 
 /**
  * O período vive na URL, não em estado local.
@@ -29,7 +30,18 @@ export function SeletorDePeriodo({
   const [abertoDe, setAbertoDe] = useState(de ?? "");
   const [abertoAte, setAbertoAte] = useState(ate ?? "");
 
-  const personalizado = chave === "personalizado";
+  /**
+   * Se os campos de data estão à mostra — e isto **não** é o mesmo que "o
+   * período mostrado é personalizado".
+   *
+   * Era, e o botão ficava morto: ele navegava para `?periodo=personalizado`,
+   * mas sem datas o `lerPeriodo` cai no padrão de 14 dias, a chave voltava
+   * como "14", e os campos nunca apareciam. Clicar não fazia nada visível.
+   *
+   * Agora abrir o formulário é estado local e não navega: o período só muda
+   * quando há duas datas e alguém aperta Aplicar.
+   */
+  const [camposAbertos, setCamposAbertos] = useState(chave === "personalizado");
 
   function ir(destino: Record<string, string>) {
     router.push(`/gestao?${new URLSearchParams(destino)}`);
@@ -47,7 +59,12 @@ export function SeletorDePeriodo({
       {ATALHOS.map(([valor, rotulo]) => (
         <button
           key={valor}
-          onClick={() => ir({ periodo: valor })}
+          onClick={() => {
+            // Escolher um atalho fecha o formulário: deixá-lo aberto sugeriria
+            // que aquelas datas ainda valem para o que está na tela.
+            setCamposAbertos(false);
+            ir({ periodo: valor });
+          }}
           aria-pressed={chave === valor}
           className={`realce-ao-toque shrink-0 touch-manipulation rounded-lg px-3 py-1.5 text-sm font-medium transition duration-100 active:scale-95 ${
             chave === valor
@@ -59,13 +76,21 @@ export function SeletorDePeriodo({
         </button>
       ))}
 
+      {/*
+        Este botão só abre o formulário — não navega. O preenchido continua
+        seguindo o que a tela mostra de verdade: enquanto não houver duas datas
+        aplicadas, quem fica marcado é o atalho que está valendo.
+      */}
       <button
-        onClick={() => (personalizado ? undefined : ir({ periodo: "personalizado" }))}
-        aria-pressed={personalizado}
+        onClick={() => setCamposAbertos(true)}
+        aria-expanded={camposAbertos}
+        aria-pressed={chave === "personalizado"}
         className={`realce-ao-toque shrink-0 touch-manipulation rounded-lg px-3 py-1.5 text-sm font-medium transition duration-100 active:scale-95 ${
-          personalizado
+          chave === "personalizado"
             ? "bg-neutral-900 text-white"
-            : "bg-white text-neutral-600 ring-1 ring-neutral-200 hover:bg-neutral-50"
+            : camposAbertos
+              ? "bg-white text-neutral-900 ring-2 ring-neutral-400"
+              : "bg-white text-neutral-600 ring-1 ring-neutral-200 hover:bg-neutral-50"
         }`}
       >
         Personalizado
@@ -76,24 +101,20 @@ export function SeletorDePeriodo({
         sempre à mostra somaria dois controles a uma linha que já tem oito
         botões, para uma escolha que é a exceção.
       */}
-      {personalizado && (
+      {camposAbertos && (
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          <input
-            type="date"
-            value={abertoDe}
+          <CampoDeData
+            rotulo="Data inicial"
+            valor={abertoDe}
             max={abertoAte || undefined}
-            onChange={(e) => setAbertoDe(e.target.value)}
-            aria-label="Data inicial"
-            className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm"
+            aoMudar={setAbertoDe}
           />
           <span className="text-sm text-neutral-500">até</span>
-          <input
-            type="date"
-            value={abertoAte}
+          <CampoDeData
+            rotulo="Data final"
+            valor={abertoAte}
             min={abertoDe || undefined}
-            onChange={(e) => setAbertoAte(e.target.value)}
-            aria-label="Data final"
-            className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm"
+            aoMudar={setAbertoAte}
           />
           <button
             onClick={aplicarPersonalizado}
