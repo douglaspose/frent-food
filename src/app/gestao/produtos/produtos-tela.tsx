@@ -151,7 +151,13 @@ export function ProdutosTela({
         )}
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-xl border border-neutral-200 bg-white">
+      {/*
+        Rola na horizontal em vez de cortar. Em 375px sobram 325px de largura
+        para uma tabela que pede 581 — medido —, e com overflow-hidden as colunas
+        de preço e de ações ficavam inalcançáveis no celular. Mesma solução do
+        Diário, que já fazia assim.
+      */}
+      <div className="mt-4 overflow-x-auto rounded-xl border border-neutral-200 bg-white">
         <table className="w-full text-sm">
           <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
             <tr>
@@ -166,7 +172,7 @@ export function ProdutosTela({
             {filtrados.map((p) => (
               <tr key={p.id} className={p.ativo ? "" : "opacity-50"}>
                 <td className="px-4 py-3 tabular-nums text-neutral-500">{p.codigo}</td>
-                <td className="px-4 py-3">
+                <td className="whitespace-nowrap px-4 py-3">
                   {p.titulo}
                   {p.exigePontoCarne && (
                     <span className="ml-2 rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
@@ -179,7 +185,7 @@ export function ProdutosTela({
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-neutral-500">{p.categoriaNome}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-neutral-500">{p.categoriaNome}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{brl.format(p.preco)}</td>
                 <td className="px-4 py-3 text-right">
                   {podeEditar && (
