@@ -108,45 +108,14 @@ export function SeletorDePeriodo({
         é o que faz os três controles lerem como um conjunto, e não como três
         coisas soltas acima do painel.
       */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-2">
-        <span className="pl-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
-          Período
-        </span>
-
-        {/*
-          `select` nativo, como no Diário: no celular ele abre a rodinha do
-          sistema, que é mais rápida e mais acessível que qualquer lista feita
-          à mão — e é o padrão que o resto da gestão já usa.
-        */}
-        <select
-          value={chave}
-          onChange={(e) => {
-            const escolha = e.target.value as ChaveDePeriodo;
-            // Personalizado sem datas não é um período: abre o formulário em
-            // vez de navegar para algo que cairia no padrão.
-            if (escolha === "personalizado") {
-              setCamposAbertos(true);
-              return;
-            }
-            ir({ periodo: escolha });
-          }}
-          aria-label="Período do painel"
-          className={`${controle} min-w-[11rem] border-neutral-200 bg-white font-semibold text-neutral-900`}
-        >
-          {ORDEM_DOS_ATALHOS.map((valor) => (
-            <option key={valor} value={valor}>
-              {PERIODOS[valor]}
-            </option>
-          ))}
-          <option value="personalizado">{rotuloPersonalizado}</option>
-        </select>
-
-        {/*
-          Os atalhos caem para a linha de baixo no celular — `w-full` com
-          `order-last` —, deixando select e calendário juntos em cima. É a
-          ordem em que se usa: escolher o período primeiro, ajustar depois.
-        */}
-        <div className="order-last flex w-full gap-1 sm:order-none sm:w-auto">
+      {/*
+        Dois grupos, e `justify-between` os separa: os atalhos do dia a dia à
+        esquerda, a lista inteira e o calendário à direita. No celular cada um
+        ocupa a largura toda e eles empilham na ordem em que estão escritos —
+        atalhos em cima, porque são o que se usa sem pensar.
+      */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-2">
+        <div className="flex w-full gap-1 sm:w-auto">
           {ATALHOS_RAPIDOS.map((a) => {
             const aceso = chave === a.chave;
             return (
@@ -164,25 +133,62 @@ export function SeletorDePeriodo({
           })}
         </div>
 
-        <button
-          onClick={() => (camposAbertos ? cancelar() : setCamposAbertos(true))}
-          aria-expanded={camposAbertos}
-          aria-label="Escolher um período personalizado"
-          className={`realce-ao-toque grid w-10 shrink-0 touch-manipulation place-items-center px-0 active:scale-95 ${controle} ${
-            chave === "personalizado" || camposAbertos ? ativo : inativo
-          }`}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            className="h-4 w-4"
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <span className="pl-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            Período
+          </span>
+
+          {/*
+            `select` nativo, como no Diário: no celular ele abre a rodinha do
+            sistema, que é mais rápida e mais acessível que qualquer lista feita
+            à mão — e é o padrão que o resto da gestão já usa.
+
+            `flex-1` no celular para ele preencher o que sobra ao lado do
+            calendário, em vez de deixar um vão à direita.
+          */}
+          <select
+            value={chave}
+            onChange={(e) => {
+              const escolha = e.target.value as ChaveDePeriodo;
+              // Personalizado sem datas não é um período: abre o formulário em
+              // vez de navegar para algo que cairia no padrão.
+              if (escolha === "personalizado") {
+                setCamposAbertos(true);
+                return;
+              }
+              ir({ periodo: escolha });
+            }}
+            aria-label="Período do painel"
+            className={`${controle} min-w-0 flex-1 border-neutral-200 bg-white font-semibold text-neutral-900 sm:min-w-[11rem] sm:flex-none`}
           >
-            <rect x="3" y="5" width="18" height="16" rx="2" />
-            <path d="M3 10h18M8 3v4M16 3v4" strokeLinecap="round" />
-          </svg>
-        </button>
+            {ORDEM_DOS_ATALHOS.map((valor) => (
+              <option key={valor} value={valor}>
+                {PERIODOS[valor]}
+              </option>
+            ))}
+            <option value="personalizado">{rotuloPersonalizado}</option>
+          </select>
+
+          <button
+            onClick={() => (camposAbertos ? cancelar() : setCamposAbertos(true))}
+            aria-expanded={camposAbertos}
+            aria-label="Escolher um período personalizado"
+            className={`realce-ao-toque grid w-10 shrink-0 touch-manipulation place-items-center px-0 active:scale-95 ${controle} ${
+              chave === "personalizado" || camposAbertos ? ativo : inativo
+            }`}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-4 w-4"
+            >
+              <rect x="3" y="5" width="18" height="16" rx="2" />
+              <path d="M3 10h18M8 3v4M16 3v4" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
 
         {/*
           O formulário abre dentro do mesmo bloco, e não sobreposto: um popover
