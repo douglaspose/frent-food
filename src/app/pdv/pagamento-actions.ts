@@ -77,6 +77,16 @@ export async function fecharCaixa(caixaId: string, valorInformado: number) {
         movimentos: true,
       },
     });
+    if (caixa.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Caixa de outro restaurante.");
+    /**
+     * Caixa fechado é número assinado. Fechar de novo regravava o valor
+     * informado, a divergência e quem fechou — uma falta de ontem sumia com
+     * um toque, e o diário ficava com dois fechamentos do mesmo caixa.
+     */
+    if (caixa.status !== "ABERTO") throw new ErroDeOperacao("Este caixa já foi fechado.");
+    if (!Number.isFinite(valorInformado) || valorInformado < 0) {
+      throw new ErroDeOperacao("Informe o valor contado na gaveta.");
+    }
 
     const comandasAbertas = await db.comanda.count({
       where: { unidadeId: caixa.unidadeId, status: { in: ["ABERTA", "FECHANDO"] } },
