@@ -109,13 +109,36 @@ export async function sessaoAtiva(): Promise<Sessao | null> {
   return sessao ? conferirNoBanco(sessao) : null;
 }
 
+/**
+ * Ativo, do mesmo restaurante, ainda vinculado à unidade — e com o cargo de
+ * hoje, não o do login.
+ *
+ * O cargo e as permissões iam no cookie e valiam as 12 horas dele: o gerente
+ * rebaixado a garçom no meio do turno continuava dando desconto sem PIN até o
+ * cookie vencer. Na mesma consulta que confere se a pessoa está ativa, o cargo
+ * é relido e substitui o do cookie.
+ */
 async function conferirNoBanco(sessao: Sessao): Promise<Sessao | null> {
   const usuario = await db.usuario.findUnique({
     where: { id: sessao.usuarioId },
-    select: { ativo: true, tenantId: true },
+    select: {
+      ativo: true,
+      tenantId: true,
+      unidades: {
+        where: { unidadeId: sessao.unidadeId },
+        select: {
+          cargo: { select: { nome: true, permissoes: { where: { permitido: true }, select: { chave: true } } } },
+        },
+      },
+    },
   });
-  if (!usuario?.ativo || usuario.tenantId !== sessao.tenantId) return null;
-  return sessao;
+  const vinculo = usuario?.unidades[0];
+  if (!usuario?.ativo || usuario.tenantId !== sessao.tenantId || !vinculo) return null;
+  return {
+    ...sessao,
+    cargo: vinculo.cargo.nome,
+    permissoes: vinculo.cargo.permissoes.map((p) => p.chave),
+  };
 }
 
 export function temPermissao(sessao: Sessao, chave: string) {
