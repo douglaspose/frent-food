@@ -674,7 +674,16 @@ export async function finalizarComanda(comandaId: string) {
       },
     });
 
-    await db.$transaction(async (tx) => {
+    /**
+     * Dois toques em "finalizar" passavam os dois pela conferência acima e
+     * emitiam dois cupons (e duas tentativas de NFC-e). Com a comanda travada,
+     * só o primeiro a fecha; o segundo encontra PAGA e sai sem efeito.
+     */
+    const fechouAgora = await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${comandaId} FOR UPDATE`;
+      const atual = await tx.comanda.findUniqueOrThrow({ where: { id: comandaId }, select: { status: true } });
+      if (atual.status === "PAGA") return false;
+
       await tx.comanda.update({
         where: { id: comandaId },
         data: { status: "PAGA", fechadaEm: new Date(), caixaId: caixa?.id ?? null },
@@ -696,7 +705,9 @@ export async function finalizarComanda(comandaId: string) {
           data: { status: limparAuto?.valor === false ? "SUJA" : "LIVRE" },
         });
       }
+      return true;
     });
+    if (!fechouAgora) return;
 
     // A conta já foi paga; se o cupom falhar, ninguém segura o cliente na porta.
     try {
