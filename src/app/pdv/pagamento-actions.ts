@@ -77,6 +77,16 @@ export async function fecharCaixa(caixaId: string, valorInformado: number) {
         movimentos: true,
       },
     });
+    if (caixa.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Caixa de outro restaurante.");
+    /**
+     * Caixa fechado é número assinado. Fechar de novo regravava o valor
+     * informado, a divergência e quem fechou — uma falta de ontem sumia com
+     * um toque, e o diário ficava com dois fechamentos do mesmo caixa.
+     */
+    if (caixa.status !== "ABERTO") throw new ErroDeOperacao("Este caixa já foi fechado.");
+    if (!Number.isFinite(valorInformado) || valorInformado < 0) {
+      throw new ErroDeOperacao("Informe o valor contado na gaveta.");
+    }
 
     const comandasAbertas = await db.comanda.count({
       where: { unidadeId: caixa.unidadeId, status: { in: ["ABERTA", "FECHANDO"] } },
@@ -357,6 +367,11 @@ export async function definirTaxaServico(comandaId: string, pct: number) {
     // Retirar a taxa é dinheiro a menos para o restaurante — mesma permissão do desconto.
     const sessao = await exigirPermissao("comanda.aplicarDesconto");
 
+    // Taxa negativa é desconto sem PIN e sem motivo: -100% zerava a conta.
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      throw new ErroDeOperacao("A taxa de serviço vai de 0% a 100%.");
+    }
+
     const antes = await db.comanda.findUniqueOrThrow({
       where: { id: comandaId },
       select: { tenantId: true, taxaServicoPct: true },
@@ -398,9 +413,29 @@ export async function aplicarDesconto(
     if (!liberacao) return { precisaAutorizacao: "DESCONTO" };
     const { sessao, aprovadoPor } = liberacao;
 
-    const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    const comanda = await db.comanda.findUniqueOrThrow({
+      where: { id: comandaId },
+      include: { itens: { where: CONSUMO, select: { precoTotal: true } } },
+    });
     // Faltava aqui: todas as outras ações conferem o tenant, esta não conferia.
     if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+
+    /**
+     * O total já limitava o desconto ao subtotal, mas o valor gravado não:
+     * R$ 417 de desconto numa conta de R$ 41,70 ficava na comanda e no diário,
+     * e qualquer relatório de descontos somaria os R$ 417.
+     */
+    if (!Number.isFinite(valor) || valor < 0) throw new ErroDeOperacao("Informe um desconto válido.");
+    const { subtotal } = calcularTotais({
+      itens: comanda.itens.map((i) => ({ precoTotal: Number(i.precoTotal) })),
+      taxaServicoPct: 0,
+      descontoValor: 0,
+    });
+    if (valor > subtotal + TOLERANCIA) {
+      throw new ErroDeOperacao(
+        `O desconto não pode passar do consumo (R$ ${subtotal.toFixed(2).replace(".", ",")}).`
+      );
+    }
 
     if (valor > 0 && (await ajusteBooleano(comanda.unidadeId, "caixa.exigirMotivoDesconto")) && !motivo.trim()) {
       throw new ErroDeOperacao("Informe o motivo do desconto.");
@@ -450,6 +485,16 @@ export async function registrarPagamento(
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.receberPagamento");
 
+    /**
+     * Valor e troco chegam do navegador. Sem esta conferência, pagamento
+     * negativo abatia a conta, troco maior que o valor virava dinheiro
+     * negativo no Painel, e NaN estourava como erro de sistema expondo a
+     * consulta inteira.
+     */
+    if (!Number.isFinite(valor) || valor <= 0) throw new ErroDeOperacao("Informe um valor maior que zero.");
+    if (!Number.isFinite(troco) || troco < 0) throw new ErroDeOperacao("Troco inválido.");
+    if (troco >= valor) throw new ErroDeOperacao("O troco não pode ser maior que o valor entregue.");
+
     const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
     if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
     if (comanda.status === "PAGA") throw new ErroDeOperacao("Comanda já está paga.");
@@ -473,30 +518,63 @@ export async function registrarPagamento(
      */
     const forma = await db.formaPagamento.findUnique({
       where: { id: formaPagamentoId },
-      select: { tenantId: true, ativo: true, taxaPct: true },
+      select: { tenantId: true, ativo: true, taxaPct: true, tipo: true },
     });
     if (!forma || forma.tenantId !== sessao.tenantId) {
       throw new ErroDeOperacao("Forma de pagamento não encontrada.");
     }
     if (!forma.ativo) throw new ErroDeOperacao("Esta forma de pagamento está desativada.");
+    // Só dinheiro tem troco: cartão e Pix são cobrados no valor exato.
+    if (troco > 0 && forma.tipo !== "DINHEIRO") throw new ErroDeOperacao("Só pagamento em dinheiro tem troco.");
 
     const taxaPct = Number(forma.taxaPct);
     // Troco fora da base: a adquirente cobra sobre o que passou na maquininha,
     // e o que voltou para a mão do cliente nunca passou.
     const taxaValor = centavos(((valor - troco) * taxaPct) / 100);
 
-    await db.pagamento.create({
-      data: {
-        tenantId: comanda.tenantId,
-        comandaId,
-        caixaId: caixa.id,
-        formaPagamentoId,
-        valor,
-        troco,
-        taxaPct,
-        taxaValor,
-        usuarioId: sessao.usuarioId,
-      },
+    /**
+     * Dois toques em "receber" cobravam duas vezes: R$ 91,74 numa conta de
+     * R$ 45,87. A comanda é travada para a conta e a gravação acontecerem
+     * juntas — o segundo toque espera o primeiro e encontra a conta quitada.
+     * E ninguém recebe mais do que falta: o que passar disso é troco, e troco
+     * se lança como troco.
+     */
+    await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${comandaId} FOR UPDATE`;
+      const atual = await tx.comanda.findUniqueOrThrow({
+        where: { id: comandaId },
+        include: {
+          itens: { where: CONSUMO, select: { precoTotal: true } },
+          pagamentos: { select: { valor: true, troco: true } },
+        },
+      });
+      if (atual.status === "PAGA") throw new ErroDeOperacao("Comanda já está paga.");
+
+      const { total } = calcularTotais({
+        itens: atual.itens.map((i) => ({ precoTotal: Number(i.precoTotal) })),
+        taxaServicoPct: Number(atual.taxaServicoPct),
+        descontoValor: Number(atual.descontoValor),
+      });
+      const recebido = centavos(atual.pagamentos.reduce((s, p) => s + Number(p.valor) - Number(p.troco), 0));
+      const falta = centavos(total - recebido);
+      if (falta <= TOLERANCIA) throw new ErroDeOperacao("Esta conta já está quitada.");
+      if (valor - troco > falta + TOLERANCIA) {
+        throw new ErroDeOperacao(`Falta receber só R$ ${falta.toFixed(2).replace(".", ",")}.`);
+      }
+
+      await tx.pagamento.create({
+        data: {
+          tenantId: comanda.tenantId,
+          comandaId,
+          caixaId: caixa.id,
+          formaPagamentoId,
+          valor,
+          troco,
+          taxaPct,
+          taxaValor,
+          usuarioId: sessao.usuarioId,
+        },
+      });
     });
 
     revalidatePath("/pdv");
@@ -606,13 +684,28 @@ export async function finalizarComanda(comandaId: string) {
       },
     });
 
-    await db.$transaction(async (tx) => {
+    /**
+     * Dois toques em "finalizar" passavam os dois pela conferência acima e
+     * emitiam dois cupons (e duas tentativas de NFC-e). Com a comanda travada,
+     * só o primeiro a fecha; o segundo encontra PAGA e sai sem efeito.
+     */
+    const fechouAgora = await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${comandaId} FOR UPDATE`;
+      const atual = await tx.comanda.findUniqueOrThrow({ where: { id: comandaId }, select: { status: true } });
+      if (atual.status === "PAGA") return false;
+
       await tx.comanda.update({
         where: { id: comandaId },
         data: { status: "PAGA", fechadaEm: new Date(), caixaId: caixa?.id ?? null },
       });
+      /**
+       * Carrinho fica fora. O item PENDENTE nunca foi enviado nem cobrado —
+       * o total acima o exclui —, mas virava ENTREGUE aqui: a conta paga
+       * passava a ter um item não pago, que entrava no faturamento sem ter
+       * baixado estoque.
+       */
       await tx.comandaItem.updateMany({
-        where: { comandaId, status: { notIn: ["CANCELADO", "ENTREGUE"] } },
+        where: { comandaId, status: { notIn: ["CANCELADO", "ENTREGUE", "PENDENTE"] } },
         data: { status: "ENTREGUE" },
       });
       if (comanda.mesaId) {
@@ -622,7 +715,9 @@ export async function finalizarComanda(comandaId: string) {
           data: { status: limparAuto?.valor === false ? "SUJA" : "LIVRE" },
         });
       }
+      return true;
     });
+    if (!fechouAgora) return;
 
     // A conta já foi paga; se o cupom falhar, ninguém segura o cliente na porta.
     try {

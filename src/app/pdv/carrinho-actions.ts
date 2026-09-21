@@ -42,23 +42,56 @@ async function comandaAberta(comandaId: string, tenantId: string) {
   return comanda;
 }
 
+/**
+ * O item do cardápio da unidade da comanda — e é dele que saem produto e preço.
+ *
+ * O navegador manda preço e produto, mas server action é endpoint público:
+ * gravar o que chega deixava lançar picanha a um centavo, preço negativo para
+ * abater a conta, item do cardápio de outro restaurante e a picanha cobrada a
+ * preço de água. Nada disso aparecia no diário. O que vale é o cardápio.
+ */
+async function itemDoCardapio(cardapioItemId: string, unidadeId: string) {
+  const item = await db.cardapioItem.findUnique({
+    where: { id: cardapioItemId },
+    select: {
+      produtoId: true,
+      preco: true,
+      esgotado: true,
+      cardapio: { select: { unidadeId: true, ativo: true } },
+      produto: { select: { exigePontoCarne: true } },
+    },
+  });
+  // Chave estrangeira ignora o RLS: a conferência da unidade é aqui, no código.
+  if (!item || item.cardapio.unidadeId !== unidadeId || !item.cardapio.ativo) {
+    throw new ErroDeOperacao("Item fora do cardápio desta casa.");
+  }
+  if (item.esgotado) throw new ErroDeOperacao("Este item está esgotado.");
+  return item;
+}
+
 export async function adicionarAoCarrinho(dados: {
   comandaId: string;
   produtoId: string;
   cardapioItemId: string;
+  /** Ignorado: o preço vem do cardápio. Fica na assinatura pela tela. */
   precoUnitario: number;
   exigePontoCarne: boolean;
 }) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.lancarItem");
     const comanda = await comandaAberta(dados.comandaId, sessao.tenantId);
+    const item = await itemDoCardapio(dados.cardapioItemId, comanda.unidadeId);
+    if (dados.produtoId !== item.produtoId) {
+      throw new ErroDeOperacao("O produto não corresponde ao item do cardápio.");
+    }
+    const precoUnitario = Number(item.preco);
 
     // Item com ponto da carne nunca agrupa: cada unidade pode ter o seu.
-    if (!dados.exigePontoCarne) {
+    if (!item.produto.exigePontoCarne) {
       const existente = await db.comandaItem.findFirst({
         where: {
           comandaId: dados.comandaId,
-          produtoId: dados.produtoId,
+          produtoId: item.produtoId,
           status: "PENDENTE",
           pontoCarne: null,
         },
@@ -81,11 +114,11 @@ export async function adicionarAoCarrinho(dados: {
       data: {
         tenantId: comanda.tenantId,
         comandaId: dados.comandaId,
-        produtoId: dados.produtoId,
+        produtoId: item.produtoId,
         cardapioItemId: dados.cardapioItemId,
         quantidade: 1,
-        precoUnitario: dados.precoUnitario,
-        precoTotal: dados.precoUnitario,
+        precoUnitario,
+        precoTotal: precoUnitario,
         status: "PENDENTE",
         lancadoPorId: sessao.usuarioId,
       },

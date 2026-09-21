@@ -88,17 +88,57 @@ export async function exigirSessao(): Promise<Sessao> {
   const sessao = await lerSessao();
   if (!sessao) throw new Error("Sessão expirada. Faça login novamente.");
 
-  const usuario = await db.usuario.findUnique({
-    where: { id: sessao.usuarioId },
-    select: { ativo: true, tenantId: true },
-  });
-
-  if (!usuario?.ativo || usuario.tenantId !== sessao.tenantId) {
+  const valida = await conferirNoBanco(sessao);
+  if (!valida) {
     await tentarEncerrarSessao();
     throw new Error("Seu acesso foi encerrado. Faça login novamente.");
   }
 
-  return sessao;
+  return valida;
+}
+
+/**
+ * A sessão do cookie, só se ela ainda vale no banco — sem lançar.
+ *
+ * É o que a tela de login usa para decidir se manda para o PDV. Ela olhava só
+ * a assinatura do cookie: com a pessoa desligada, o login mandava para o PDV,
+ * o PDV recusava, e ninguém mais entrava naquele tablet até o cookie vencer.
+ */
+export async function sessaoAtiva(): Promise<Sessao | null> {
+  const sessao = await lerSessao();
+  return sessao ? conferirNoBanco(sessao) : null;
+}
+
+/**
+ * Ativo, do mesmo restaurante, ainda vinculado à unidade — e com o cargo de
+ * hoje, não o do login.
+ *
+ * O cargo e as permissões iam no cookie e valiam as 12 horas dele: o gerente
+ * rebaixado a garçom no meio do turno continuava dando desconto sem PIN até o
+ * cookie vencer. Na mesma consulta que confere se a pessoa está ativa, o cargo
+ * é relido e substitui o do cookie.
+ */
+async function conferirNoBanco(sessao: Sessao): Promise<Sessao | null> {
+  const usuario = await db.usuario.findUnique({
+    where: { id: sessao.usuarioId },
+    select: {
+      ativo: true,
+      tenantId: true,
+      unidades: {
+        where: { unidadeId: sessao.unidadeId },
+        select: {
+          cargo: { select: { nome: true, permissoes: { where: { permitido: true }, select: { chave: true } } } },
+        },
+      },
+    },
+  });
+  const vinculo = usuario?.unidades[0];
+  if (!usuario?.ativo || usuario.tenantId !== sessao.tenantId || !vinculo) return null;
+  return {
+    ...sessao,
+    cargo: vinculo.cargo.nome,
+    permissoes: vinculo.cargo.permissoes.map((p) => p.chave),
+  };
 }
 
 export function temPermissao(sessao: Sessao, chave: string) {

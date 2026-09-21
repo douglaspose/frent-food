@@ -37,14 +37,25 @@ export async function avancarPedido(pedidoId: string, para: Avanco) {
       include: { itens: { select: { comandaItemId: true } } },
     });
     if (pedido.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Pedido de outro restaurante.");
+    if (pedido.status === "CANCELADO") throw new ErroDeOperacao("Este pedido foi cancelado.");
 
     await db.$transaction([
       db.pedido.update({
         where: { id: pedidoId },
         data: { status: para, [CARIMBO[para]]: new Date() },
       }),
+      /**
+       * O item cancelado fica cancelado. Sem este filtro, a cozinha tocando
+       * "em preparo" num ticket com um prato já cancelado devolvia o prato à
+       * conta: o cliente pagava o que devolveu, e o estoque — devolvido no
+       * cancelamento — ficava errado. O dia simulado achou isto como conta
+       * que "recebeu a menos".
+       */
       db.comandaItem.updateMany({
-        where: { id: { in: pedido.itens.map((i) => i.comandaItemId) } },
+        where: {
+          id: { in: pedido.itens.map((i) => i.comandaItemId) },
+          status: { notIn: ["CANCELADO", "PENDENTE"] },
+        },
         data: { status: STATUS_DO_ITEM[para] },
       }),
     ]);
