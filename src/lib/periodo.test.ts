@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { ORDEM_DOS_ATALHOS, PERIODOS, comoTexto, lerPeriodo, variacao } from "./periodo";
+import {
+  ORDEM_DOS_ATALHOS,
+  PERIODOS,
+  comoTexto,
+  diasDoIntervalo,
+  janelaDoGrafico,
+  lerPeriodo,
+  variacao,
+} from "./periodo";
 
 /**
  * Uma quinta-feira no meio de setembro, às 15h. O horário importa: quase todo
@@ -138,6 +146,58 @@ describe("período do painel", () => {
     // `toISOString()` aqui devolveria o dia anterior à noite no horário de
     // Brasília — e o formulário abriria com a data errada.
     expect(comoTexto(new Date(2026, 8, 17, 22, 0))).toBe("2026-09-17");
+  });
+});
+
+describe("janela do gráfico", () => {
+  it("hoje vira uma semana, terminando hoje", () => {
+    // Um dia só desenhava uma barra gigante sozinha no cartão.
+    const p = lerPeriodo({ periodo: "hoje" }, AGORA);
+    const g = janelaDoGrafico(p);
+
+    expect(janela(g)).toBe("11/09 00:00 → 18/09 00:00");
+  });
+
+  it("ontem vira uma semana terminando ontem, e não hoje", () => {
+    /**
+     * A última barra tem que ser o dia que os cartões contaram. Terminar em
+     * hoje mostraria um dia que não entrou em nenhum número da tela.
+     */
+    const p = lerPeriodo({ periodo: "ontem" }, AGORA);
+    const g = janelaDoGrafico(p);
+
+    expect(janela(g)).toBe("10/09 00:00 → 17/09 00:00");
+    expect(g.fim.getTime()).toBe(p.atual.fim.getTime());
+  });
+
+  it("de uma semana para cima o gráfico é o próprio período", () => {
+    for (const chave of ["7", "14", "30", "mes", "mes-anterior"]) {
+      const p = lerPeriodo({ periodo: chave }, AGORA);
+      const g = janelaDoGrafico(p);
+
+      expect(g.inicio.getTime()).toBe(p.atual.inicio.getTime());
+      expect(g.fim.getTime()).toBe(p.atual.fim.getTime());
+    }
+  });
+
+  it("personalizado de dois dias também é esticado", () => {
+    const p = lerPeriodo({ periodo: "personalizado", de: "2026-09-10", ate: "2026-09-11" }, AGORA);
+
+    expect(janela(janelaDoGrafico(p))).toBe("05/09 00:00 → 12/09 00:00");
+  });
+});
+
+describe("dias do intervalo", () => {
+  it("o último dia sai do fim menos um, porque o fim é exclusivo", () => {
+    const p = lerPeriodo({ periodo: "hoje" }, AGORA);
+
+    expect(diasDoIntervalo(p.atual)).toEqual({ primeiro: "2026-09-17", ultimo: "2026-09-17" });
+  });
+
+  it("marca as duas pontas de um período longo", () => {
+    const p = lerPeriodo({ periodo: "7" }, AGORA);
+
+    expect(diasDoIntervalo(p.atual)).toEqual({ primeiro: "2026-09-11", ultimo: "2026-09-17" });
   });
 });
 

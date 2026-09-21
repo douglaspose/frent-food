@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { exigirSessao } from "@/lib/session";
-import { lerPeriodo, variacao } from "@/lib/periodo";
+import { diasDoIntervalo, janelaDoGrafico, lerPeriodo, variacao } from "@/lib/periodo";
 import {
   alertasDoPainel,
   coberturaDeCusto,
@@ -129,7 +129,15 @@ export default async function PainelPage({
   const { atual, anterior } = await resumoDosPeriodos(unidade, periodo);
   const emAberto = await totalEmAberto(unidade);
   const cobertura = await coberturaDeCusto(unidade, periodo.atual);
-  const serie = await faturamentoELucroPorDia(unidade, periodo.atual);
+  /**
+   * O gráfico tem a sua própria janela: em "Hoje" e "Ontem" ele abre para uma
+   * semana, porque uma barra sozinha não é gráfico. O destaque marca quais dias
+   * são o período dos cartões, para o gráfico não passar a contradizê-los.
+   */
+  const janela = janelaDoGrafico(periodo);
+  const serie = await faturamentoELucroPorDia(unidade, janela);
+  const destaque = diasDoIntervalo(periodo.atual);
+  const graficoMaiorQuePeriodo = periodo.dias < serie.length;
   const ranking = await rankingDeProdutos(unidade, periodo.atual);
   const categorias = await vendasPorCategoria(unidade, periodo.atual);
   const formas = await formasDePagamento(unidade, periodo.atual);
@@ -265,15 +273,18 @@ export default async function PainelPage({
 
       <div className="mt-8 grid gap-6 lg:grid-cols-5">
         <section className="min-w-0 rounded-xl border border-neutral-200 bg-white p-5 lg:col-span-3">
-          <h2 className="mb-4 text-sm font-semibold">
-            {semCusto ? "Faturamento por dia" : "Faturamento e lucro por dia"}
-          </h2>
           {/*
-            Sem nenhum custo lançado no período, a fatia de custo seria uma
-            legenda prometendo uma informação que o gráfico não tem — então o
-            gráfico volta a ser só de faturamento, e o título diz isso.
+            O título mora dentro do gráfico porque muda com o checkbox de custo,
+            que é escolha de quem está olhando. Sem custo lançado no período o
+            checkbox nem aparece: oferecer a opção prometeria uma informação que
+            o gráfico não tem.
           */}
-          <GraficoVendas dados={serie} comCusto={!semCusto} />
+          <GraficoVendas
+            dados={serie}
+            temCusto={!semCusto}
+            destaque={destaque}
+            janelaMaiorQuePeriodo={graficoMaiorQuePeriodo}
+          />
         </section>
 
         <section className="min-w-0 rounded-xl border border-neutral-200 bg-white p-5 lg:col-span-2">

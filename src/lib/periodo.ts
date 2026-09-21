@@ -204,6 +204,43 @@ export function lerPeriodo(
 }
 
 /**
+ * O gráfico por dia nunca mostra menos de uma semana.
+ *
+ * Em "Hoje" ou "Ontem" o período tem um dia só, e o gráfico virava uma barra
+ * gigante sozinha no cartão — que não é gráfico, é um número desenhado. Com sete
+ * dias a barra do dia escolhido aparece ao lado das anteriores, e aí dá para ver
+ * se hoje está acima ou abaixo do normal, que é a pergunta de quem abre "Hoje".
+ */
+export const MINIMO_DE_DIAS_NO_GRAFICO = 7;
+
+/**
+ * A janela que o gráfico desenha — nem sempre a mesma dos cartões.
+ *
+ * Termina onde o período termina, e não no dia de hoje: em "Ontem" a última
+ * barra é ontem, senão o gráfico mostraria um dia que os cartões não contaram.
+ */
+export function janelaDoGrafico(periodo: Pick<Periodo, "atual" | "dias">): Intervalo {
+  if (periodo.dias >= MINIMO_DE_DIAS_NO_GRAFICO) return periodo.atual;
+
+  const inicio = new Date(periodo.atual.fim);
+  inicio.setDate(inicio.getDate() - MINIMO_DE_DIAS_NO_GRAFICO);
+  return { inicio, fim: periodo.atual.fim };
+}
+
+/**
+ * O primeiro e o último dia locais que um intervalo cobre, como "2026-09-20".
+ *
+ * O último sai de `fim` menos um dia, porque `fim` é exclusivo: em "Hoje" ele é
+ * a meia-noite de amanhã, e usá-lo direto marcaria um dia que não existe no
+ * período.
+ */
+export function diasDoIntervalo(intervalo: Intervalo) {
+  const ultimo = new Date(intervalo.fim);
+  ultimo.setDate(ultimo.getDate() - 1);
+  return { primeiro: comoTexto(intervalo.inicio), ultimo: comoTexto(ultimo) };
+}
+
+/**
  * A variação entre dois valores, em porcentagem.
  *
  * `null` quando não há base de comparação. Sair de zero para mil não é
