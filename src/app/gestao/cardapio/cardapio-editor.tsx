@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { temErro } from "@/lib/erro-de-operacao";
 import { alterarPreco, alternarEsgotado } from "../actions";
 
 export type ItemCardapio = {
@@ -64,19 +65,37 @@ export function CardapioEditor({
     }))
     .filter((c) => c.itens.length > 0);
 
-  function salvarPreco(item: ItemCardapio, texto: string) {
-    const novo = lerPreco(texto);
+  /**
+   * Recebe o campo, e não o texto dele, porque a recusa precisa desfazer o que
+   * está na tela. Sem isso, o preço que o servidor rejeitou continua escrito no
+   * campo, e o que se vê é um valor que não existe em lugar nenhum.
+   */
+  function salvarPreco(item: ItemCardapio, campo: HTMLInputElement) {
+    const novo = lerPreco(campo.value);
     if (!Number.isFinite(novo) || novo === item.preco) return;
 
     setErro(null);
     iniciar(async () => {
       try {
-        await alterarPreco(item.id, novo);
+        /*
+         * Regra de negócio recusada volta como valor, não como exceção — é a
+         * doutrina de `erro-de-operacao.ts`. Sem conferir, um preço negativo
+         * ganhava a tarja verde de salvo e o campo ficava exibindo o valor
+         * recusado: o gerente saía dali achando que tinha mudado o preço.
+         */
+        const r = await alterarPreco(item.id, novo);
+        if (temErro(r)) {
+          setErro(r.erro);
+          campo.value = brl.format(item.preco);
+          return;
+        }
+
         setSalvo(item.id);
         // O "salvo" some sozinho: é confirmação, não estado permanente.
         setTimeout(() => setSalvo(null), 1500);
         router.refresh();
       } catch (e) {
+        campo.value = brl.format(item.preco);
         setErro(e instanceof Error ? e.message : "Não foi possível alterar o preço.");
       }
     });
@@ -86,7 +105,11 @@ export function CardapioEditor({
     setErro(null);
     iniciar(async () => {
       try {
-        await alternarEsgotado(item.id, !item.esgotado);
+        const r = await alternarEsgotado(item.id, !item.esgotado);
+        if (temErro(r)) {
+          setErro(r.erro);
+          return;
+        }
         router.refresh();
       } catch (e) {
         setErro(e instanceof Error ? e.message : "Não foi possível alterar.");
@@ -155,7 +178,7 @@ export function CardapioEditor({
                       // quando na verdade eram R$ 1.890,00.
                       key={item.preco}
                       defaultValue={brl.format(item.preco)}
-                      onBlur={(e) => salvarPreco(item, e.target.value)}
+                      onBlur={(e) => salvarPreco(item, e.target)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") e.currentTarget.blur();
                       }}
