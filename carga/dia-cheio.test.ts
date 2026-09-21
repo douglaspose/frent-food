@@ -390,6 +390,22 @@ describe("conferência do fim do dia", () => {
   });
 
   /**
+   * O número é o que a cozinha grita e o que sai no papel pendurado na
+   * chapa. Dois tickets com o mesmo número é prato na mesa errada.
+   * (Acrescentado na rodada de 21/09: a tabela não tem unique, então a
+   * repetição não dá erro nenhum — só aparece contando.)
+   */
+  it("os números de ticket da cozinha não se repetem", async () => {
+    const repetidos = await admin.pedido.groupBy({
+      by: ["numero"],
+      where: { unidadeId: r.unidade.id },
+      _count: { _all: true },
+      having: { numero: { _count: { gt: 1 } } },
+    });
+    expect(repetidos.map((g) => `#${g.numero} x${g._count._all}`)).toEqual([]);
+  });
+
+  /**
    * A conferência mais sensível à concorrência: dois garçons mandando a mesma
    * cerveja no mesmo instante. Se o saldo é lido e regravado sem trava, uma
    * das saídas some e a geladeira não bate com o vendido.
