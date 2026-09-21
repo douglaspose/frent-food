@@ -40,6 +40,13 @@ export const SECOES_DE_CONFIGURACAO: SecaoDeConfiguracao[] = [
     descricao: "As impressoras do salão e da cozinha, e o token do agente que fala com elas.",
   },
   {
+    href: "/gestao/caixas",
+    titulo: "Fechamentos de caixa",
+    descricao:
+      "Os turnos já encerrados: o que entrou, o que saiu da gaveta e a diferença de cada contagem.",
+    permissao: "auditoria.ver",
+  },
+  {
     href: "/gestao/formas-pagamento",
     titulo: "Formas de pagamento",
     descricao:
