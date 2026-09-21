@@ -584,17 +584,42 @@ describe("exploração de 21/09", () => {
 
   /**
    * O estorno apaga o pagamento. Numa conta já quitada, que saiu do mapa,
-   * isso deixa uma comanda PAGA devendo: o dinheiro sai do caixa e a venda
+   * isso deixava uma comanda PAGA devendo: o dinheiro sai do caixa e a venda
    * continua no faturamento como recebida.
+   *
+   * A regra, decidida pelo dono em 21/09: conta paga não tem estorno — a
+   * devolução sai como sangria. Então o teste exige a recusa, e que o
+   * pagamento continue lá.
    */
-  it("estornar o pagamento de uma conta já quitada não a deixa paga devendo", async () => {
+  it("conta já paga não aceita estorno", async () => {
     const comandaId = await comandaPronta(A.garcons[0]!, 36);
     await pagarTudo(A.caixas[0]!, comandaId);
     const pagamento = await admin.pagamento.findFirstOrThrow({ where: { comandaId } });
-    await tentar(A.caixas[0]!, () => estornarPagamento(pagamento.id));
+    const t = await tentar(A.caixas[0]!, () => estornarPagamento(pagamento.id));
+    const aindaLa = await admin.pagamento.count({ where: { id: pagamento.id } });
     const comanda = await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } });
-    const { total, pago } = await totalConsumido(comandaId);
-    expect(comanda.status === "PAGA" && pago + 0.005 < total, "comanda PAGA devendo").toBe(false);
+    expect({ recusou: recusou(t), aindaLa, status: comanda.status }).toEqual({
+      recusou: true,
+      aindaLa: 1,
+      status: "PAGA",
+    });
+  });
+
+  /**
+   * O que continua permitido: corrigir um fechamento em andamento. Proibir o
+   * estorno depois de pago não pode tirar do caixa o jeito de desfazer uma
+   * forma de pagamento escolhida errado antes de finalizar.
+   */
+  it("antes de finalizar, o estorno continua corrigindo o fechamento", async () => {
+    const comandaId = await comandaPronta(A.garcons[0]!, 50);
+    const caixa = A.caixas[0]!;
+    await como(caixa, () => iniciarFechamento(comandaId));
+    const { total } = await totalConsumido(comandaId);
+    await como(caixa, () => registrarPagamento(comandaId, A.formas.credito.id, total, 0));
+    const pagamento = await admin.pagamento.findFirstOrThrow({ where: { comandaId } });
+    const t = await tentar(caixa, () => estornarPagamento(pagamento.id));
+    const restantes = await admin.pagamento.count({ where: { comandaId } });
+    expect({ recusou: recusou(t), restantes }).toEqual({ recusou: false, restantes: 0 });
   });
 
   /**

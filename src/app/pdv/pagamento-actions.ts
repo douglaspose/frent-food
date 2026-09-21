@@ -588,10 +588,38 @@ export async function estornarPagamento(pagamentoId: string) {
 
     const pagamento = await db.pagamento.findUniqueOrThrow({
       where: { id: pagamentoId },
-      include: { comanda: { select: { id: true, status: true, mesaId: true, tenantId: true } } },
+      include: {
+        comanda: { select: { id: true, status: true, mesaId: true, tenantId: true } },
+        caixa: { select: { status: true } },
+      },
     });
     if (pagamento.comanda.tenantId !== sessao.tenantId) {
       throw new ErroDeOperacao("Pagamento de outro restaurante.");
+    }
+
+    /*
+     * Estorno é para corrigir um fechamento em andamento — forma errada, valor
+     * digitado errado, cliente que resolveu continuar. Depois disso, é
+     * proibido, por decisão do dono:
+     *
+     * - Conta já paga: apagar o pagamento deixava a comanda PAGA e devendo — a
+     *   venda seguia no faturamento como recebida, com o dinheiro fora.
+     * - Caixa já fechado: o fechamento é um número assinado por alguém, com a
+     *   contagem da gaveta. O estorno reescrevia o apurado de um turno que já
+     *   foi conferido e entregue.
+     *
+     * Devolução ao cliente depois disso sai como sangria, com o motivo — fica
+     * no caixa de hoje, e o de ontem continua sendo o de ontem.
+     */
+    if (pagamento.caixa?.status === "FECHADO") {
+      throw new ErroDeOperacao(
+        "O caixa deste pagamento já foi fechado. Para devolver ao cliente, registre uma sangria no caixa de hoje, com o motivo."
+      );
+    }
+    if (pagamento.comanda.status === "PAGA") {
+      throw new ErroDeOperacao(
+        "Esta conta já foi paga e fechada. Para devolver ao cliente, registre uma sangria com o motivo."
+      );
     }
 
     // O pagamento desaparece da tabela: se o diário não guardar o valor agora,
