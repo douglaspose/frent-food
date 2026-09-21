@@ -33,6 +33,10 @@ export const ACOES = {
   USUARIO_EDITADO: "Usuário editado",
   USUARIO_DESATIVADO: "Usuário desativado",
   USUARIO_REATIVADO: "Usuário reativado",
+  FORMA_PAGAMENTO_CRIADA: "Forma de pagamento criada",
+  FORMA_PAGAMENTO_EDITADA: "Forma de pagamento editada",
+  FORMA_PAGAMENTO_DESATIVADA: "Forma de pagamento desativada",
+  FORMA_PAGAMENTO_REATIVADA: "Forma de pagamento reativada",
 } as const;
 
 export type Acao = keyof typeof ACOES;

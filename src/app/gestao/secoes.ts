@@ -40,6 +40,13 @@ export const SECOES_DE_CONFIGURACAO: SecaoDeConfiguracao[] = [
     descricao: "As impressoras do salão e da cozinha, e o token do agente que fala com elas.",
   },
   {
+    href: "/gestao/formas-pagamento",
+    titulo: "Formas de pagamento",
+    descricao:
+      "O que o caixa pode escolher ao fechar a conta, a taxa da maquininha e em quantos dias o dinheiro cai.",
+    permissao: "unidade.configurar",
+  },
+  {
     href: "/gestao/fiscal",
     titulo: "Fiscal",
     descricao: "Emissão de NFC-e: certificado, CSC, série e ambiente de homologação.",
