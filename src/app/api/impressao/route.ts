@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db, dbSemRls } from "@/lib/db";
 import { atravessandoRestaurantes, declararTenant } from "@/lib/tenant-atual";
+import { LEVA_MARCA, marcaParaImpressora } from "@/lib/marca-impressa";
 
 export const dynamic = "force-dynamic";
 
@@ -55,13 +56,33 @@ export async function GET(request: NextRequest) {
     include: { impressora: { select: { nome: true, conexao: true, endereco: true } } },
   });
 
+  /*
+   * A marca vem uma vez por resposta, e não dentro de cada trabalho.
+   *
+   * São os mesmos 9 KB de raster para os vinte trabalhos do lote; repeti-los
+   * em cada um multiplicaria a resposta por vinte sem dizer nada de novo. O
+   * trabalho diz apenas se leva marca, e o agente busca aqui em cima.
+   *
+   * Fora do lote vazio: sem nada para imprimir não há por que converter
+   * imagem, e esta é a chamada que o agente repete o dia inteiro.
+   */
+  const levaMarca = trabalhos.some((t) => LEVA_MARCA.has(t.tipo));
+  const marca = levaMarca ? await marcaParaImpressora(unidade.tenantId) : null;
+
   return NextResponse.json({
     unidade: unidade.nome,
+    marca,
     trabalhos: trabalhos.map((t) => ({
       id: t.id,
       tipo: t.tipo,
       titulo: t.titulo,
       conteudo: t.conteudo,
+      /*
+       * Campo novo, e por isso um booleano em vez de mudar o `conteudo`: o
+       * agente que não souber de marca nenhuma ignora e continua imprimindo
+       * o texto como sempre imprimiu.
+       */
+      comMarca: LEVA_MARCA.has(t.tipo) && Boolean(marca),
       impressora: t.impressora
         ? { nome: t.impressora.nome, conexao: t.impressora.conexao, endereco: t.impressora.endereco }
         : null,
