@@ -7,6 +7,8 @@ import { pedirAutorizacao } from "@/app/pdv/autorizacao-actions";
 import { avancarPedido } from "@/app/kds/actions";
 import LoginPage from "@/app/login/page";
 import MesaPublicaPage from "@/app/mesa/[token]/page";
+import { POST as POSTImpressao } from "@/app/api/impressao/route";
+import { NextRequest } from "next/server";
 import { chamarGarcomPeloQr } from "@/app/mesa/[token]/actions";
 import {
   abrirCaixa,
@@ -655,5 +657,37 @@ describe("exploração de 21/09", () => {
     const t = await tentar(c, () => estornarPagamento(pagamento.id));
     const restantes = await admin.pagamento.count({ where: { caixaId: caixa.id } });
     expect({ recusou: recusou(t), restantes }).toEqual({ recusou: true, restantes: 1 });
+  });
+
+  /**
+   * Fechar de novo um caixa já fechado regravava o valor informado, a
+   * divergência e quem fechou: uma falta de ontem apagada com um toque.
+   * Depende do teste anterior, que fecha o caixa do vizinho.
+   */
+  it("caixa fechado não se fecha de novo com outro valor", async () => {
+    const caixa = await admin.caixa.findFirstOrThrow({
+      where: { unidadeId: B.unidade.id, status: "FECHADO" },
+      orderBy: { fechadoEm: "desc" },
+    });
+    const t = await tentar(B.caixas[0]!, () => fecharCaixa(caixa.id, 999999));
+    const depois = await admin.caixa.findUniqueOrThrow({ where: { id: caixa.id } });
+    expect({ recusou: recusou(t), valorInformado: Number(depois.valorInformado) }).toEqual({
+      recusou: true,
+      valorInformado: Number(caixa.valorInformado),
+    });
+  });
+
+  /** O agente é um programa na rede do restaurante: corpo quebrado é erro dele, não do servidor. */
+  it("o agente de impressão com corpo inválido recebe 400, não 500", async () => {
+    const token = `agente-${A.unidade.id}`;
+    await admin.unidade.update({ where: { id: A.unidade.id }, data: { tokenImpressao: token } });
+    const resposta = await POSTImpressao(
+      new NextRequest("http://demo.frentfood.test/api/impressao", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: "isto não é json",
+      })
+    );
+    expect(resposta.status).toBe(400);
   });
 });
