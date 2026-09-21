@@ -679,8 +679,14 @@ export async function finalizarComanda(comandaId: string) {
         where: { id: comandaId },
         data: { status: "PAGA", fechadaEm: new Date(), caixaId: caixa?.id ?? null },
       });
+      /**
+       * Carrinho fica fora. O item PENDENTE nunca foi enviado nem cobrado —
+       * o total acima o exclui —, mas virava ENTREGUE aqui: a conta paga
+       * passava a ter um item não pago, que entrava no faturamento sem ter
+       * baixado estoque.
+       */
       await tx.comandaItem.updateMany({
-        where: { comandaId, status: { notIn: ["CANCELADO", "ENTREGUE"] } },
+        where: { comandaId, status: { notIn: ["CANCELADO", "ENTREGUE", "PENDENTE"] } },
         data: { status: "ENTREGUE" },
       });
       if (comanda.mesaId) {
