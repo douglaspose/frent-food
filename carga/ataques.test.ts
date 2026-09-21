@@ -5,10 +5,14 @@ import { adicionarAoCarrinho, alterarQuantidade } from "@/app/pdv/carrinho-actio
 import { cancelarItem } from "@/app/pdv/cancelamento-actions";
 import { pedirAutorizacao } from "@/app/pdv/autorizacao-actions";
 import { avancarPedido } from "@/app/kds/actions";
+import LoginPage from "@/app/login/page";
 import { chamarGarcomPeloQr } from "@/app/mesa/[token]/actions";
 import {
   abrirCaixa,
   aplicarDesconto,
+  definirTaxaServico,
+  estornarPagamento,
+  fecharCaixa,
   finalizarComanda,
   iniciarFechamento,
   registrarMovimentoCaixa,
@@ -17,7 +21,8 @@ import {
 import { admin } from "./admin";
 import { montarRestaurante, type Membro, type Restaurante } from "./cenario";
 import { entrar, quantoDeve } from "./operacao";
-import { como, pessoa, sessaoAssinada } from "./usuarios-virtuais";
+import bcrypt from "bcryptjs";
+import { como, ehRedirecionamento, pessoa, sessaoAssinada } from "./usuarios-virtuais";
 
 vi.mock("next/headers", async () => (await import("./usuarios-virtuais")).substitutoDeHeaders());
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
@@ -81,7 +86,7 @@ beforeAll(async () => {
   A = await montarRestaurante({
     slug: "demo",
     nome: "Restaurante Atacado",
-    mesas: 30,
+    mesas: 60,
     garcons: 3,
     caixas: 1,
     gerentes: 1,
@@ -312,6 +317,10 @@ describe("permissões e sessão", () => {
     await admin.usuario.update({ where: { id: g.usuarioId }, data: { ativo: false } });
     const t = await tentar(g, () => abrirComanda(A.mesas[13]!.id, 2));
     await admin.usuario.update({ where: { id: g.usuarioId }, data: { ativo: true } });
+    // A recusa apaga o cookie (é o comportamento certo). Readmitido, ele entra
+    // de novo — senão os testes seguintes que usam este garçom falhariam por
+    // "sessão expirada", um defeito do teste e não do sistema.
+    await entrar(g);
     expect(recusou(t)).toBe(true);
   });
 
@@ -412,5 +421,220 @@ describe("cozinha, salão e cliente ao mesmo tempo", () => {
     const cliente = pessoa("cliente na mesa", "", "189.1.1.1", "demo.frentfood.test");
     const t = await tentar({ ...cliente, usuarioId: "", cargo: "" }, () => chamarGarcomPeloQr(mesa.qrToken!));
     expect(t.lancou ?? (temErro(t.resposta) ? t.resposta : null)).toBeNull();
+  });
+});
+
+/**
+ * Rodada de 21/09/2026 do testador de operação: sequências que ainda não
+ * estavam aqui. Mesmo contrato do resto do arquivo — cada teste afirma o
+ * comportamento seguro e falha enquanto a brecha existir.
+ */
+describe("exploração de 21/09", () => {
+  /** A conta pela regra do sistema: sem carrinho e sem cancelado. */
+  async function totalConsumido(comandaId: string) {
+    const c = await admin.comanda.findUniqueOrThrow({
+      where: { id: comandaId },
+      include: { itens: { where: { status: { notIn: ["PENDENTE", "CANCELADO"] } } }, pagamentos: true },
+    });
+    const subtotal = c.itens.reduce((s, i) => s + Number(i.precoTotal), 0);
+    const base = Math.max(0, subtotal - Number(c.descontoValor));
+    const total = Math.round(base * (1 + Number(c.taxaServicoPct) / 100) * 100) / 100;
+    const pago = c.pagamentos.reduce((s, p) => s + Number(p.valor) - Number(p.troco), 0);
+    return { total, pago: Math.round(pago * 100) / 100 };
+  }
+
+  async function lancar(g: Membro, comandaId: string, item: Restaurante["itens"][number]) {
+    await como(g, () =>
+      adicionarAoCarrinho({
+        comandaId,
+        produtoId: item.produtoId,
+        cardapioItemId: item.cardapioItemId,
+        precoUnitario: item.preco,
+        exigePontoCarne: false,
+      })
+    );
+  }
+
+  it("dois toques em 'enviar' não mandam a rodada duas vezes nem baixam o estoque em dobro", async () => {
+    const g = A.garcons[0]!;
+    const aberta = (await como(g, () => abrirComanda(A.mesas[30]!.id, 2))) as { comandaId: string };
+    const bebida = A.itens.find((i) => i.controlaEstoque)!;
+    const saldo = () =>
+      admin.estoqueSaldo.findUniqueOrThrow({
+        where: { unidadeId_produtoId: { unidadeId: A.unidade.id, produtoId: bebida.produtoId } },
+      });
+    const antes = Number((await saldo()).quantidade);
+    await lancar(g, aberta.comandaId, bebida);
+    await Promise.all([
+      tentar(g, () => enviarCarrinho(aberta.comandaId)),
+      tentar(g, () => enviarCarrinho(aberta.comandaId)),
+    ]);
+    const tickets = await admin.pedido.count({ where: { comandaId: aberta.comandaId } });
+    const depois = Number((await saldo()).quantidade);
+    expect({ tickets, baixa: antes - depois }).toEqual({ tickets: 1, baixa: 1 });
+  });
+
+  it("finalizar a conta não transforma o carrinho esquecido em item vendido", async () => {
+    const g = A.garcons[1]!;
+    const comandaId = await comandaPronta(g, 31, 2);
+    // Lançado e nunca enviado: a cozinha não fez, o cliente não recebeu, não está na conta.
+    await lancar(g, comandaId, A.itens.find((i) => i.titulo === "Água Mineral")!);
+    const esquecido = await admin.comandaItem.findFirstOrThrow({ where: { comandaId, status: "PENDENTE" } });
+    const caixa = A.caixas[0]!;
+    await como(caixa, () => iniciarFechamento(comandaId));
+    const { total } = await totalConsumido(comandaId);
+    await como(caixa, () => registrarPagamento(comandaId, A.formas.pix.id, total, 0));
+    const fim = await tentar(caixa, () => finalizarComanda(comandaId));
+    const depois = await admin.comandaItem.findUnique({ where: { id: esquecido.id } });
+    const conta = await totalConsumido(comandaId);
+    expect({
+      finalizou: !recusou(fim),
+      esquecidoVirouVenda: depois !== null && depois.status !== "PENDENTE" && depois.status !== "CANCELADO",
+      contaFecha: Math.abs(conta.total - conta.pago) < 0.005,
+    }).toEqual({ finalizou: true, esquecidoVirouVenda: false, contaFecha: true });
+  });
+
+  it("a mesma liberação por PIN não vale para duas sangrias ao mesmo tempo", async () => {
+    const g = A.garcons[1]!;
+    const caixa = await admin.caixa.findFirstOrThrow({ where: { unidadeId: A.unidade.id, status: "ABERTO" } });
+    const aprovacao = (await como(g, () => pedirAutorizacao("SANGRIA", caixa.id, A.gerentes[0]!.pin))) as {
+      ok: boolean;
+      id: string;
+    };
+    expect(aprovacao.ok).toBe(true);
+    await Promise.all([
+      tentar(g, () => registrarMovimentoCaixa(caixa.id, "SANGRIA", 7, "cofre", aprovacao.id)),
+      tentar(g, () => registrarMovimentoCaixa(caixa.id, "SANGRIA", 7, "cofre", aprovacao.id)),
+    ]);
+    const sangrias = await admin.movimentoCaixa.count({
+      where: { caixaId: caixa.id, tipo: "SANGRIA", usuarioId: g.usuarioId },
+    });
+    expect(sangrias, "sangrias feitas com uma única liberação").toBe(1);
+  });
+
+  it("taxa de serviço negativa ou inválida é recusada", async () => {
+    const comandaId = await comandaPronta(A.garcons[1]!, 32);
+    const gerente = A.gerentes[0]!;
+    const negativa = await tentar(gerente, () => definirTaxaServico(comandaId, -100));
+    const invalida = await tentar(gerente, () => definirTaxaServico(comandaId, Number.NaN));
+    const comanda = await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    expect({
+      negativaRecusada: recusou(negativa),
+      invalidaViraMensagem: invalida.lancou === null && temErro(invalida.resposta),
+      taxaGravada: Number(comanda.taxaServicoPct),
+    }).toEqual({ negativaRecusada: true, invalidaViraMensagem: true, taxaGravada: 10 });
+  });
+
+  it("abrir mesa com número de pessoas absurdo é recusado", async () => {
+    const t = await tentar(A.garcons[0]!, () => abrirComanda(A.mesas[33]!.id, -3));
+    const abertas = await admin.comanda.count({ where: { mesaId: A.mesas[33]!.id } });
+    expect({ recusou: recusou(t), abertas }).toEqual({ recusou: true, abertas: 0 });
+  });
+
+  /**
+   * O cargo mora no cookie assinado, que vale 12 horas. `exigirSessao` confere
+   * no banco se a pessoa continua ativa — mas não se continua com o mesmo cargo.
+   */
+  it("quem foi rebaixado no meio do turno perde as permissões do cargo antigo", async () => {
+    const pin = "2999";
+    const usuario = await admin.usuario.create({
+      data: {
+        tenantId: A.tenant.id,
+        nome: "gerente rebaixado",
+        email: "rebaixado@demo.com",
+        pinHash: await bcrypt.hash(pin, 4),
+        unidades: { create: { unidadeId: A.unidade.id, cargoId: A.cargos.GERENTE! } },
+      },
+    });
+    const quem: Membro = {
+      ...pessoa("gerente rebaixado", pin, "10.2.7.7", "demo.frentfood.test"),
+      usuarioId: usuario.id,
+      cargo: "GERENTE",
+    };
+    await entrar(quem);
+    const comandaId = await comandaPronta(A.garcons[0]!, 34);
+    await como(quem, () => iniciarFechamento(comandaId));
+
+    await admin.usuarioUnidade.updateMany({ where: { usuarioId: usuario.id }, data: { cargoId: A.cargos.GARCOM! } });
+
+    const t = await tentar(quem, () => aplicarDesconto(comandaId, 5, "amigo"));
+    const comanda = await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    expect({ descontoGravado: Number(comanda.descontoValor), resposta: t.resposta }).toEqual({
+      descontoGravado: 0,
+      resposta: { precisaAutorizacao: "DESCONTO" },
+    });
+  });
+
+  it("dois toques em 'finalizar' não emitem o cupom duas vezes", async () => {
+    const comandaId = await comandaPronta(A.garcons[0]!, 35);
+    const caixa = A.caixas[0]!;
+    await como(caixa, () => iniciarFechamento(comandaId));
+    const { total } = await totalConsumido(comandaId);
+    await como(caixa, () => registrarPagamento(comandaId, A.formas.pix.id, total, 0));
+    await Promise.all([
+      tentar(caixa, () => finalizarComanda(comandaId)),
+      tentar(caixa, () => finalizarComanda(comandaId)),
+    ]);
+    const cupons = await admin.filaImpressao.count({ where: { referenciaId: comandaId, tipo: "CUPOM" } });
+    expect(cupons).toBe(1);
+  });
+
+  /**
+   * O estorno apaga o pagamento. Numa conta já quitada, que saiu do mapa,
+   * isso deixa uma comanda PAGA devendo: o dinheiro sai do caixa e a venda
+   * continua no faturamento como recebida.
+   */
+  it("estornar o pagamento de uma conta já quitada não a deixa paga devendo", async () => {
+    const comandaId = await comandaPronta(A.garcons[0]!, 36);
+    await pagarTudo(A.caixas[0]!, comandaId);
+    const pagamento = await admin.pagamento.findFirstOrThrow({ where: { comandaId } });
+    await tentar(A.caixas[0]!, () => estornarPagamento(pagamento.id));
+    const comanda = await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    const { total, pago } = await totalConsumido(comandaId);
+    expect(comanda.status === "PAGA" && pago + 0.005 < total, "comanda PAGA devendo").toBe(false);
+  });
+
+  /**
+   * Sessão válida no cookie, pessoa desligada no banco: a tela de login não
+   * pode mandar para o PDV — que recusa —, senão ninguém mais entra naquele
+   * tablet até o cookie vencer (linha de base, problema 9).
+   */
+  it("o tablet de quem foi desligado volta a mostrar o login", async () => {
+    const g = A.garcons[2]!;
+    // Cookie válido garantido: sem ele a tela mostraria o login por outro motivo.
+    await entrar(g);
+    expect(g.cookies.get("sessao")).toBeTruthy();
+    await admin.usuario.update({ where: { id: g.usuarioId }, data: { ativo: false } });
+    let destino: string | null = null;
+    try {
+      await como(g, () => LoginPage());
+    } catch (e) {
+      if (!ehRedirecionamento(e)) throw e;
+      destino = String((e as { digest: string }).digest).split(";")[2] ?? "?";
+    } finally {
+      await admin.usuario.update({ where: { id: g.usuarioId }, data: { ativo: true } });
+    }
+    expect(destino, "a tela de login redirecionou para").toBeNull();
+  });
+
+  /** O caixa fechado é um número assinado por alguém; nada pode mudá-lo depois. */
+  it("depois do caixa fechado, estorno não reescreve o que foi apurado", async () => {
+    const g = B.garcons[0]!;
+    const c = B.caixas[0]!;
+    const aberta = (await como(g, () => abrirComanda(B.mesas[0]!.id, 2))) as { comandaId: string };
+    await lancar(g, aberta.comandaId, B.itens.find((i) => !i.exigePontoCarne)!);
+    await como(g, () => enviarCarrinho(aberta.comandaId));
+    await como(c, () => iniciarFechamento(aberta.comandaId));
+    const { total } = await totalConsumido(aberta.comandaId);
+    await como(c, () => registrarPagamento(aberta.comandaId, B.formas.dinheiro.id, total, 0));
+    await como(c, () => finalizarComanda(aberta.comandaId));
+    const caixa = await admin.caixa.findFirstOrThrow({ where: { unidadeId: B.unidade.id, status: "ABERTO" } });
+    const fechado = await como(c, () => fecharCaixa(caixa.id, 200 + total));
+    expect(temErro(fechado), JSON.stringify(fechado)).toBe(false);
+
+    const pagamento = await admin.pagamento.findFirstOrThrow({ where: { comandaId: aberta.comandaId } });
+    const t = await tentar(c, () => estornarPagamento(pagamento.id));
+    const restantes = await admin.pagamento.count({ where: { caixaId: caixa.id } });
+    expect({ recusou: recusou(t), restantes }).toEqual({ recusou: true, restantes: 1 });
   });
 });
