@@ -13,6 +13,12 @@ export async function abrirComanda(mesaId: string, pessoas: number, nomeCliente?
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.abrir");
 
+    // A mesma regra de `definirPessoas`: -3 pessoas abria a mesa e estragava
+    // a divisão por pessoa na hora de pagar.
+    if (!Number.isInteger(pessoas) || pessoas < 1 || pessoas > 99) {
+      throw new ErroDeOperacao("Informe de 1 a 99 pessoas.");
+    }
+
     const mesa = await db.mesa.findUniqueOrThrow({
       where: { id: mesaId },
       include: { unidade: true },
