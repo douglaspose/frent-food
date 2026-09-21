@@ -40,6 +40,13 @@ export const SECOES_DE_CONFIGURACAO: SecaoDeConfiguracao[] = [
     descricao: "As impressoras do salão e da cozinha, e o token do agente que fala com elas.",
   },
   {
+    href: "/gestao/marca",
+    titulo: "Logomarca",
+    descricao:
+      "A marca da casa no topo da gestão, na entrada da equipe e na tela do QR da mesa — uma versão para fundo claro e outra para escuro.",
+    permissao: "unidade.configurar",
+  },
+  {
     href: "/gestao/caixas",
     titulo: "Fechamentos de caixa",
     descricao:

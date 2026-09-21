@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { logomarcaDoTenant } from "@/lib/logomarca";
+import { FUNDO_ESCURO } from "@/lib/marca";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { ChamarGarcom } from "./chamar-garcom";
@@ -26,7 +28,7 @@ export default async function MesaPublicaPage({
       id: true,
       numero: true,
       ativo: true,
-      unidade: { select: { nome: true } },
+      unidade: { select: { nome: true, tenantId: true } },
       comandas: {
         where: { status: { in: ["ABERTA", "FECHANDO"] } },
         select: { id: true, chamadoGarcomEm: true },
@@ -38,10 +40,27 @@ export default async function MesaPublicaPage({
   if (!mesa?.ativo) notFound();
 
   const comanda = mesa.comandas[0];
+  // A tela do cliente é preta: a versão que serve aqui é a de fundo escuro.
+  const marca = await logomarcaDoTenant(mesa.unidade.tenantId, FUNDO_ESCURO);
 
   return (
     <main className="flex min-h-tela flex-col items-center justify-center bg-neutral-950 px-6 text-center text-neutral-100">
-      <p className="text-sm uppercase tracking-widest text-neutral-500">{mesa.unidade.nome}</p>
+      {/*
+        A marca da casa acima do número da mesa. Esta é a única tela que quem
+        não trabalha aqui vê — o nome em letra miúda cumpria a função, mas a
+        logo é o que o cliente reconhece.
+      */}
+      {marca?.src ? (
+        <span
+          className={`mb-4 flex items-center ${marca.corDeFundo ? "rounded-xl px-6 py-4" : ""}`}
+          style={marca.corDeFundo ? { backgroundColor: marca.corDeFundo } : undefined}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={marca.src} alt={marca.nome} className="max-h-28 max-w-[18rem] object-contain" />
+        </span>
+      ) : (
+        <p className="text-sm uppercase tracking-widest text-neutral-500">{mesa.unidade.nome}</p>
+      )}
       <h1 className="mt-2 text-5xl font-bold">Mesa {mesa.numero}</h1>
 
       {comanda ? (

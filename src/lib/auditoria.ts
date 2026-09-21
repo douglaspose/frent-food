@@ -37,6 +37,7 @@ export const ACOES = {
   FORMA_PAGAMENTO_EDITADA: "Forma de pagamento editada",
   FORMA_PAGAMENTO_DESATIVADA: "Forma de pagamento desativada",
   FORMA_PAGAMENTO_REATIVADA: "Forma de pagamento reativada",
+  MARCA_ALTERADA: "Logomarca alterada",
 } as const;
 
 export type Acao = keyof typeof ACOES;

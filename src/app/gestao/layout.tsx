@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { exigirSessao, temPermissao } from "@/lib/session";
 import { dadosDaBarra } from "@/lib/barra";
 import { MenuDaGestao } from "./menu";
+import { logomarcaDoTenant } from "@/lib/logomarca";
+import { FUNDO_CLARO } from "@/lib/marca";
 import { BarraAmbientes } from "../pdv/barra-ambientes";
 
 /**
@@ -38,6 +40,18 @@ export default async function GestaoLayout({ children }: { children: ReactNode }
   if (!temPermissao(sessao, PERMISSAO_DE_GESTAO)) redirect("/pdv");
 
   /*
+   * Esta barra é branca, então quem serve aqui é a versão de fundo claro.
+   *
+   * O `?? ` cobre o caso impossível: tenant apagado com sessão viva. A tela
+   * mostra "Gestão" e segue, em vez de estourar por causa de um cabeçalho.
+   */
+  const marca = (await logomarcaDoTenant(sessao.tenantId, FUNDO_CLARO)) ?? {
+    src: null,
+    corDeFundo: null,
+    nome: "Gestão",
+  };
+
+  /*
    * O véu da barra do celular precisa sumir no fundo desta tela, não no do
    * salão. Vai por `style` porque a classe de propriedade arbitrária do
    * Tailwind não chegou a gerar regra: a classe ficava no elemento e o CSS
@@ -64,7 +78,29 @@ export default async function GestaoLayout({ children }: { children: ReactNode }
 
       <header className="border-b border-neutral-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center gap-x-6 gap-y-2 px-6 py-3">
-          <span className="shrink-0 font-bold tracking-tight">Gestão</span>
+          {/*
+            A marca da casa no lugar da palavra "Gestão".
+
+            O retângulo de cor só entra quando a versão mostrada não é a de
+            fundo claro — é o resgate de quem cadastrou uma logo só. Com a
+            versão certa, ela é desenhada direto na barra branca, que é o
+            ponto inteiro de existirem duas.
+          */}
+          {marca.src ? (
+            <span
+              className={`flex shrink-0 items-center ${marca.corDeFundo ? "rounded-lg px-2.5 py-1" : ""}`}
+              style={marca.corDeFundo ? { backgroundColor: marca.corDeFundo } : undefined}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={marca.src}
+                alt={marca.nome}
+                className="max-h-11 max-w-[13rem] object-contain"
+              />
+            </span>
+          ) : (
+            <span className="shrink-0 font-bold tracking-tight">{marca.nome}</span>
+          )}
 
           <MenuDaGestao />
         </div>

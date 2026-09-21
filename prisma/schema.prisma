@@ -21,6 +21,12 @@ model Tenant {
   ativo    Boolean  @default(true)
   criadoEm DateTime @default(now())
 
+  /// A cor de resgate: atrás de que cor a logo é desenhada quando a casa só
+  /// enviou uma versão e a tela em que ela aparece tem o fundo contrário.
+  /// Com as duas versões cadastradas, esta cor não é usada em lugar nenhum.
+  logoCorFundo String?
+
+  logomarcas      Logomarca[]
   unidades        Unidade[]
   usuarios        Usuario[]
   cargos          Cargo[]
@@ -32,6 +38,44 @@ model Tenant {
   formasPagamento FormaPagamento[]
 
   @@map("tenants")
+}
+
+/// Para que fundo a versão da logo foi desenhada — não de que cor ela é.
+///
+/// Uma logo de letra branca é a versão `ESCURO`: é no escuro que ela se lê.
+/// O nome evita a armadilha de "logo clara", que tanto pode querer dizer a de
+/// letra clara quanto a que vai no fundo claro — e são opostas.
+enum FundoDaLogo {
+  CLARO
+  ESCURO
+}
+
+/// Uma versão da marca da casa, guardada aqui mesmo.
+///
+/// No banco, e não em disco ou num balde externo: é uma imagem de dezenas de
+/// KB que muda uma vez por ano. Disco quebra em hospedagem sem disco
+/// persistente, e um serviço externo cobraria credencial, configuração e mais
+/// uma coisa para cair — por uma imagem que cabe numa linha.
+///
+/// Em tabela própria, e não em colunas do tenant, por causa do peso: o `Bytes`
+/// viaja em qualquer leitura que esqueça de listar os campos, e uma delas já
+/// existia no login. Aqui a imagem só sai quando alguém pede a imagem. De
+/// quebra, uma terceira versão — a monocromática do cupom, quando chegar a vez
+/// — nasce como linha, não como migração.
+model Logomarca {
+  tenantId String
+  fundo    FundoDaLogo
+  bytes    Bytes
+  /// O `Content-Type` do que foi enviado, para a rota devolver certo.
+  tipo     String
+  /// Quando trocou. Vai na URL da imagem: o navegador guarda para sempre e
+  /// mesmo assim vê a troca no instante em que ela acontece.
+  criadoEm DateTime    @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, fundo])
+  @@map("logomarcas")
 }
 
 model Unidade {
