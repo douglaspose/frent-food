@@ -44,7 +44,7 @@ BEGIN
     'cardapios', 'impressoras', 'estacoes', 'comandas', 'comanda_itens',
     'pedidos', 'caixas', 'movimentos_caixa', 'formas_pagamento', 'pagamentos',
     'autorizacoes', 'audit_logs', 'fila_impressao', 'estoque_saldos',
-    'movimentos_estoque', 'notas_fiscais', 'perfis_fiscais'
+    'movimentos_estoque', 'notas_fiscais', 'perfis_fiscais', 'logomarcas'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tabela);

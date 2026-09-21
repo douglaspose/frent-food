@@ -37,6 +37,7 @@ const MODELOS_ISOLADOS = new Set([
   "FilaImpressao",
   "EstoqueSaldo",
   "MovimentoEstoque",
+  "Logomarca",
 ]);
 
 /** Operações que varrem várias linhas — as perigosas. */

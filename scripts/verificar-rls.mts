@@ -16,7 +16,17 @@
 import "dotenv/config";
 import pg from "pg";
 
-const TABELAS_DE_PROVA = ["mesas", "comandas", "produtos", "cardapio_itens", "tenants"];
+const TABELAS_DE_PROVA = [
+  "mesas",
+  "comandas",
+  "produtos",
+  "cardapio_itens",
+  "tenants",
+  // A logomarca é servida por uma rota pública, pela role que ignora o RLS.
+  // Justamente por isso a tabela precisa ser conferida aqui: é a única em que
+  // a travessia é rotina, e a política é o que garante que ela seja a exceção.
+  "logomarcas",
+];
 
 let falhas = 0;
 
