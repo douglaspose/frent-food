@@ -4,6 +4,7 @@ import { db, type Tx } from "./db";
 import { exigirSessao, temPermissao, type Sessao } from "./session";
 import { registrarFalha, verificar } from "./limite-tentativas";
 import { TIPOS_DE_AUTORIZACAO, VALIDADE_MS, type TipoAutorizacao } from "./autorizacao";
+import { ErroDeOperacao } from "./erro-de-operacao";
 
 export type Aprovador = { id: string; nome: string };
 
@@ -65,11 +66,19 @@ export async function liberar(
   return {
     sessao,
     aprovadoPor: autorizacao.aprovadoPor,
+    /**
+     * Gasta só se ainda não foi gasta. A conferência de `usadoEm` acima é
+     * lida antes da ação: dois toques com a mesma liberação passavam os dois,
+     * e um PIN de gerente virava duas sangrias. Aqui a gravação é condicional
+     * — o segundo não acha a liberação livre, lança, e a transação da ação
+     * inteira volta atrás.
+     */
     consumir: async (tx) => {
-      await tx.autorizacao.update({
-        where: { id: autorizacaoId },
+      const gasta = await tx.autorizacao.updateMany({
+        where: { id: autorizacaoId, usadoEm: null },
         data: { usadoEm: new Date() },
       });
+      if (gasta.count !== 1) throw new ErroDeOperacao("Esta liberação já foi usada. Peça o PIN de novo.");
     },
   };
 }
