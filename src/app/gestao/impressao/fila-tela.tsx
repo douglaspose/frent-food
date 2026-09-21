@@ -178,7 +178,9 @@ export function FilaTela({
         </section>
       )}
 
-      <div className="mt-6 overflow-hidden rounded-xl border border-neutral-200 bg-white">
+      {/* Rola em vez de cortar: em 375px pede 641px, e o botão de reenviar
+          ficava fora do alcance. Mesma solução do Diário. */}
+      <div className="mt-6 overflow-x-auto rounded-xl border border-neutral-200 bg-white">
         <table className="w-full text-sm">
           <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
             <tr>
@@ -202,7 +204,7 @@ export function FilaTela({
                   {t.titulo}
                   {t.erro && <span className="ml-2 text-xs text-red-600">{t.erro}</span>}
                 </td>
-                <td className="px-4 py-3 text-neutral-500">{t.impressora ?? "—"}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-neutral-500">{t.impressora ?? "—"}</td>
                 <td className="px-4 py-3">
                   <span
                     className={`rounded-md px-2 py-1 text-xs font-semibold ${CORES[t.status] ?? ""}`}

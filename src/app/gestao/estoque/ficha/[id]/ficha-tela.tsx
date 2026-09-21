@@ -127,7 +127,9 @@ export function FichaTela({
         </span>
       </h2>
 
-      <div className="mt-3 overflow-hidden rounded-xl border border-neutral-200 bg-white">
+      {/* Rola em vez de cortar, como as outras tabelas da gestão: são cinco
+          colunas que não cabem nos 325px do celular. */}
+      <div className="mt-3 overflow-x-auto rounded-xl border border-neutral-200 bg-white">
         <table className="w-full text-sm">
           <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
             <tr>

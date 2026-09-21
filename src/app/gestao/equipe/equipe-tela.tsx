@@ -113,7 +113,9 @@ export function EquipeTela({
         />
       )}
 
-      <div className="mt-6 overflow-hidden rounded-xl border border-neutral-200 bg-white">
+      {/* Rola em vez de cortar: em 375px a tabela pede 640px e as ações
+          ficavam fora do alcance. Mesma solução do Diário. */}
+      <div className="mt-6 overflow-x-auto rounded-xl border border-neutral-200 bg-white">
         <table className="w-full text-sm">
           <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
             <tr>
@@ -127,19 +129,19 @@ export function EquipeTela({
           <tbody className="divide-y divide-neutral-100">
             {usuarios.map((u) => (
               <tr key={u.id} className={u.ativo ? "" : "opacity-50"}>
-                <td className="px-4 py-3 font-medium">
+                <td className="whitespace-nowrap px-4 py-3 font-medium">
                   {u.nome}
                   {u.id === usuarioAtualId && (
                     <span className="ml-2 text-xs font-normal text-neutral-500">você</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-neutral-500">{u.email}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-neutral-500">{u.email}</td>
                 <td className="px-4 py-3">
                   <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-600">
                     {u.cargoNome}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-neutral-500">
+                <td className="whitespace-nowrap px-4 py-3 text-neutral-500">
                   {u.temPin ? "configurado" : "sem PIN"}
                 </td>
                 <td className="px-4 py-3 text-right">

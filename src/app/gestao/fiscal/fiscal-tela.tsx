@@ -301,7 +301,9 @@ export function FiscalTela({
         />
       )}
 
-      <div className="mt-3 overflow-hidden rounded-xl border border-neutral-200 bg-white">
+      {/* Rola em vez de cortar: no celular sobram 325px e estas tabelas
+          pedem mais de 500. Mesma solução do Diário. */}
+      <div className="mt-3 overflow-x-auto rounded-xl border border-neutral-200 bg-white">
         <table className="w-full text-sm">
           <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
             <tr>
@@ -316,7 +318,7 @@ export function FiscalTela({
           <tbody className="divide-y divide-neutral-100">
             {perfis.map((p) => (
               <tr key={p.id}>
-                <td className="px-4 py-3">
+                <td className="whitespace-nowrap px-4 py-3">
                   {p.nome}
                   {p.padrao && (
                     <span className="ml-2 rounded-md bg-neutral-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
@@ -370,7 +372,9 @@ export function FiscalTela({
 
       {/* ─── Notas ─── */}
       <h2 className="mt-10 text-sm font-semibold">Notas emitidas</h2>
-      <div className="mt-3 overflow-hidden rounded-xl border border-neutral-200 bg-white">
+      {/* Rola em vez de cortar: no celular sobram 325px e estas tabelas
+          pedem mais de 500. Mesma solução do Diário. */}
+      <div className="mt-3 overflow-x-auto rounded-xl border border-neutral-200 bg-white">
         <table className="w-full text-sm">
           <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
             <tr>
@@ -394,7 +398,7 @@ export function FiscalTela({
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-neutral-500">
+                <td className="whitespace-nowrap px-4 py-3 text-neutral-500">
                   {n.mesa ? `Mesa ${n.mesa}` : n.comandaNumero ? `Comanda #${n.comandaNumero}` : "—"}
                   <span className="mt-0.5 block text-xs text-neutral-500">
                     {new Date(n.criadoEm).toLocaleString("pt-BR", {

@@ -183,7 +183,9 @@ export function EstoqueTela({
         </label>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-xl border border-neutral-200 bg-white">
+      {/* Rola em vez de cortar: em 375px pede 734px, e "Em estoque" com as
+          ações ficava fora do alcance. Mesma solução do Diário. */}
+      <div className="mt-4 overflow-x-auto rounded-xl border border-neutral-200 bg-white">
         <table className="w-full text-sm">
           <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
             <tr>
@@ -197,7 +199,7 @@ export function EstoqueTela({
           <tbody className="divide-y divide-neutral-100">
             {visiveis.map((p) => (
               <tr key={p.id} className={p.abaixoDoMinimo ? "bg-amber-50/60" : ""}>
-                <td className="px-4 py-3">
+                <td className="whitespace-nowrap px-4 py-3">
                   {p.titulo}
                   {p.temFicha && (
                     <span className="ml-2 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">
@@ -287,7 +289,8 @@ export function EstoqueTela({
       </div>
 
       <h2 className="mt-10 text-sm font-semibold">Movimentações recentes</h2>
-      <div className="mt-3 overflow-hidden rounded-xl border border-neutral-200 bg-white">
+      {/* Rola em vez de cortar: 552px contra os 325px do celular. */}
+      <div className="mt-3 overflow-x-auto rounded-xl border border-neutral-200 bg-white">
         <table className="w-full text-sm">
           <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
             <tr>
@@ -310,7 +313,7 @@ export function EstoqueTela({
                     minute: "2-digit",
                   })}
                 </td>
-                <td className="px-4 py-3">{m.produto}</td>
+                <td className="whitespace-nowrap px-4 py-3">{m.produto}</td>
                 <td className="px-4 py-3">
                   <span
                     className={`rounded-md px-2 py-1 text-xs font-semibold ${CORES_MOVIMENTO[m.tipo] ?? ""}`}
