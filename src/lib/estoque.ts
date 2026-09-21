@@ -31,6 +31,17 @@ function arredondar(valor: number, casas = 4) {
  * Saída não mexe no custo médio, só no saldo.
  */
 export async function movimentar(tx: Tx, mov: Movimento) {
+  /**
+   * Trava a linha do saldo antes de ler.
+   *
+   * O saldo era lido e regravado sem trava: dois garçons mandando a mesma
+   * cerveja no mesmo instante liam 1982, os dois gravavam 1981, e uma baixa
+   * sumia — o saldo deixava de bater com a soma dos movimentos. Travado, o
+   * segundo espera o primeiro e lê o saldo já baixado. (Saldo que ainda não
+   * existe não tem o que travar; o upsert abaixo o cria.)
+   */
+  await tx.$queryRaw`SELECT 1 FROM estoque_saldos WHERE "unidadeId" = ${mov.unidadeId} AND "produtoId" = ${mov.produtoId} FOR UPDATE`;
+
   const atual = await tx.estoqueSaldo.findUnique({
     where: { unidadeId_produtoId: { unidadeId: mov.unidadeId, produtoId: mov.produtoId } },
   });
@@ -118,7 +129,9 @@ async function consumoDosItens(tx: Tx, itens: ItemVendido[]) {
     }
   }
 
-  return consumo;
+  // Sempre na mesma ordem: duas rodadas com chopp e refrigerante travando os
+  // saldos em ordens opostas se esperariam para sempre (deadlock).
+  return new Map([...consumo].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
 /** Dá baixa do que foi vendido. */
