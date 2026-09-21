@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { ACOES, type Acao } from "@/lib/auditoria";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { Filtros } from "./filtros";
 import { Detalhe } from "./detalhe";
 
@@ -21,7 +21,7 @@ export default async function AuditoriaPage({
 }: {
   searchParams: Promise<{ acao?: string; periodo?: string; pagina?: string }>;
 }) {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
   /**
    * Só quem manda no dinheiro lê o diário. Ele diz quem deu desconto e quem
    * fechou caixa com falta — numa mão errada vira mapa de quem vigiar.

@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { MesasTela } from "./mesas-tela";
 
 export const metadata: Metadata = { title: "Mesas e áreas" };
 export const dynamic = "force-dynamic";
 
 export default async function MesasPage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   const areas = await db.area.findMany({
     where: { unidadeId: sessao.unidadeId },

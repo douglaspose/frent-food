@@ -3,7 +3,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import QRCode from "qrcode";
 import { db } from "@/lib/db";
-import { exigirSessao } from "@/lib/session";
+import { sessaoDaTela } from "@/lib/session";
 import { BotaoImprimir } from "./botao-imprimir";
 
 export const metadata: Metadata = { title: "QR Codes das mesas" };
@@ -24,7 +24,7 @@ async function baseUrl() {
 }
 
 export default async function QrCodesPage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   const [unidade, mesas] = await Promise.all([
     db.unidade.findUniqueOrThrow({

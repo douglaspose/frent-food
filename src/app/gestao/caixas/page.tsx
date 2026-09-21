@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { historicoDeCaixa, TURNOS_POR_PAGINA } from "@/lib/historico-de-caixa";
 import { redirect } from "next/navigation";
 
@@ -28,7 +28,7 @@ function diaDaSemana(iso: string) {
 }
 
 export default async function CaixasPage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   /**
    * Mesma permissão do Diário.

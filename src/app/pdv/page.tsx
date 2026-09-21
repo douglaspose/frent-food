@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { exigirSessao } from "@/lib/session";
+import { sessaoDaTela } from "@/lib/session";
 import { dadosDaBarra } from "@/lib/barra";
 import { lerAjustes } from "@/lib/parametros-servidor";
 import { BarraAmbientes } from "./barra-ambientes";
@@ -8,7 +8,7 @@ import { MapaMesas, type MesaView } from "./mapa-mesas";
 export const dynamic = "force-dynamic";
 
 export default async function PdvMesasPage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
   const ajustes = await lerAjustes(sessao.unidadeId, [
     "mesa.alertaSemLancamentoMin",
     "mesa.voltarParaAreasAoFechar",

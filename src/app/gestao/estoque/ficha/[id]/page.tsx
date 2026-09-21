@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { custoDaFicha } from "@/lib/estoque";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { FichaTela } from "./ficha-tela";
 
 export const metadata: Metadata = { title: "Ficha técnica" };
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function FichaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   const produto = await db.produto.findUnique({
     where: { id },

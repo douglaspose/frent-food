@@ -1,5 +1,6 @@
 import "server-only";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import { COOKIE_DA_SESSAO, chaveDaSessao } from "./tenant-da-sessao";
 import { db } from "./db";
@@ -107,6 +108,28 @@ export async function exigirSessao(): Promise<Sessao> {
 export async function sessaoAtiva(): Promise<Sessao | null> {
   const sessao = await lerSessao();
   return sessao ? conferirNoBanco(sessao) : null;
+}
+
+/**
+ * A sessão para uma tela — páginas e layouts. Sem sessão válida, vai para o
+ * login.
+ *
+ * `exigirSessao` lança, e numa tela o erro vira a tela de erro. Com a pessoa
+ * desligada no meio do turno, o PDV e a gestão mostravam essa tela em vez do
+ * login; no tablet com o app instalado não há barra de endereço onde digitar
+ * /login, e ninguém mais entrava naquele aparelho até o cookie vencer.
+ *
+ * As server actions continuam com `exigirSessao`: `redirect()` funciona
+ * lançando um erro especial que todo `try/catch` no caminho precisa deixar
+ * passar, e as actions passam por vários. Numa tela não há nenhum.
+ *
+ * Não apaga o cookie — numa tela o Next não deixa. Nem precisa: a tela de
+ * login confere no banco (`sessaoAtiva`) e mostra o teclado mesmo com ele lá.
+ */
+export async function sessaoDaTela(): Promise<Sessao> {
+  const sessao = await sessaoAtiva();
+  if (!sessao) redirect("/login");
+  return sessao;
 }
 
 /**

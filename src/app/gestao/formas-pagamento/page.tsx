@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { FormasTela, type FormaView } from "./formas-tela";
 import type { TipoDePagamento } from "./tipos";
 
@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Formas de pagamento" };
 export const dynamic = "force-dynamic";
 
 export default async function FormasDePagamentoPage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   /**
    * A contagem de uso vem junto, num `_count`, e não numa consulta por linha.

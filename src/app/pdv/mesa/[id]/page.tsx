@@ -1,7 +1,7 @@
 import { BotaoVoltar } from "../../botao-voltar";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { lerAjustes } from "@/lib/parametros-servidor";
 import { ComandaScreen } from "./comanda-screen";
 import { AbrirForm } from "./abrir-form";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function MesaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   const ajustes = await lerAjustes(sessao.unidadeId, [
     "mesa.exibirNomeGarcomNosItens",

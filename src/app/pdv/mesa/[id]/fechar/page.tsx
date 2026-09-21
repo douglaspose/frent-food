@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { CONSUMO } from "@/lib/itens";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { lerAjustes } from "@/lib/parametros-servidor";
 import { FechamentoScreen } from "./fechamento-screen";
 
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export default async function FecharPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   const ajustes = await lerAjustes(sessao.unidadeId, ["caixa.perguntarQtdPessoasAoPagar"]);
 

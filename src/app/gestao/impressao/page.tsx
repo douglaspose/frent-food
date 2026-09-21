@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { FilaTela } from "./fila-tela";
 
 export const metadata: Metadata = { title: "Impressão" };
 export const dynamic = "force-dynamic";
 
 export default async function ImpressaoPage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   const [unidade, trabalhos, impressoras] = await Promise.all([
     db.unidade.findUniqueOrThrow({

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { Viewport } from "next";
 import { redirect } from "next/navigation";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { dadosDaBarra } from "@/lib/barra";
 import { MenuDaGestao } from "./menu";
 import { logomarcaDoTenant } from "@/lib/logomarca";
@@ -36,7 +36,7 @@ export const viewport: Viewport = { themeColor: "#ffffff" };
  * "Ir para o PDV" do canto sumia junto com o resto do cabeçalho.
  */
 export default async function GestaoLayout({ children }: { children: ReactNode }) {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
   if (!temPermissao(sessao, PERMISSAO_DE_GESTAO)) redirect("/pdv");
 
   /*

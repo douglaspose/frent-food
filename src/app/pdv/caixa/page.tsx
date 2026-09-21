@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { centavos } from "@/lib/comanda";
 import { redirect } from "next/navigation";
-import { exigirSessao, temAlgumaPermissao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temAlgumaPermissao, temPermissao } from "@/lib/session";
 import { PERMISSOES_DO_CAIXA } from "@/lib/caixa";
 import { dadosDaBarra } from "@/lib/barra";
 import { BarraAmbientes } from "../barra-ambientes";
@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: "Caixa" };
 export const dynamic = "force-dynamic";
 
 export default async function CaixaPage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   /**
    * Esconder o botão não é segurança — é conveniência.

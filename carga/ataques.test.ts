@@ -6,6 +6,8 @@ import { cancelarItem } from "@/app/pdv/cancelamento-actions";
 import { pedirAutorizacao } from "@/app/pdv/autorizacao-actions";
 import { avancarPedido } from "@/app/kds/actions";
 import LoginPage from "@/app/login/page";
+import PdvMesasPage from "@/app/pdv/page";
+import GestaoLayout from "@/app/gestao/layout";
 import MesaPublicaPage from "@/app/mesa/[token]/page";
 import { POST as POSTImpressao } from "@/app/api/impressao/route";
 import { NextRequest } from "next/server";
@@ -714,5 +716,50 @@ describe("exploração de 21/09", () => {
       })
     );
     expect(resposta.status).toBe(400);
+  });
+});
+
+/**
+ * A outra metade do tablet preso (linha de base, problema 9).
+ *
+ * A primeira correção fez a tela de login parar de empurrar para o PDV. Mas o
+ * PDV e a gestão, abertos com o cookie de quem foi desligado, **lançavam erro**
+ * em vez de mandar para o login. No tablet com o app instalado não há barra de
+ * endereço para digitar /login: a pessoa ficava na tela de erro até o cookie
+ * vencer.
+ *
+ * Ficam no fim do arquivo porque desligam e religam gente que os outros testes
+ * usam; o religamento refaz o login, para ninguém depois herdar um pote vazio.
+ */
+describe("sessão de quem foi desligado, nas telas", () => {
+  async function abrirDesligado(quem: Membro, tela: () => Promise<unknown>) {
+    await entrar(quem);
+    await admin.usuario.update({ where: { id: quem.usuarioId }, data: { ativo: false } });
+    let destino: string | null = null;
+    let erro: string | null = null;
+    try {
+      await como(quem, tela);
+    } catch (e) {
+      if (ehRedirecionamento(e)) destino = String((e as { digest: string }).digest).split(";")[2] ?? "?";
+      else erro = e instanceof Error ? e.message : String(e);
+    } finally {
+      await admin.usuario.update({ where: { id: quem.usuarioId }, data: { ativo: true } });
+      await entrar(quem);
+    }
+    return { erro, destino };
+  }
+
+  it("o PDV manda para o login, e não para uma tela de erro", async () => {
+    expect(await abrirDesligado(A.garcons[1]!, () => PdvMesasPage())).toEqual({
+      erro: null,
+      destino: "/login",
+    });
+  });
+
+  it("a gestão manda para o login, e não para uma tela de erro", async () => {
+    expect(await abrirDesligado(A.gerentes[0]!, () => GestaoLayout({ children: null }))).toEqual({
+      erro: null,
+      destino: "/login",
+    });
   });
 });

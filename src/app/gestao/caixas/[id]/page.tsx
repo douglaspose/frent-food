@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { detalheDoTurno } from "@/lib/historico-de-caixa";
 import { RETIRA_DA_GAVETA } from "@/lib/caixa";
 
@@ -50,7 +50,7 @@ function Numero({ rotulo, valor, nota, cor }: {
 }
 
 export default async function TurnoPage({ params }: { params: Promise<{ id: string }> }) {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
   if (!temPermissao(sessao, "auditoria.ver")) redirect("/gestao");
 
   const { id } = await params;

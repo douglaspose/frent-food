@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { EstoqueTela } from "./estoque-tela";
 
 export const metadata: Metadata = { title: "Estoque" };
 export const dynamic = "force-dynamic";
 
 export default async function EstoquePage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   const [produtos, saldos, movimentos] = await Promise.all([
     db.produto.findMany({

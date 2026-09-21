@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { EquipeTela } from "./equipe-tela";
 
 export const metadata: Metadata = { title: "Equipe" };
 export const dynamic = "force-dynamic";
 
 export default async function EquipePage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   const [usuarios, cargos] = await Promise.all([
     db.usuario.findMany({

@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { FiscalTela } from "./fiscal-tela";
 
 export const metadata: Metadata = { title: "Fiscal" };
 export const dynamic = "force-dynamic";
 
 export default async function FiscalPage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   const [unidade, perfis, notas, produtosSemPerfil] = await Promise.all([
     db.unidade.findUniqueOrThrow({ where: { id: sessao.unidadeId } }),

@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { SECOES_DE_CONFIGURACAO } from "../secoes";
 
 export const metadata: Metadata = { title: "Configurações" };
 
 export default async function ConfiguracoesPage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   /**
    * Esconder o que a pessoa não pode abrir, em vez de deixar o link levar a um

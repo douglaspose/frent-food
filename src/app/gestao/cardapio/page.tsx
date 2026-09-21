@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { exigirSessao, temPermissao } from "@/lib/session";
+import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { CardapioEditor, type CategoriaCardapio } from "./cardapio-editor";
 
 export const metadata: Metadata = { title: "Cardápio" };
 export const dynamic = "force-dynamic";
 
 export default async function CardapioPage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
 
   const cardapio = await db.cardapio.findFirst({
     where: { unidadeId: sessao.unidadeId, canal: "SALAO" },

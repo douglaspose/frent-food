@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { exigirSessao } from "@/lib/session";
+import { sessaoDaTela } from "@/lib/session";
 import { dadosDaBarra } from "@/lib/barra";
 import { BarraAmbientes } from "../pdv/barra-ambientes";
 import { KdsBoard } from "./kds-board";
@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "KDS" };
 export const dynamic = "force-dynamic";
 
 export default async function KdsPage() {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
   const unidade = await db.unidade.findFirst({ where: { id: sessao.unidadeId } });
   if (!unidade) {
     return (

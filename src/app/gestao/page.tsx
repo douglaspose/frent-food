@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { exigirSessao } from "@/lib/session";
+import { sessaoDaTela } from "@/lib/session";
 import { diasDoIntervalo, janelaDoGrafico, lerPeriodo, variacao } from "@/lib/periodo";
 import {
   alertasDoPainel,
@@ -112,7 +112,7 @@ export default async function PainelPage({
 }: {
   searchParams: Promise<{ periodo?: string; de?: string; ate?: string }>;
 }) {
-  const sessao = await exigirSessao();
+  const sessao = await sessaoDaTela();
   const periodo = lerPeriodo(await searchParams);
   const unidade = sessao.unidadeId;
 
