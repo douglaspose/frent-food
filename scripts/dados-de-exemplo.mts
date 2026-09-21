@@ -218,7 +218,25 @@ console.log(
 
 await db.query("BEGIN");
 
+/*
+ * O diário dos caixas sai antes deles.
+ *
+ * O `entidadeId` do diário é texto solto, sem chave estrangeira: apagar o
+ * caixa deixaria a linha apontando para o nada, e a cada rodada o Diário
+ * acumularia fechamentos de turnos que não existem mais.
+ *
+ * O corte é por unidade, e não pelos caixas que ainda existem: rodadas
+ * anteriores já deixaram órfãs para trás, e um filtro que só alcança as linhas
+ * ainda ligadas nunca as recolheria.
+ */
 const apagados = {
+  diario:
+    (
+      await db.query(
+        `DELETE FROM audit_logs WHERE entidade = 'Caixa' AND "unidadeId" = $1`,
+        [ctx.unidade]
+      )
+    ).rowCount ?? 0,
   caixas: (await db.query(`DELETE FROM caixas WHERE "unidadeId" = $1`, [ctx.unidade])).rowCount ?? 0,
   comandas:
     (
@@ -240,7 +258,7 @@ const apagados = {
 };
 
 console.log(
-  `Apagados: ${apagados.caixas} caixas, ${apagados.comandas} comandas encerradas, ${apagados.movimentos} movimentos de venda.`
+  `Apagados: ${apagados.caixas} caixas, ${apagados.comandas} comandas encerradas, ${apagados.movimentos} movimentos de venda, ${apagados.diario} linhas de diário.`
 );
 
 // -------------------------------------------------- base de custo por produto
@@ -349,6 +367,15 @@ const itens: Linha[] = [];
 const pagamentos: Linha[] = [];
 const saidas: Linha[] = [];
 const movimentosDeCaixa: Linha[] = [];
+
+/**
+ * As linhas do diário que as ações de verdade gravariam.
+ *
+ * O gerador escreve direto nas tabelas e, sem isto, o histórico nascia mudo:
+ * treze caixas fechados e nenhuma linha em Configurações › Diário. Quem fosse
+ * conferir um turno concluiria que o registro de auditoria não funciona.
+ */
+const diario: Linha[] = [];
 
 const agora = new Date();
 
@@ -574,6 +601,7 @@ for (let d = 0; d < DIAS; d++) {
     sangrado = Math.floor(dinheiroNoCaixa / 2 / 50) * 50;
     const sangradoEm = new Date(dia);
     sangradoEm.setHours(FECHAMENTO, 10, 0, 0);
+    const sangrouQuem = umDe(usuarios).id;
     movimentosDeCaixa.push({
       id: novoId("mc"),
       tenantId: ctx.tenant,
@@ -581,7 +609,19 @@ for (let d = 0; d < DIAS; d++) {
       tipo: "SANGRIA",
       valor: sangrado,
       descricao: "Sangria de exemplo",
-      usuarioId: umDe(usuarios).id,
+      usuarioId: sangrouQuem,
+      criadoEm: paraBanco(sangradoEm),
+    });
+
+    diario.push({
+      id: novoId("au"),
+      tenantId: ctx.tenant,
+      unidadeId: ctx.unidade,
+      usuarioId: sangrouQuem,
+      entidade: "Caixa",
+      entidadeId: caixaId,
+      acao: "CAIXA_SANGRIA",
+      depois: JSON.stringify({ valor: sangrado, descricao: "Sangria de exemplo", turno: "NOITE" }),
       criadoEm: paraBanco(sangradoEm),
     });
   }
@@ -598,6 +638,8 @@ for (let d = 0; d < DIAS; d++) {
   const fechadoEm = new Date(dia);
   fechadoEm.setHours(FECHAMENTO + 1, entre(0, 45), 0, 0);
 
+  const fechouQuem = fechado ? umDe(usuarios).id : null;
+
   caixas.push({
     id: caixaId,
     tenantId: ctx.tenant,
@@ -612,9 +654,29 @@ for (let d = 0; d < DIAS; d++) {
     divergencia: fechado ? diferenca : null,
     abertoPorId: umDe(usuarios).id,
     abertoEm: paraBanco(abertoEm),
-    fechadoPorId: fechado ? umDe(usuarios).id : null,
+    fechadoPorId: fechouQuem,
     fechadoEm: fechado ? paraBanco(fechadoEm) : null,
   });
+
+  // O fechamento no diário, com os mesmos campos que a ação de verdade grava.
+  if (fechado) {
+    diario.push({
+      id: novoId("au"),
+      tenantId: ctx.tenant,
+      unidadeId: ctx.unidade,
+      usuarioId: fechouQuem,
+      entidade: "Caixa",
+      entidadeId: caixaId,
+      acao: "CAIXA_FECHADO",
+      depois: JSON.stringify({
+        valorApurado: apurado,
+        valorInformado: centavos(apurado + diferenca),
+        divergencia: diferenca,
+        turno: "NOITE",
+      }),
+      criadoEm: paraBanco(fechadoEm),
+    });
+  }
 
   console.log(
     `  ${diaLocal(dia)} · ${comandasDoDia} comandas · R$ ${recebidoNoDia.toFixed(2)}${fechado ? "" : " · caixa aberto"}`
@@ -711,6 +773,11 @@ await inserir(
   ["id", "tenantId", "caixaId", "tipo", "valor", "descricao", "usuarioId", "criadoEm"],
   movimentosDeCaixa
 );
+await inserir(
+  "audit_logs",
+  ["id", "tenantId", "unidadeId", "usuarioId", "entidade", "entidadeId", "acao", "depois", "criadoEm"],
+  diario
+);
 
 // O saldo desce pelo que saiu, senão a tela de estoque mostraria 400 de tudo
 // depois de duas semanas de venda.
@@ -731,7 +798,8 @@ await db.query("COMMIT");
 
 console.log(
   `\nCriados: ${caixas.length} caixas, ${comandas.length} comandas, ${itens.length} itens, ` +
-    `${pagamentos.length} pagamentos, ${saidas.length} saídas de estoque.`
+    `${pagamentos.length} pagamentos, ${saidas.length} saídas de estoque, ` +
+    `${diario.length} linhas de diário.`
 );
 
 await db.end();

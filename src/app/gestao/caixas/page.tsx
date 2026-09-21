@@ -41,7 +41,14 @@ export default async function CaixasPage() {
 
   const turnos = await historicoDeCaixa(sessao.unidadeId);
 
-  const comDiferenca = turnos.filter((t) => t.divergencia !== null && t.divergencia !== 0).length;
+  /**
+   * O caixa aberto fica de fora da conta.
+   *
+   * Ele aparece na lista — é o turno de agora, e quem abre a tela quer vê-lo —,
+   * mas contá-lo como fechamento diria "4 de 14" quando houve 13 fechamentos.
+   */
+  const fechados = turnos.filter((t) => t.divergencia !== null);
+  const comDiferenca = fechados.filter((t) => t.divergencia !== 0).length;
 
   return (
     <>
@@ -153,9 +160,11 @@ export default async function CaixasPage() {
           </div>
 
           <p className="mt-4 text-xs text-neutral-500">
-            {comDiferenca === 0
-              ? "Nenhum fechamento do período saiu com diferença."
-              : `${comDiferenca} de ${turnos.length} fechamentos saíram com diferença.`}
+            {fechados.length === 0
+              ? "Nenhum turno foi fechado ainda."
+              : comDiferenca === 0
+                ? `Os ${fechados.length} fechamentos bateram com a contagem.`
+                : `${comDiferenca} de ${fechados.length} fechamentos saíram com diferença.`}
             {turnos.length === TURNOS_POR_PAGINA &&
               ` Mostrando os ${TURNOS_POR_PAGINA} turnos mais recentes.`}
           </p>
