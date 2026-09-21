@@ -100,8 +100,17 @@ export async function POST(request: NextRequest) {
   // No corpo do handler, pelo mesmo motivo do GET acima.
   declararTenant(unidade.tenantId);
 
-  const corpo = (await request.json()) as { id?: string; ok?: boolean; erro?: string };
-  if (!corpo.id) return NextResponse.json({ erro: "Informe o id." }, { status: 400 });
+  // Corpo quebrado é erro de quem chamou: 400 com motivo, e não um 500 que
+  // no log do agente parece servidor fora do ar.
+  let corpo: { id?: string; ok?: boolean; erro?: string };
+  try {
+    corpo = (await request.json()) as typeof corpo;
+  } catch {
+    return NextResponse.json({ erro: "Corpo inválido: envie JSON." }, { status: 400 });
+  }
+  if (typeof corpo?.id !== "string" || !corpo.id) {
+    return NextResponse.json({ erro: "Informe o id." }, { status: 400 });
+  }
 
   const trabalho = await db.filaImpressao.findUnique({ where: { id: corpo.id } });
   // Confere a unidade: um token não confirma trabalho de outro restaurante.
