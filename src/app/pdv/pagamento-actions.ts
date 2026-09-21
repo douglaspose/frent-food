@@ -357,6 +357,11 @@ export async function definirTaxaServico(comandaId: string, pct: number) {
     // Retirar a taxa é dinheiro a menos para o restaurante — mesma permissão do desconto.
     const sessao = await exigirPermissao("comanda.aplicarDesconto");
 
+    // Taxa negativa é desconto sem PIN e sem motivo: -100% zerava a conta.
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      throw new ErroDeOperacao("A taxa de serviço vai de 0% a 100%.");
+    }
+
     const antes = await db.comanda.findUniqueOrThrow({
       where: { id: comandaId },
       select: { tenantId: true, taxaServicoPct: true },
