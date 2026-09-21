@@ -452,6 +452,32 @@ export async function registrarPagamento(
     });
     if (!caixa) throw new ErroDeOperacao("Nenhum caixa aberto. Abra o caixa antes de receber.");
 
+    /**
+     * A taxa da adquirente é copiada para dentro do pagamento, não consultada
+     * depois.
+     *
+     * O painel multiplicava cada pagamento pela taxa cadastrada hoje, e
+     * renegociar com a maquininha reescrevia o custo de um mês já fechado: o
+     * número de ontem virava outro hoje sem nada ter acontecido. Congelada
+     * aqui, a conta do mês passado fica parada como deve.
+     *
+     * `findUnique` e não `findUniqueOrThrow`: forma apagada entre a escolha na
+     * tela e o clique é caso de erro legível, não de exceção minificada.
+     */
+    const forma = await db.formaPagamento.findUnique({
+      where: { id: formaPagamentoId },
+      select: { tenantId: true, ativo: true, taxaPct: true },
+    });
+    if (!forma || forma.tenantId !== sessao.tenantId) {
+      throw new ErroDeOperacao("Forma de pagamento não encontrada.");
+    }
+    if (!forma.ativo) throw new ErroDeOperacao("Esta forma de pagamento está desativada.");
+
+    const taxaPct = Number(forma.taxaPct);
+    // Troco fora da base: a adquirente cobra sobre o que passou na maquininha,
+    // e o que voltou para a mão do cliente nunca passou.
+    const taxaValor = centavos(((valor - troco) * taxaPct) / 100);
+
     await db.pagamento.create({
       data: {
         tenantId: comanda.tenantId,
@@ -460,6 +486,8 @@ export async function registrarPagamento(
         formaPagamentoId,
         valor,
         troco,
+        taxaPct,
+        taxaValor,
         usuarioId: sessao.usuarioId,
       },
     });

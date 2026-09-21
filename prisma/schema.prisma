@@ -935,6 +935,17 @@ model Pagamento {
   nsu      String?
   bandeira String?
 
+  /// Taxa da forma no instante do recebimento, congelada aqui.
+  ///
+  /// Sem isto o painel multiplicava cada pagamento pela taxa cadastrada hoje,
+  /// e renegociar com a adquirente reescrevia o custo de um mês já fechado —
+  /// o número de ontem virava outro hoje, sem nada ter acontecido.
+  taxaPct   Decimal @default(0) @db.Decimal(5, 2)
+  /// `(valor - troco) × taxaPct` no recebimento. Guardado junto, e não só
+  /// derivado, pelo mesmo motivo que o item da comanda guarda `precoTotal`
+  /// além do `precoUnitario`: o que foi cobrado não se recalcula depois.
+  taxaValor Decimal @default(0) @db.Decimal(10, 2)
+
   usuarioId String
   usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   criadoEm  DateTime @default(now())

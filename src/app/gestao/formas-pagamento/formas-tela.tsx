@@ -225,9 +225,9 @@ export function FormasTela({
 
       {taxaMedia.length > 0 && (
         <p className="mt-4 text-xs text-neutral-500">
-          A taxa vale a partir de agora <strong className="font-semibold">e para trás</strong>: o
-          painel estima o custo de cartão multiplicando cada pagamento pela taxa cadastrada hoje.
-          Renegociou com a adquirente? O custo dos meses anteriores muda junto.
+          A taxa vale <strong className="font-semibold">a partir de agora</strong>: cada pagamento
+          guarda a que valia no instante em que entrou. Renegociou com a adquirente? O custo dos
+          meses já fechados continua como estava.
         </p>
       )}
     </>

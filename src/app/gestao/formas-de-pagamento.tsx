@@ -45,7 +45,14 @@ export function FormasDePagamento({ dados }: { dados: FormaNoPainel[] }) {
                 {f.nome}
                 <span className="ml-2 text-xs text-neutral-500">
                   {f.pagamentos} pagamento(s)
-                  {f.taxaPct > 0 && ` · taxa ${pct.format(f.taxaPct)}%`}
+                  {/*
+                    Taxa nula quer dizer que o período pegou uma renegociação no
+                    meio: houve mais de uma taxa, e anunciar uma delas como "a"
+                    taxa esconderia a outra. O total abaixo continua exato.
+                  */}
+                  {f.taxaPct === null
+                    ? " · taxa mudou no período"
+                    : f.taxaPct > 0 && ` · taxa ${pct.format(f.taxaPct)}%`}
                 </span>
               </span>
               <span className="shrink-0 tabular-nums">
@@ -71,7 +78,7 @@ export function FormasDePagamento({ dados }: { dados: FormaNoPainel[] }) {
       {taxaTotal > 0 && (
         <p className="mt-4 border-t border-neutral-100 pt-3 text-xs text-neutral-500">
           <strong className="font-semibold text-neutral-700">{brl.format(taxaTotal)}</strong> em
-          taxas de cartão no período, estimado pela taxa cadastrada hoje em cada forma.
+          taxas de cartão no período, pela taxa que valia em cada pagamento.
         </p>
       )}
     </>

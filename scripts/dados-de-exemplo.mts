@@ -173,8 +173,8 @@ const { rows: mesas } = await db.query<{ id: string }>(
   `SELECT id FROM mesas WHERE "unidadeId" = $1`,
   [ctx.unidade]
 );
-const { rows: formas } = await db.query<{ id: string; tipo: string }>(
-  `SELECT id, tipo::text FROM formas_pagamento WHERE "tenantId" = $1 AND ativo`,
+const { rows: formas } = await db.query<{ id: string; tipo: string; taxa: string }>(
+  `SELECT id, tipo::text, "taxaPct" AS taxa FROM formas_pagamento WHERE "tenantId" = $1 AND ativo`,
   [ctx.tenant]
 );
 
@@ -544,6 +544,12 @@ for (let d = 0; d < DIAS; d++) {
       if (forma.tipo === "DINHEIRO") dinheiroNoCaixa += valorBase;
       recebidoNoDia += valorBase;
 
+      /*
+       * A taxa entra congelada no pagamento, como o PDV faz de verdade: o
+       * painel soma o que foi gravado, e não recalcula pela taxa de hoje.
+       * Sem isto o exemplo nasceria com custo de cartão zerado.
+       */
+      const taxaPct = Number(forma.taxa);
       pagamentos.push({
         id: novoId("pg"),
         tenantId: ctx.tenant,
@@ -552,6 +558,8 @@ for (let d = 0; d < DIAS; d++) {
         formaPagamentoId: forma.id,
         valor,
         troco,
+        taxaPct,
+        taxaValor: centavos((valorBase * taxaPct) / 100),
         usuarioId: umDe(usuarios).id,
         criadoEm: paraBanco(fechamento),
       });
@@ -690,7 +698,7 @@ await inserir(
 );
 await inserir(
   "pagamentos",
-  ["id", "tenantId", "comandaId", "caixaId", "formaPagamentoId", "valor", "troco", "usuarioId", "criadoEm"],
+  ["id", "tenantId", "comandaId", "caixaId", "formaPagamentoId", "valor", "troco", "taxaPct", "taxaValor", "usuarioId", "criadoEm"],
   pagamentos
 );
 await inserir(

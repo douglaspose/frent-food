@@ -632,9 +632,15 @@ export type FormaNoPainel = {
   valor: number;
   /** Fatia do recebido no período, de 0 a 100. */
   fatia: number;
-  /** A taxa cadastrada hoje na forma, em porcentagem. */
-  taxaPct: number;
-  /** `valor × taxaPct`. Estimativa, não o que a adquirente cobrou de fato. */
+  /**
+   * A taxa que valia nos pagamentos do período, em porcentagem.
+   *
+   * `null` quando o período tem pagamentos com taxas diferentes — houve
+   * renegociação no meio, e anunciar uma delas como "a taxa" esconderia a
+   * outra. O custo somado continua exato nos dois casos.
+   */
+  taxaPct: number | null;
+  /** Soma do que cada pagamento gravou de taxa no momento em que entrou. */
   custoDaTaxa: number;
 };
 
@@ -644,22 +650,35 @@ export type FormaNoPainel = {
  * Soma `valor - troco` como o resto do painel: troco é dinheiro que voltou para
  * a mão do cliente, e contá-lo inflaria justamente a fatia do dinheiro.
  *
- * O custo da taxa é **estimativa**, e a tela precisa dizer isso. A taxa vem do
- * cadastro de hoje, não da que valia no dia do pagamento — se ele renegociar
- * com a adquirente, o custo do mês passado muda retroativamente nesta conta.
- * Guardar a taxa aplicada dentro de cada pagamento resolveria, e é uma mudança
- * de estrutura que não cabe neste passo.
+ * O custo da taxa é **somado**, não recalculado: cada pagamento gravou a taxa
+ * que valia no instante em que entrou. Antes esta conta multiplicava tudo pela
+ * taxa cadastrada hoje, e renegociar com a adquirente reescrevia o custo de um
+ * mês já fechado — o número de ontem virava outro hoje sem nada ter acontecido.
+ *
+ * `MIN` e `MAX` da taxa existem para detectar justamente essa renegociação: se
+ * o período tem pagamentos com taxas diferentes, a tela não anuncia nenhuma
+ * delas como "a taxa". O total continua exato.
  */
 export async function formasDePagamento(
   unidadeId: string,
   intervalo: Intervalo
 ): Promise<FormaNoPainel[]> {
   const linhas = await db.$queryRaw<
-    { nome: string; tipo: string; taxa: Soma; pagamentos: number; valor: Soma }[]
+    {
+      nome: string;
+      tipo: string;
+      menor_taxa: Soma;
+      maior_taxa: Soma;
+      custo: Soma;
+      pagamentos: number;
+      valor: Soma;
+    }[]
   >`
     SELECT fp.nome,
            fp.tipo::text AS tipo,
-           fp."taxaPct" AS taxa,
+           MIN(p."taxaPct") AS menor_taxa,
+           MAX(p."taxaPct") AS maior_taxa,
+           SUM(p."taxaValor") AS custo,
            COUNT(*)::int AS pagamentos,
            SUM(p.valor - p.troco) AS valor
       FROM pagamentos p
@@ -668,23 +687,25 @@ export async function formasDePagamento(
      WHERE cm."unidadeId" = ${unidadeId}
        AND p."criadoEm" >= ${intervalo.inicio}
        AND p."criadoEm" < ${intervalo.fim}
-     GROUP BY fp.nome, fp.tipo, fp."taxaPct"
-     ORDER BY 5 DESC
+     GROUP BY fp.nome, fp.tipo
+     ORDER BY 7 DESC
   `;
 
   const total = linhas.reduce((soma, l) => soma + num(l.valor), 0);
 
   return linhas.map((l) => {
     const valor = centavos(num(l.valor));
-    const taxaPct = num(l.taxa);
+    const menor = num(l.menor_taxa);
+    const maior = num(l.maior_taxa);
+
     return {
       nome: l.nome,
       tipo: l.tipo,
       pagamentos: l.pagamentos,
       valor,
       fatia: total > 0 ? (num(l.valor) / total) * 100 : 0,
-      taxaPct,
-      custoDaTaxa: centavos((valor * taxaPct) / 100),
+      taxaPct: menor === maior ? menor : null,
+      custoDaTaxa: centavos(num(l.custo)),
     };
   });
 }
