@@ -58,7 +58,22 @@ export default async function GestaoLayout({ children }: { children: ReactNode }
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-6 pt-8 pb-28 sm:pb-8">{children}</main>
+      {/*
+        A faixa decorativa atrás dos títulos.
+
+        Mora no layout, e não em cada página: são treze títulos espalhados por
+        onze arquivos, com estruturas diferentes — alguns com botão à direita —,
+        e repetir a faixa em cada um seria treze lugares para esquecer de mudar.
+        Aqui ela cobre tudo que vive sob /gestao e nada do salão.
+      */}
+      <div className="relative">
+        {/* O desenho vive em `.faixa-da-gestao`, no globals.css: são duas
+            máscaras combinadas, e escrevê-las como valor arbitrário do Tailwind
+            deixaria a classe ilegível. */}
+        <div aria-hidden className="faixa-da-gestao pointer-events-none absolute inset-x-0 top-0" />
+
+        <main className="relative mx-auto max-w-6xl px-6 pt-8 pb-28 sm:pb-8">{children}</main>
+      </div>
     </div>
   );
 }

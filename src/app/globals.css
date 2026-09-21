@@ -358,3 +358,69 @@ body {
     transform: translateY(0);
   }
 }
+
+/**
+ * A faixa decorativa atrás dos títulos da gestão.
+ *
+ * O fundo da imagem é um cinza quase branco, um tom mais escuro que o da
+ * página. Só com `mix-blend-multiply` o retângulo dela aparecia começando no
+ * meio da tela, com uma borda vertical nítida onde a imagem começa.
+ *
+ * As duas máscaras resolvem: uma apaga a lateral esquerda, outra a base. O que
+ * sobra de aresta é a borda direita, que coincide com a da janela, e o topo,
+ * que encosta na linha do menu e passa por remate. `intersect` é o que faz as
+ * duas valerem ao mesmo tempo — sem ele a segunda simplesmente substitui a
+ * primeira.
+ *
+ * A altura da imagem preenche a faixa em vez de cobrir a largura: `cover` numa
+ * tela larga ampliaria tanto que os ícones sairiam cortados pelo topo.
+ */
+.faixa-da-gestao {
+  background-image: url("/faixa-gestao.webp");
+  background-repeat: no-repeat;
+  mix-blend-mode: multiply;
+
+  /*
+   * No celular a altura manda: a imagem preenche a faixa e encosta à direita,
+   * que é onde o desenho concentra os ícones. Sobra a aresta esquerda, onde a
+   * arte começa no meio da tela — daí a máscara lateral.
+   *
+   * Como a imagem é medida pela altura, mexer aqui mexe no tamanho dos ícones
+   * junto: 22rem desenha a arte com 352px de altura, o dobro da primeira
+   * versão, e por isso ela aparece maior e mais presente na tela pequena.
+   */
+  height: 22rem;
+  background-size: auto 100%;
+  background-position: right top;
+
+  -webkit-mask-image:
+    linear-gradient(to right, transparent, black 45%),
+    linear-gradient(to bottom, black 55%, transparent);
+  mask-image:
+    linear-gradient(to right, transparent, black 45%),
+    linear-gradient(to bottom, black 55%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+}
+
+/*
+ * No desktop a largura manda: a imagem vai de fora a fora, e a altura sai da
+ * proporção dela (2000 × 667). Ajustar pela altura, como no celular, deixava a
+ * arte num quadradinho de 528px espremido no canto direito de uma tela de
+ * 1400px.
+ *
+ * A máscara lateral sai junto: com a imagem ocupando a largura inteira não há
+ * mais aresta à esquerda para esconder, e escondê-la apagaria os círculos e a
+ * malha de pontos que o desenho põe desse lado.
+ */
+@media (min-width: 640px) {
+  .faixa-da-gestao {
+    height: auto;
+    aspect-ratio: 2000 / 667;
+    background-size: 100% auto;
+    background-position: center top;
+
+    -webkit-mask-image: linear-gradient(to bottom, black 45%, transparent);
+    mask-image: linear-gradient(to bottom, black 45%, transparent);
+  }
+}
