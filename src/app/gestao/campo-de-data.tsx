@@ -84,13 +84,20 @@ export function CampoDeData({
     aoMudar(iso);
   }
 
+  /**
+   * Abre o seletor no desktop, onde tocar no campo não basta.
+   *
+   * Envolvido em try/catch porque o `showPicker` recusa fora de um gesto e não
+   * existe em navegador antigo. Nos dois casos o toque no campo nativo já
+   * resolve sozinho — e um erro aqui derrubaria a página por nada.
+   */
   function abrirCalendario() {
     const campo = calendario.current;
-    if (!campo) return;
-    // `showPicker` não existe em navegador antigo; aí o foco ao menos leva a
-    // pessoa até o controle nativo em vez de o botão não fazer nada.
-    if (typeof campo.showPicker === "function") campo.showPicker();
-    else campo.focus();
+    try {
+      campo?.showPicker?.();
+    } catch {
+      // O navegador vai abrir do jeito dele, ou já abriu.
+    }
   }
 
   return (
@@ -114,44 +121,59 @@ export function CampoDeData({
           — doze de folga. Em 120px com padding de 24 a sobra era exatamente
           zero, e qualquer fonte um fio mais larga cortava "dd/mm/aaaa".
         */
-        className="w-32 bg-transparent px-2.5 py-1.5 text-sm tabular-nums outline-none"
+        className="w-32 bg-transparent px-2.5 py-2 text-sm tabular-nums outline-none"
       />
 
-      <button
-        type="button"
-        onClick={abrirCalendario}
-        aria-label={`Escolher ${rotulo.toLowerCase()} no calendário`}
-        className="realce-ao-toque touch-manipulation rounded-r-lg px-2 py-1.5 text-neutral-500 transition duration-100 hover:text-neutral-900 active:scale-90"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+      {/*
+        O ícone é só desenho: quem recebe o toque é o campo nativo por cima
+        dele, logo abaixo.
+      */}
+      {/*
+        `self-stretch`, e não `h-full`: o pai é um flex sem altura declarada, e
+        ali `h-full` não estica nada — o alvo de toque ficava com 36×16px, que
+        num dedo é quase impossível de acertar.
+      */}
+      <span className="relative grid w-9 shrink-0 place-items-center self-stretch rounded-r-lg text-neutral-500">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden
+          className="h-4 w-4"
+        >
           <rect x="3" y="5" width="18" height="16" rx="2" />
           <path d="M3 10h18M8 3v4M16 3v4" strokeLinecap="round" />
         </svg>
-      </button>
 
-      {/*
-        O calendário de verdade, fora do fluxo.
+        {/*
+          O calendário de verdade, invisível e exatamente sobre o ícone.
 
-        Transparente em vez de `display: none` porque o navegador se recusa a
-        abrir o `showPicker()` de um campo que não está desenhado.
+          Antes era um campo de 0×0 aberto por `showPicker()`, e no iPhone não
+          abria nada: o Safari recusa o `showPicker` de um campo sem tamanho —
+          o Chromium aceita, e foi por isso que passou aqui e falhou lá.
 
-        E **absoluto**, em vez de apenas `w-0 h-0`: o WebKit dá tamanho mínimo
-        intrínseco a `input[type=date]`, e no Safari a largura zero não colapsa
-        — o campo inteiro inchava para caber um seletor invisível. Posicionado
-        fora do fluxo, ele não tem como empurrar nada, em navegador nenhum.
-        `appearance-none` tira junto o estofo que o Safari acrescenta por conta.
-      */}
-      <input
-        ref={calendario}
-        type="date"
-        value={valor}
-        min={min}
-        max={max}
-        onChange={(e) => escolheuNoCalendario(e.target.value)}
-        tabIndex={-1}
-        aria-hidden
-        className="pointer-events-none absolute bottom-0 right-2 h-0 w-0 appearance-none border-0 p-0 opacity-0"
-      />
+          Cobrindo o ícone, tocar nele **é** tocar no campo nativo, que o iOS
+          abre sozinho, sem depender de API nenhuma. No desktop, onde clicar no
+          corpo de um `input[type=date]` não abre o seletor, o `onClick` ainda
+          chama o `showPicker` — dentro de um gesto de verdade, que é o que ele
+          exige. Cada navegador pega o caminho que funciona nele.
+
+          Continua absoluto: fora do fluxo, ele não tem como inchar o campo,
+          que era o outro defeito do Safari.
+        */}
+        <input
+          ref={calendario}
+          type="date"
+          value={valor}
+          min={min}
+          max={max}
+          onChange={(e) => escolheuNoCalendario(e.target.value)}
+          onClick={abrirCalendario}
+          aria-label={`Escolher ${rotulo.toLowerCase()} no calendário`}
+          className="absolute inset-0 h-full w-full cursor-pointer appearance-none border-0 bg-transparent p-0 opacity-0"
+        />
+      </span>
     </div>
   );
 }
