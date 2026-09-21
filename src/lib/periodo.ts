@@ -42,7 +42,18 @@ export const ORDEM_DOS_ATALHOS = [
   "mes-anterior",
 ] as const satisfies readonly ChaveDePeriodo[];
 
-export const PERIODO_PADRAO: ChaveDePeriodo = "14";
+/**
+ * O que o painel mostra quando ninguém escolheu nada.
+ *
+ * "Hoje" porque quem abre o painel no meio do turno quer saber como está
+ * indo agora, e não a média das duas semanas — que é a pergunta do fim do mês,
+ * e essa se faz escolhendo. O gráfico não fica com uma barra só: ele tem piso
+ * de uma semana, com o dia de hoje em destaque.
+ *
+ * Vale também como destino de erro: período desconhecido, data impossível ou
+ * personalizado sem datas caem aqui.
+ */
+export const PERIODO_PADRAO: ChaveDePeriodo = "hoje";
 
 export type Intervalo = {
   inicio: Date;

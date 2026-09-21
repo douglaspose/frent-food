@@ -95,7 +95,8 @@ export function CampoDeData({
 
   return (
     <div
-      className={`flex items-center rounded-lg border bg-white ${
+      /* `relative` para o seletor nativo poder sair do fluxo logo abaixo. */
+      className={`relative flex items-center rounded-lg border bg-white ${
         invalido ? "border-red-400" : "border-neutral-200"
       }`}
     >
@@ -108,7 +109,12 @@ export function CampoDeData({
         maxLength={10}
         aria-label={rotulo}
         aria-invalid={invalido}
-        className="w-[7.5rem] bg-transparent px-3 py-1.5 text-sm tabular-nums outline-none"
+        /*
+          128px com 20px de padding deixa 108px para um placeholder que mede 96
+          — doze de folga. Em 120px com padding de 24 a sobra era exatamente
+          zero, e qualquer fonte um fio mais larga cortava "dd/mm/aaaa".
+        */
+        className="w-32 bg-transparent px-2.5 py-1.5 text-sm tabular-nums outline-none"
       />
 
       <button
@@ -124,9 +130,16 @@ export function CampoDeData({
       </button>
 
       {/*
-        O calendário de verdade. Fica sem tamanho e transparente porque
-        `display: none` faria o `showPicker()` falhar — o navegador se recusa a
-        abrir o seletor de um campo que não está desenhado.
+        O calendário de verdade, fora do fluxo.
+
+        Transparente em vez de `display: none` porque o navegador se recusa a
+        abrir o `showPicker()` de um campo que não está desenhado.
+
+        E **absoluto**, em vez de apenas `w-0 h-0`: o WebKit dá tamanho mínimo
+        intrínseco a `input[type=date]`, e no Safari a largura zero não colapsa
+        — o campo inteiro inchava para caber um seletor invisível. Posicionado
+        fora do fluxo, ele não tem como empurrar nada, em navegador nenhum.
+        `appearance-none` tira junto o estofo que o Safari acrescenta por conta.
       */}
       <input
         ref={calendario}
@@ -137,7 +150,7 @@ export function CampoDeData({
         onChange={(e) => escolheuNoCalendario(e.target.value)}
         tabIndex={-1}
         aria-hidden
-        className="h-0 w-0 opacity-0"
+        className="pointer-events-none absolute bottom-0 right-2 h-0 w-0 appearance-none border-0 p-0 opacity-0"
       />
     </div>
   );

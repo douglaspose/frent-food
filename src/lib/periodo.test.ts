@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ORDEM_DOS_ATALHOS,
   PERIODOS,
+  PERIODO_PADRAO,
   comoTexto,
   diasDoIntervalo,
   janelaDoGrafico,
@@ -118,20 +119,27 @@ describe("período do painel", () => {
   it("personalizado sem data volta ao padrão em vez de mostrar tela vazia", () => {
     const p = lerPeriodo({ periodo: "personalizado" }, AGORA);
 
-    expect(p.chave).toBe("14");
-    expect(p.dias).toBe(14);
+    expect(p.chave).toBe(PERIODO_PADRAO);
+    expect(p.dias).toBe(1);
   });
 
   it("data impossível não vira outro dia", () => {
     // `new Date(2026, 1, 31)` viraria 3 de março sem reclamar.
     const p = lerPeriodo({ periodo: "personalizado", de: "2026-02-31", ate: "2026-03-05" }, AGORA);
 
-    expect(p.chave).toBe("14");
+    expect(p.chave).toBe(PERIODO_PADRAO);
   });
 
   it("período desconhecido cai no padrão", () => {
-    expect(lerPeriodo({ periodo: "ano-passado" }, AGORA).chave).toBe("14");
-    expect(lerPeriodo({}, AGORA).chave).toBe("14");
+    expect(lerPeriodo({ periodo: "ano-passado" }, AGORA).chave).toBe(PERIODO_PADRAO);
+    expect(lerPeriodo({}, AGORA).chave).toBe(PERIODO_PADRAO);
+  });
+
+  it("o padrão é Hoje", () => {
+    // Quem abre o painel no meio do turno quer saber como está indo agora.
+    // A média de duas semanas é a pergunta do fim do mês, e essa se escolhe.
+    expect(PERIODO_PADRAO).toBe("hoje");
+    expect(janela(lerPeriodo({}, AGORA).atual)).toBe("17/09 00:00 → 18/09 00:00");
   });
 
   it("o intervalo anterior nunca encosta no atual", () => {
