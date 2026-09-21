@@ -398,9 +398,29 @@ export async function aplicarDesconto(
     if (!liberacao) return { precisaAutorizacao: "DESCONTO" };
     const { sessao, aprovadoPor } = liberacao;
 
-    const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    const comanda = await db.comanda.findUniqueOrThrow({
+      where: { id: comandaId },
+      include: { itens: { where: CONSUMO, select: { precoTotal: true } } },
+    });
     // Faltava aqui: todas as outras ações conferem o tenant, esta não conferia.
     if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+
+    /**
+     * O total já limitava o desconto ao subtotal, mas o valor gravado não:
+     * R$ 417 de desconto numa conta de R$ 41,70 ficava na comanda e no diário,
+     * e qualquer relatório de descontos somaria os R$ 417.
+     */
+    if (!Number.isFinite(valor) || valor < 0) throw new ErroDeOperacao("Informe um desconto válido.");
+    const { subtotal } = calcularTotais({
+      itens: comanda.itens.map((i) => ({ precoTotal: Number(i.precoTotal) })),
+      taxaServicoPct: 0,
+      descontoValor: 0,
+    });
+    if (valor > subtotal + TOLERANCIA) {
+      throw new ErroDeOperacao(
+        `O desconto não pode passar do consumo (R$ ${subtotal.toFixed(2).replace(".", ",")}).`
+      );
+    }
 
     if (valor > 0 && (await ajusteBooleano(comanda.unidadeId, "caixa.exigirMotivoDesconto")) && !motivo.trim()) {
       throw new ErroDeOperacao("Informe o motivo do desconto.");
