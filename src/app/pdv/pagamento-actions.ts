@@ -497,18 +497,49 @@ export async function registrarPagamento(
     // e o que voltou para a mão do cliente nunca passou.
     const taxaValor = centavos(((valor - troco) * taxaPct) / 100);
 
-    await db.pagamento.create({
-      data: {
-        tenantId: comanda.tenantId,
-        comandaId,
-        caixaId: caixa.id,
-        formaPagamentoId,
-        valor,
-        troco,
-        taxaPct,
-        taxaValor,
-        usuarioId: sessao.usuarioId,
-      },
+    /**
+     * Dois toques em "receber" cobravam duas vezes: R$ 91,74 numa conta de
+     * R$ 45,87. A comanda é travada para a conta e a gravação acontecerem
+     * juntas — o segundo toque espera o primeiro e encontra a conta quitada.
+     * E ninguém recebe mais do que falta: o que passar disso é troco, e troco
+     * se lança como troco.
+     */
+    await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${comandaId} FOR UPDATE`;
+      const atual = await tx.comanda.findUniqueOrThrow({
+        where: { id: comandaId },
+        include: {
+          itens: { where: CONSUMO, select: { precoTotal: true } },
+          pagamentos: { select: { valor: true, troco: true } },
+        },
+      });
+      if (atual.status === "PAGA") throw new ErroDeOperacao("Comanda já está paga.");
+
+      const { total } = calcularTotais({
+        itens: atual.itens.map((i) => ({ precoTotal: Number(i.precoTotal) })),
+        taxaServicoPct: Number(atual.taxaServicoPct),
+        descontoValor: Number(atual.descontoValor),
+      });
+      const recebido = centavos(atual.pagamentos.reduce((s, p) => s + Number(p.valor) - Number(p.troco), 0));
+      const falta = centavos(total - recebido);
+      if (falta <= TOLERANCIA) throw new ErroDeOperacao("Esta conta já está quitada.");
+      if (valor - troco > falta + TOLERANCIA) {
+        throw new ErroDeOperacao(`Falta receber só R$ ${falta.toFixed(2).replace(".", ",")}.`);
+      }
+
+      await tx.pagamento.create({
+        data: {
+          tenantId: comanda.tenantId,
+          comandaId,
+          caixaId: caixa.id,
+          formaPagamentoId,
+          valor,
+          troco,
+          taxaPct,
+          taxaValor,
+          usuarioId: sessao.usuarioId,
+        },
+      });
     });
 
     revalidatePath("/pdv");
