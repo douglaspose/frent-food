@@ -447,3 +447,48 @@ body {
     font-size: 1rem;
   }
 }
+
+/**
+ * Alvo de toque de pelo menos 36px na gestão, no celular — sem mudar o desenho.
+ *
+ * Medido a 375px: as ações em texto das listas (editar, desativar, excluir,
+ * entrada, perda, contar, ver, descartar) tinham 20px de altura; os
+ * interruptores dos Ajustes e as abas do Painel, 24; as caixas de marcar, 14.
+ * No dedo isso é errar o toque — "desativar" em vez de "editar", o produto de
+ * baixo em vez do de cima.
+ *
+ * Crescer cada botão faria as linhas das tabelas crescerem junto. Quem cresce,
+ * então, é uma camada invisível sobre cada alvo: no mínimo 36px de altura e de
+ * largura, centrada nele. O desenho fica igual e o dedo acerta.
+ *
+ * Regra única, como a do tamanho de fonte logo acima e pelo mesmo motivo: o
+ * próximo botão nasceria pequeno de novo. A caixa de marcar ganha a camada no
+ * rótulo que a envolve, porque `input` não tem `::after` em todo navegador.
+ *
+ * `:where()` zera a especificidade, e qualquer classe do próprio elemento
+ * vence. É o que impede o `position: relative` daqui de desfazer um `absolute`
+ * de quem já tem posição — o campo de data invisível sobre o ícone do
+ * calendário, por exemplo. Em quem não tem posição, `relative` sem
+ * deslocamento não muda nada no desenho.
+ *
+ * 36 e não 44: é a medida que o resto do sistema já usa (o campo de preço, o
+ * botão "Disponível", o ícone do calendário) e a que cabe numa linha de tabela
+ * sem a camada de uma invadir o alvo da de baixo.
+ */
+@media (max-width: 639px) {
+  :where(.area-de-gestao)
+    :where(button, a[href], summary, [role="switch"], label:has(input[type="checkbox"])) {
+    position: relative;
+  }
+
+  :where(.area-de-gestao)
+    :where(button, a[href], summary, [role="switch"], label:has(input[type="checkbox"]))::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 36px);
+    height: max(100%, 36px);
+    transform: translate(-50%, -50%);
+  }
+}

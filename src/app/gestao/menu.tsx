@@ -77,7 +77,10 @@ export function MenuDaGestao() {
             key={item.href}
             href={item.href}
             aria-current={ativo ? "page" : undefined}
-            className={`realce-ao-toque shrink-0 touch-manipulation rounded-lg px-3 py-1.5 text-sm font-medium transition duration-100 active:scale-95 ${
+            // `py-2` no celular, e não a camada invisível do globals.css: a
+            // faixa rola de lado, e contêiner com rolagem corta o que passa da
+            // borda — a camada ficava de fora e o toque seguia com 32px.
+            className={`realce-ao-toque shrink-0 touch-manipulation rounded-lg px-3 py-2 text-sm font-medium transition duration-100 active:scale-95 sm:py-1.5 ${
               ativo
                 ? "bg-neutral-900 text-white"
                 : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
