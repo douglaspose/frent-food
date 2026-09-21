@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { lerSessao } from "@/lib/session";
+import { sessaoAtiva } from "@/lib/session";
 import { headers } from "next/headers";
 import { LoginForm } from "./login-form";
 import { logomarcaPeloEndereco } from "@/lib/logomarca";
@@ -9,7 +9,9 @@ import { FUNDO_ESCURO } from "@/lib/marca";
 export const metadata: Metadata = { title: "Entrar" };
 
 export default async function LoginPage() {
-  if (await lerSessao()) redirect("/pdv");
+  // Conferida no banco: um cookie de quem foi desligado não pode prender o
+  // tablet num PDV que o recusa.
+  if (await sessaoAtiva()) redirect("/pdv");
 
   // Sem sessão, quem diz de qual casa é a tela é o endereço. A tela é preta:
   // o que serve aqui é a versão de fundo escuro.

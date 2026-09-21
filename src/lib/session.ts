@@ -88,16 +88,33 @@ export async function exigirSessao(): Promise<Sessao> {
   const sessao = await lerSessao();
   if (!sessao) throw new Error("Sessão expirada. Faça login novamente.");
 
-  const usuario = await db.usuario.findUnique({
-    where: { id: sessao.usuarioId },
-    select: { ativo: true, tenantId: true },
-  });
-
-  if (!usuario?.ativo || usuario.tenantId !== sessao.tenantId) {
+  const valida = await conferirNoBanco(sessao);
+  if (!valida) {
     await tentarEncerrarSessao();
     throw new Error("Seu acesso foi encerrado. Faça login novamente.");
   }
 
+  return valida;
+}
+
+/**
+ * A sessão do cookie, só se ela ainda vale no banco — sem lançar.
+ *
+ * É o que a tela de login usa para decidir se manda para o PDV. Ela olhava só
+ * a assinatura do cookie: com a pessoa desligada, o login mandava para o PDV,
+ * o PDV recusava, e ninguém mais entrava naquele tablet até o cookie vencer.
+ */
+export async function sessaoAtiva(): Promise<Sessao | null> {
+  const sessao = await lerSessao();
+  return sessao ? conferirNoBanco(sessao) : null;
+}
+
+async function conferirNoBanco(sessao: Sessao): Promise<Sessao | null> {
+  const usuario = await db.usuario.findUnique({
+    where: { id: sessao.usuarioId },
+    select: { ativo: true, tenantId: true },
+  });
+  if (!usuario?.ativo || usuario.tenantId !== sessao.tenantId) return null;
   return sessao;
 }
 
