@@ -55,7 +55,6 @@ export default async function CaixaPage() {
         <h1 className="texto-tela">Caixa fechado</h1>
         <p className="texto-apoio mt-1 text-neutral-500">{unidade.nome}</p>
           <CaixaPainel
-            unidadeId={unidade.id}
             caixa={null}
             comandasAbertas={comandasAbertas}
             podeOperar={temPermissao(sessao, "caixa.abrir")}
@@ -89,7 +88,6 @@ export default async function CaixaPage() {
       </p>
 
       <CaixaPainel
-        unidadeId={unidade.id}
         comandasAbertas={comandasAbertas}
         podeOperar={temPermissao(sessao, "caixa.fechar")}
         podeMovimentar={temPermissao(sessao, "caixa.sangria")}

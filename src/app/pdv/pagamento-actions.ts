@@ -17,12 +17,19 @@ import { emResultado, ErroDeOperacao, type ComErro } from "@/lib/erro-de-operaca
 
 type Turno = "DIA" | "INTERMEDIARIO" | "NOITE" | "MADRUGADA";
 
-export async function abrirCaixa(unidadeId: string, turno: Turno, fundoCaixa: number) {
+/**
+ * Abre o caixa da unidade de quem está logado.
+ *
+ * A unidade vem da sessão, e não de um parâmetro. Antes ela vinha do
+ * navegador: a conferência pegava unidade de outro restaurante, mas não
+ * unidade de outra filial do mesmo — e server action é endpoint público,
+ * chamável com o argumento que se quiser. Numa casa com duas unidades, o caixa
+ * de uma podia abrir o caixa da outra. A sessão já sabe onde a pessoa está.
+ */
+export async function abrirCaixa(turno: Turno, fundoCaixa: number) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("caixa.abrir");
-
-    const unidade = await db.unidade.findUniqueOrThrow({ where: { id: unidadeId } });
-    if (unidade.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Unidade de outro restaurante.");
+    const unidadeId = sessao.unidadeId;
 
     const aberto = await db.caixa.findFirst({
       where: { unidadeId, tipo: "GERAL", status: "ABERTO" },
@@ -41,7 +48,7 @@ export async function abrirCaixa(unidadeId: string, turno: Turno, fundoCaixa: nu
 
     const caixa = await db.caixa.create({
       data: {
-        tenantId: unidade.tenantId,
+        tenantId: sessao.tenantId,
         unidadeId,
         tipo: "GERAL",
         data: hoje,

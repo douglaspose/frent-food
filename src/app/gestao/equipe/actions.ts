@@ -29,14 +29,33 @@ function validar(dados: DadosUsuario) {
 }
 
 /**
- * O diário guarda o nome do cargo, não o id.
+ * O cargo escolhido na tela, conferido antes de qualquer gravação.
  *
- * "cargo: GERENTE → PROPRIETARIO" responde a pergunta; "cargo: cmu7dva..."
- * obriga quem lê a ir consultar outra tabela, e ninguém vai.
+ * O id vem do navegador, e cargo carrega permissões. Sem esta conferência um
+ * gerente podia pendurar num funcionário o cargo "Proprietário" **de outro
+ * restaurante** — com permissão total — e ganhar acesso irrestrito no seu.
+ *
+ * O RLS não pegava isso: no Postgres a checagem de chave estrangeira ignora as
+ * políticas por definição, roda com os privilégios do dono da tabela. O banco
+ * aceitava a referência a um cargo que ele mesmo esconderia numa consulta. Por
+ * isso a regra mora aqui, e não só lá.
+ *
+ * Devolve o nome junto porque o diário guarda o nome, não o id:
+ * "GERENTE → PROPRIETARIO" responde a pergunta; "cmu7dva..." não.
  */
-async function nomeDoCargo(cargoId: string | null | undefined) {
+async function cargoDoTenant(cargoId: string, tenantId: string) {
+  const cargo = await db.cargo.findFirst({
+    where: { id: cargoId, tenantId },
+    select: { id: true, nome: true },
+  });
+  if (!cargo) throw new ErroDeOperacao("Cargo não encontrado.");
+  return cargo;
+}
+
+/** O nome do cargo que a pessoa já tem, para o "antes" do diário. */
+async function nomeDoCargoAtual(cargoId: string | null | undefined, tenantId: string) {
   if (!cargoId) return null;
-  const cargo = await db.cargo.findUnique({ where: { id: cargoId }, select: { nome: true } });
+  const cargo = await db.cargo.findFirst({ where: { id: cargoId, tenantId }, select: { nome: true } });
   return cargo?.nome ?? null;
 }
 
@@ -66,6 +85,8 @@ export async function criarUsuario(dados: DadosUsuario) {
       throw new ErroDeOperacao("Esse PIN já está em uso por outra pessoa.");
     }
 
+    const cargo = await cargoDoTenant(dados.cargoId, sessao.tenantId);
+
     const criado = await db.usuario.create({
       data: {
         tenantId: sessao.tenantId,
@@ -73,7 +94,7 @@ export async function criarUsuario(dados: DadosUsuario) {
         email,
         senhaHash: await bcrypt.hash(dados.senha, 10),
         pinHash: dados.pin ? await bcrypt.hash(dados.pin, 10) : null,
-        unidades: { create: { unidadeId: sessao.unidadeId, cargoId: dados.cargoId } },
+        unidades: { create: { unidadeId: sessao.unidadeId, cargoId: cargo.id } },
       },
     });
 
@@ -89,7 +110,7 @@ export async function criarUsuario(dados: DadosUsuario) {
         depois: {
           nome: criado.nome,
           email: criado.email,
-          cargo: await nomeDoCargo(dados.cargoId),
+          cargo: cargo.nome,
         },
       }),
     });
@@ -110,6 +131,8 @@ export async function atualizarUsuario(usuarioId: string, dados: DadosUsuario) {
       throw new ErroDeOperacao("Esse PIN já está em uso por outra pessoa.");
     }
 
+    const cargo = await cargoDoTenant(dados.cargoId, sessao.tenantId);
+
     const cargoAtual = await db.usuarioUnidade.findFirst({
       where: { usuarioId, unidadeId: sessao.unidadeId },
       select: { cargoId: true },
@@ -122,12 +145,12 @@ export async function atualizarUsuario(usuarioId: string, dados: DadosUsuario) {
       antes: {
         nome: usuario.nome,
         email: usuario.email,
-        cargo: await nomeDoCargo(cargoAtual?.cargoId),
+        cargo: await nomeDoCargoAtual(cargoAtual?.cargoId, sessao.tenantId),
       },
       depois: {
         nome: dados.nome.trim(),
         email: dados.email.trim().toLowerCase(),
-        cargo: await nomeDoCargo(dados.cargoId),
+        cargo: cargo.nome,
         // Não se guarda a senha, mas guarda-se que ela mudou: é a pergunta que
         // aparece quando alguém não consegue mais entrar.
         trocouSenha: Boolean(dados.senha),
@@ -148,7 +171,7 @@ export async function atualizarUsuario(usuarioId: string, dados: DadosUsuario) {
       });
       await tx.usuarioUnidade.updateMany({
         where: { usuarioId, unidadeId: sessao.unidadeId },
-        data: { cargoId: dados.cargoId },
+        data: { cargoId: cargo.id },
       });
       await tx.auditLog.create({ data: registro });
     });

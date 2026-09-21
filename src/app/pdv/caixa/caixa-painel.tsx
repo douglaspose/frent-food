@@ -46,13 +46,11 @@ const MOVIMENTOS = [
 const RETIRA = RETIRA_DA_GAVETA;
 
 export function CaixaPainel({
-  unidadeId,
   caixa,
   comandasAbertas,
   podeOperar,
   podeMovimentar = false,
 }: {
-  unidadeId: string;
   caixa: CaixaAberto | null;
   comandasAbertas: number;
   podeOperar: boolean;
@@ -75,7 +73,7 @@ export function CaixaPainel({
     setErro(null);
     iniciar(async () => {
       try {
-        const r = await abrirCaixa(unidadeId, turno, Number(fundo.replace(",", ".")) || 0);
+        const r = await abrirCaixa(turno, Number(fundo.replace(",", ".")) || 0);
         if (temErro(r)) {
           setErro(r.erro);
           return;
