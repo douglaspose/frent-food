@@ -450,6 +450,16 @@ export async function registrarPagamento(
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.receberPagamento");
 
+    /**
+     * Valor e troco chegam do navegador. Sem esta conferência, pagamento
+     * negativo abatia a conta, troco maior que o valor virava dinheiro
+     * negativo no Painel, e NaN estourava como erro de sistema expondo a
+     * consulta inteira.
+     */
+    if (!Number.isFinite(valor) || valor <= 0) throw new ErroDeOperacao("Informe um valor maior que zero.");
+    if (!Number.isFinite(troco) || troco < 0) throw new ErroDeOperacao("Troco inválido.");
+    if (troco >= valor) throw new ErroDeOperacao("O troco não pode ser maior que o valor entregue.");
+
     const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
     if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
     if (comanda.status === "PAGA") throw new ErroDeOperacao("Comanda já está paga.");
@@ -473,12 +483,14 @@ export async function registrarPagamento(
      */
     const forma = await db.formaPagamento.findUnique({
       where: { id: formaPagamentoId },
-      select: { tenantId: true, ativo: true, taxaPct: true },
+      select: { tenantId: true, ativo: true, taxaPct: true, tipo: true },
     });
     if (!forma || forma.tenantId !== sessao.tenantId) {
       throw new ErroDeOperacao("Forma de pagamento não encontrada.");
     }
     if (!forma.ativo) throw new ErroDeOperacao("Esta forma de pagamento está desativada.");
+    // Só dinheiro tem troco: cartão e Pix são cobrados no valor exato.
+    if (troco > 0 && forma.tipo !== "DINHEIRO") throw new ErroDeOperacao("Só pagamento em dinheiro tem troco.");
 
     const taxaPct = Number(forma.taxaPct);
     // Troco fora da base: a adquirente cobra sobre o que passou na maquininha,
