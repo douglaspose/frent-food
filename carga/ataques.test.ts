@@ -6,6 +6,7 @@ import { cancelarItem } from "@/app/pdv/cancelamento-actions";
 import { pedirAutorizacao } from "@/app/pdv/autorizacao-actions";
 import { avancarPedido } from "@/app/kds/actions";
 import LoginPage from "@/app/login/page";
+import MesaPublicaPage from "@/app/mesa/[token]/page";
 import { chamarGarcomPeloQr } from "@/app/mesa/[token]/actions";
 import {
   abrirCaixa,
@@ -615,6 +616,24 @@ describe("exploração de 21/09", () => {
       await admin.usuario.update({ where: { id: g.usuarioId }, data: { ativo: true } });
     }
     expect(destino, "a tela de login redirecionou para").toBeNull();
+  });
+
+  /**
+   * A página que o cliente abre ao apontar a câmera para o QR. Sem sessão e
+   * sob RLS, como o "chamar garçom" (linha de base, problema 8) — só que
+   * ainda antes: se ela der 404, o botão nem aparece.
+   */
+  it("a página do QR da mesa abre para o cliente", async () => {
+    const mesa = A.mesas[37]!;
+    await como(A.garcons[0]!, () => abrirComanda(mesa.id, 2));
+    const cliente = { ...pessoa("cliente na mesa", "", "189.1.1.2", "demo.frentfood.test"), usuarioId: "", cargo: "" };
+    let erro: string | null = null;
+    try {
+      await como(cliente, () => MesaPublicaPage({ params: Promise.resolve({ token: mesa.qrToken! }) }));
+    } catch (e) {
+      erro = (e as { digest?: string }).digest ?? (e instanceof Error ? e.message : String(e));
+    }
+    expect(erro, "a página do QR respondeu").toBeNull();
   });
 
   /** O caixa fechado é um número assinado por alguém; nada pode mudá-lo depois. */
