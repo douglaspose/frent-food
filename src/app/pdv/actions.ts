@@ -29,15 +29,30 @@ export async function abrirComanda(mesaId: string, pessoas: number, nomeCliente?
       throw new ErroDeOperacao("Esta unidade exige o nome do cliente para abrir a mesa.");
     }
 
-    // Numeração sequencial por unidade. Sob concorrência real isso vira uma
-    // sequence no Postgres; para o volume de um salão o max+1 dá conta.
-    const ultima = await db.comanda.findFirst({
-      where: { unidadeId: mesa.unidadeId },
-      orderBy: { numero: "desc" },
-      select: { numero: true },
-    });
-
     const comanda = await db.$transaction(async (tx) => {
+      /**
+       * Uma abertura por vez na unidade.
+       *
+       * O max+1 era lido fora da transação: no dia simulado de 180 comandas,
+       * 50 de 222 aberturas falharam por número repetido, e dois garçons na
+       * mesma mesa podiam abrir duas comandas. A trava da linha da unidade
+       * (NO KEY UPDATE, que não bloqueia quem só referencia a unidade)
+       * enfileira as aberturas; dentro dela, a mesa é conferida de novo e o
+       * número lido é o último de verdade.
+       */
+      await tx.$queryRaw`SELECT id FROM unidades WHERE id = ${mesa.unidadeId} FOR NO KEY UPDATE`;
+
+      const aberta = await tx.comanda.findFirst({
+        where: { mesaId, status: { in: ["ABERTA", "FECHANDO"] } },
+      });
+      if (aberta) return aberta;
+
+      const ultima = await tx.comanda.findFirst({
+        where: { unidadeId: mesa.unidadeId },
+        orderBy: { numero: "desc" },
+        select: { numero: true },
+      });
+
       const criada = await tx.comanda.create({
         data: {
           tenantId: mesa.tenantId,
