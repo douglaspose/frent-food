@@ -100,17 +100,6 @@ export async function enviarCarrinho(comandaId: string) {
     if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
     if (comanda.status !== "ABERTA") throw new ErroDeOperacao("A comanda não está aberta.");
 
-    const pendentes = await db.comandaItem.findMany({
-      where: { comandaId, status: "PENDENTE" },
-      select: { id: true, produtoId: true, quantidade: true },
-    });
-    if (pendentes.length === 0) return { enviados: 0 };
-
-    const estacoesPorProduto = await db.produtoEstacao.findMany({
-      where: { produtoId: { in: pendentes.map((i) => i.produtoId) } },
-    });
-    const estacaoDoProduto = new Map(estacoesPorProduto.map((e) => [e.produtoId, e.estacaoId]));
-
     const pedidosCriados: string[] = [];
 
     /**
@@ -121,7 +110,30 @@ export async function enviarCarrinho(comandaId: string) {
     const confirmaNaTela = await ajusteBooleano(comanda.unidadeId, "kds.confirmarPedidoNaTela");
     const statusInicial = confirmaNaTela ? "AGUARDANDO" : "EM_PREPARO";
 
-    await db.$transaction(async (tx) => {
+    const pendentes = await db.$transaction(async (tx) => {
+      /**
+       * Um envio por vez na mesma comanda.
+       *
+       * O carrinho era lido fora da transação: dois toques em "enviar" liam os
+       * mesmos itens pendentes, e a rodada ia duas vezes para a cozinha — dois
+       * tickets e a baixa do estoque em dobro. Com a comanda travada, o
+       * segundo toque espera o primeiro e encontra o carrinho vazio.
+       */
+      await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${comandaId} FOR UPDATE`;
+      const atual = await tx.comanda.findUniqueOrThrow({ where: { id: comandaId }, select: { status: true } });
+      if (atual.status !== "ABERTA") throw new ErroDeOperacao("A comanda não está aberta.");
+
+      const pendentes = await tx.comandaItem.findMany({
+        where: { comandaId, status: "PENDENTE" },
+        select: { id: true, produtoId: true, quantidade: true },
+      });
+      if (pendentes.length === 0) return pendentes;
+
+      const estacoesPorProduto = await tx.produtoEstacao.findMany({
+        where: { produtoId: { in: pendentes.map((i) => i.produtoId) } },
+      });
+      const estacaoDoProduto = new Map(estacoesPorProduto.map((e) => [e.produtoId, e.estacaoId]));
+
       await tx.comandaItem.updateMany({
         where: { id: { in: pendentes.map((i) => i.id) } },
         // O item da comanda acompanha o ticket: o garçom vê "EM_PREPARO" na
@@ -172,7 +184,9 @@ export async function enviarCarrinho(comandaId: string) {
           comandaItemId: i.id,
         })),
       });
+      return pendentes;
     });
+    if (pendentes.length === 0) return { enviados: 0 };
 
     // Fora da transação: o pedido já está no KDS, e uma falha ao montar o papel
     // não pode desfazer o lançamento que a cozinha já está vendo.
