@@ -424,3 +424,26 @@ body {
     mask-image: linear-gradient(to bottom, black 45%, transparent);
   }
 }
+
+/**
+ * Campo de formulário nunca abaixo de 16px no celular.
+ *
+ * O Safari do iPhone dá zoom ao focar um campo com fonte menor que isso: a
+ * tela salta, o dedo perde o alvo e sair do zoom é manual. Acontecia em 18
+ * dos 53 campos da gestão — os que usam `text-sm` ou `text-xs`.
+ *
+ * A saída comum, `maximum-scale=1` no viewport, desliga a pinça e tira o zoom
+ * de quem precisa dele para enxergar. Não serve.
+ *
+ * Vai por regra única, e não campo a campo, porque o 54º campo nasceria com o
+ * defeito de volta. Caixa e opção ficam de fora: neles a fonte não é o alvo do
+ * toque, e crescer só desalinharia a marcação.
+ *
+ * Só até 639px — o ponto onde o Tailwind vira `sm`. No desktop a densidade
+ * continua como está.
+ */
+@media (max-width: 639px) {
+  .area-de-gestao :is(input, select, textarea):not([type="checkbox"]):not([type="radio"]) {
+    font-size: 1rem;
+  }
+}
