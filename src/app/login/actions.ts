@@ -28,9 +28,15 @@ function mensagemDeBloqueio(segundos: number) {
 }
 
 /**
- * Qual restaurante está sendo acessado. Hoje há um só; quando o SaaS tiver
- * vários, o slug vem do subdomínio (lipao.meusistema.com.br) e é só trocar
- * esta função.
+ * Qual restaurante está sendo acessado: o slug é o subdomínio
+ * (lipao.meusistema.com.br). Sem subdomínio que case — desenvolvimento, ou uma
+ * instalação de um restaurante só —, vale o único restaurante ativo; com dois
+ * ou mais, ninguém entra sem o endereço certo. Mesma regra da logomarca da
+ * tela de login (`logomarcaPeloEndereco`).
+ *
+ * Antes procurava sempre o slug "demo", ignorando o endereço: nenhum outro
+ * restaurante entrava, e o gerente do vizinho com PIN igual ao de alguém do
+ * demo entrava no demo — pior que não entrar.
  *
  * É a única pergunta do sistema que precisa ser respondida sem saber de qual
  * restaurante ela é — por isso o `dbSemRls`, e por isso marcada. Sob o cliente
@@ -38,9 +44,17 @@ function mensagemDeBloqueio(segundos: number) {
  * senha certa.
  */
 async function restauranteDoEndereco() {
-  return atravessandoRestaurantes("login: descobrir o restaurante pelo endereço", () =>
-    dbSemRls.tenant.findFirst({ where: { slug: "demo", ativo: true } })
-  );
+  const host = (await headers()).get("host");
+  const subdominio = host?.split(":")[0]?.split(".")[0];
+
+  return atravessandoRestaurantes("login: descobrir o restaurante pelo endereço", async () => {
+    if (subdominio) {
+      const porSlug = await dbSemRls.tenant.findFirst({ where: { slug: subdominio, ativo: true } });
+      if (porSlug) return porSlug;
+    }
+    const ativos = await dbSemRls.tenant.findMany({ where: { ativo: true }, take: 2 });
+    return ativos.length === 1 ? ativos[0]! : null;
+  });
 }
 
 async function montarSessao(usuarioId: string): Promise<Sessao | null> {
