@@ -49,6 +49,11 @@ next-env.d.ts
 # Não é o produto e não pertence ao repositório do projeto.
 /.agents/
 /.windsurf/
-/.claude/skills/
+/.claude/skills/*
+# Exceção: o gatilho do agente de testes é do projeto, não de terceiros.
+!/.claude/skills/teste-do-dia/
 /.claude/settings.local.json
 /skills-lock.json
+
+# Rastro das rodadas do agente de testes: resultado de uma execução, não código.
+/relatorios/

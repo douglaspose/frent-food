@@ -21,6 +21,14 @@
         "3002"
       ],
       "port": 3002
+    },
+    {
+      "name": "carga",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "carga/servidor.mjs"
+      ],
+      "port": 3003
     }
   ]
 }

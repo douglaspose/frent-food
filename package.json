@@ -18,7 +18,8 @@
     "rls:aplicar": "tsx scripts/aplicar-rls.mts",
     "rls:verificar": "tsx scripts/verificar-rls.mts",
     "rls:medir": "tsx scripts/medir-rls.mts",
-    "db:volume": "tsx scripts/volume-de-teste.mts"
+    "db:volume": "tsx scripts/volume-de-teste.mts",
+    "teste:dia": "node carga/rodar.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
