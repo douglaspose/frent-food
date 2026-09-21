@@ -4,40 +4,10 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
 import { PARAMETROS as CATALOGO } from "../src/lib/parametros";
+import { PERMISSOES, CARDAPIO, CATEGORIAS_DO_BAR, CATEGORIAS_COM_PONTO, ehAlcoolica, FORMAS_DE_PAGAMENTO } from "./dados-de-exemplo";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const db = new PrismaClient({ adapter });
-
-/** Permissões por cargo. A chave é o que o código checa antes de cada ação. */
-const PERMISSOES: Record<string, string[]> = {
-  GARCOM: ["comanda.abrir", "comanda.lancarItem", "comanda.imprimirParcial", "mesa.transferir"],
-  CAIXA: [
-    "comanda.abrir",
-    "comanda.lancarItem",
-    "comanda.fechar",
-    "comanda.receberPagamento",
-    "caixa.abrir",
-    "caixa.fechar",
-  ],
-  GERENTE: [
-    "comanda.abrir",
-    "comanda.lancarItem",
-    "comanda.fechar",
-    "comanda.receberPagamento",
-    "comanda.cancelarItem",
-    "comanda.aplicarDesconto",
-    "caixa.abrir",
-    "caixa.fechar",
-    "caixa.sangria",
-    "autorizacao.aprovar",
-    "produto.editar",
-    "cardapio.editar",
-    // O gerente lê o diário porque é ele quem confere o turno. Garçom e caixa
-    // não: a tela diz quem deu desconto e quem fechou com falta.
-    "auditoria.ver",
-  ],
-  PROPRIETARIO: ["*"],
-};
 
 /**
  * Os parâmetros vêm do catálogo, não de uma cópia aqui.
@@ -46,59 +16,6 @@ const PERMISSOES: Record<string, string[]> = {
  * acabou lido pelo KDS e nunca criado pelo seed.
  */
 const PARAMETROS = CATALOGO.map((p) => ({ grupo: p.grupo, chave: p.chave, valor: p.padrao }));
-
-/** Cardápio de demonstração: espetaria/bar, próximo do que um cliente real teria. */
-const CARDAPIO: { categoria: string; itens: [string, number][] }[] = [
-  {
-    categoria: "Espetos",
-    itens: [
-      ["Espeto de Alcatra", 14.9],
-      ["Espeto de Frango", 12.9],
-      ["Espeto de Coração", 13.9],
-      ["Espeto de Linguiça", 12.9],
-      ["Espeto de Queijo Coalho", 12.0],
-      ["Pão de Alho", 9.9],
-    ],
-  },
-  {
-    categoria: "Carnes",
-    itens: [
-      ["Picanha na Chapa", 129.9],
-      ["Cupim na Chapa", 99.9],
-      ["Carne de Sol com Mandioca", 89.9],
-    ],
-  },
-  {
-    categoria: "Porções",
-    itens: [
-      ["Batata Frita", 39.9],
-      ["Mandioca Frita", 34.9],
-      ["Torresmo", 44.9],
-      ["Calabresa Acebolada", 42.9],
-    ],
-  },
-  {
-    categoria: "Bebidas",
-    itens: [
-      ["Cerveja Long Neck", 12.0],
-      ["Chopp 300ml", 11.0],
-      ["Refrigerante Lata", 7.0],
-      ["Água Mineral", 5.0],
-      ["Suco de Laranja", 12.0],
-      ["Caipirinha", 22.0],
-    ],
-  },
-  {
-    categoria: "Sobremesas",
-    itens: [
-      ["Pudim", 16.9],
-      ["Petit Gateau", 24.9],
-    ],
-  },
-];
-
-/** Bebida vai para o bar, comida vai para a cozinha. */
-const CATEGORIAS_DO_BAR = new Set(["Bebidas"]);
 
 async function main() {
   console.log("Limpando dados anteriores...");
@@ -226,8 +143,8 @@ async function main() {
           titulo,
           categoriaId: categoria.id,
           tipo: "VENDA",
-          exigePontoCarne: grupo.categoria === "Carnes",
-          maiorDeIdade: titulo.includes("Cerveja") || titulo.includes("Chopp") || titulo.includes("Caipirinha"),
+          exigePontoCarne: CATEGORIAS_COM_PONTO.has(grupo.categoria),
+          maiorDeIdade: ehAlcoolica(titulo),
           estacoes: {
             create: { estacaoId: CATEGORIAS_DO_BAR.has(grupo.categoria) ? bar.id : cozinha.id },
           },
@@ -248,12 +165,7 @@ async function main() {
 
   console.log("Criando formas de pagamento...");
   await db.formaPagamento.createMany({
-    data: [
-      { tenantId: tenant.id, nome: "Dinheiro", tipo: "DINHEIRO" },
-      { tenantId: tenant.id, nome: "Pix", tipo: "PIX" },
-      { tenantId: tenant.id, nome: "Cartão de Débito", tipo: "DEBITO", taxaPct: 1.5, prazoDias: 1 },
-      { tenantId: tenant.id, nome: "Cartão de Crédito", tipo: "CREDITO", taxaPct: 3.2, prazoDias: 30 },
-    ],
+    data: FORMAS_DE_PAGAMENTO.map((f) => ({ tenantId: tenant.id, ...f })),
   });
 
   const totalProdutos = await db.produto.count({ where: { tenantId: tenant.id } });
