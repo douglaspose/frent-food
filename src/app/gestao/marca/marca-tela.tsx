@@ -209,8 +209,14 @@ function Versao({
     });
   }
 
+  /*
+   * O `min-w-0` da seção não é enfeite: item de grade nasce com
+   * `min-width: auto` e se recusa a ficar menor que o conteúdo. O campo de
+   * arquivo tem largura intrínseca generosa e esticava a coluna a 421px numa
+   * tela de 375, empurrando a página inteira para o lado.
+   */
   return (
-    <section className="flex flex-col rounded-xl border border-neutral-200 bg-white p-5">
+    <section className="flex min-w-0 flex-col rounded-xl border border-neutral-200 bg-white p-5">
       <h2 className="text-sm font-semibold">{titulo}</h2>
       <p className="mt-0.5 text-xs text-neutral-500">{onde}</p>
 
@@ -243,7 +249,7 @@ function Versao({
           accept="image/png,image/jpeg,image/webp"
           disabled={pendente}
           onChange={(e) => escolheu(e.target.files?.[0])}
-          className="rounded-lg border border-neutral-200 bg-white p-2 text-sm text-neutral-900 file:mr-3 file:rounded-md file:border-0 file:bg-neutral-900 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white"
+          className="w-full min-w-0 rounded-lg border border-neutral-200 bg-white p-2 text-sm text-neutral-900 file:mr-3 file:rounded-md file:border-0 file:bg-neutral-900 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white"
         />
       </label>
 

@@ -148,15 +148,24 @@ export function CardapioEditor({
               <span className="ml-2 font-normal text-neutral-500">{categoria.itens.length}</span>
             </h2>
 
+            {/*
+              No celular a linha de cada item vira duas: nome em cima, preço e
+              botão embaixo. Numa linha só o nome era o único que podia
+              encolher — e encolhia a cinco pixels, quebrando "Espeto de
+              Alcatra" em três linhas de uma palavra. O que provoca a quebra é
+              o `w-full` do bloco de controles: ocupando a linha inteira, ele
+              empurra a si mesmo para baixo. No desktop, onde sobra largura,
+              tudo volta para uma linha só.
+            */}
             <ul className="divide-y divide-neutral-100">
               {categoria.itens.map((item) => (
                 <li
                   key={item.id}
-                  className={`flex flex-wrap items-center gap-3 px-5 py-3 ${
+                  className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:flex-nowrap sm:px-5 ${
                     item.produtoAtivo ? "" : "opacity-50"
                   }`}
                 >
-                  <span className="w-10 shrink-0 text-xs tabular-nums text-neutral-500">
+                  <span className="w-8 shrink-0 text-xs tabular-nums text-neutral-500 sm:w-10">
                     {item.codigo}
                   </span>
 
@@ -169,40 +178,44 @@ export function CardapioEditor({
                     )}
                   </span>
 
-                  <label className="flex shrink-0 items-center gap-2">
-                    <span className="text-xs text-neutral-500">R$</span>
-                    <input
-                      // A chave no preço força o campo a renascer quando o
-                      // valor salvo muda. Sem isso ele continuava exibindo o
-                      // texto digitado, e "18.90" parecia ter virado R$ 18,90
-                      // quando na verdade eram R$ 1.890,00.
-                      key={item.preco}
-                      defaultValue={brl.format(item.preco)}
-                      onBlur={(e) => salvarPreco(item, e.target)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") e.currentTarget.blur();
-                      }}
-                      disabled={!podeEditar}
-                      inputMode="decimal"
-                      className={`w-24 rounded-lg border px-3 py-1.5 text-right text-sm tabular-nums transition focus:outline-none disabled:bg-neutral-50 disabled:text-neutral-500 ${
-                        salvo === item.id
-                          ? "border-emerald-500 bg-emerald-50"
-                          : "border-neutral-300 focus:border-neutral-900"
-                      }`}
-                    />
-                  </label>
+                  <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
+                    <label className="flex shrink-0 items-center gap-2">
+                      <span className="text-xs text-neutral-500">R$</span>
+                      <input
+                        // A chave no preço força o campo a renascer quando o
+                        // valor salvo muda. Sem isso ele continuava exibindo o
+                        // texto digitado, e "18.90" parecia ter virado R$ 18,90
+                        // quando na verdade eram R$ 1.890,00.
+                        key={item.preco}
+                        defaultValue={brl.format(item.preco)}
+                        onBlur={(e) => salvarPreco(item, e.target)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.currentTarget.blur();
+                        }}
+                        disabled={!podeEditar}
+                        inputMode="decimal"
+                        className={`w-24 rounded-lg border px-3 py-1.5 text-right text-sm tabular-nums transition focus:outline-none disabled:bg-neutral-50 disabled:text-neutral-500 ${
+                          salvo === item.id
+                            ? "border-emerald-500 bg-emerald-50"
+                            : "border-neutral-300 focus:border-neutral-900"
+                        }`}
+                      />
+                    </label>
 
-                  <button
-                    onClick={() => marcarEsgotado(item)}
-                    disabled={!podeEditar}
-                    className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:opacity-40 ${
-                      item.esgotado
-                        ? "bg-red-600 text-white hover:bg-red-500"
-                        : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200"
-                    }`}
-                  >
-                    {item.esgotado ? "Esgotado" : "Disponível"}
-                  </button>
+                    {/* `min-h-9` iguala o botão ao campo ao lado e vira alvo de
+                        36px no dedo, em vez dos 28 que ele tinha. */}
+                    <button
+                      onClick={() => marcarEsgotado(item)}
+                      disabled={!podeEditar}
+                      className={`realce-ao-toque min-h-9 shrink-0 touch-manipulation rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:opacity-40 sm:min-h-0 ${
+                        item.esgotado
+                          ? "bg-red-600 text-white hover:bg-red-500"
+                          : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200"
+                      }`}
+                    >
+                      {item.esgotado ? "Esgotado" : "Disponível"}
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
