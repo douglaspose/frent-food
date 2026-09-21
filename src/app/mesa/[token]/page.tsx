@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { logomarcaDoTenant } from "@/lib/logomarca";
 import { FUNDO_ESCURO } from "@/lib/marca";
 import { notFound } from "next/navigation";
-import { db } from "@/lib/db";
+import { dbSemRls } from "@/lib/db";
+import { atravessandoRestaurantes, comTenant } from "@/lib/tenant-atual";
 import { ChamarGarcom } from "./chamar-garcom";
 
 export const metadata: Metadata = { title: "Mesa" };
@@ -22,26 +23,35 @@ export default async function MesaPublicaPage({
 }) {
   const { token } = await params;
 
-  const mesa = await db.mesa.findUnique({
-    where: { qrToken: token },
-    select: {
-      id: true,
-      numero: true,
-      ativo: true,
-      unidade: { select: { nome: true, tenantId: true } },
-      comandas: {
-        where: { status: { in: ["ABERTA", "FECHANDO"] } },
-        select: { id: true, chamadoGarcomEm: true },
-        take: 1,
+  /**
+   * Sem sessão, o RLS não sabe de qual restaurante é a consulta, e a mesa
+   * voltava vazia: todo QR dava 404 em produção. O token é credencial e
+   * endereço ao mesmo tempo (como no agente de impressão), e tudo o que sai
+   * daqui é da mesa dele.
+   */
+  const mesa = await atravessandoRestaurantes("QR da mesa: a página pública", () =>
+    dbSemRls.mesa.findUnique({
+      where: { qrToken: token },
+      select: {
+        id: true,
+        numero: true,
+        ativo: true,
+        unidade: { select: { nome: true, tenantId: true } },
+        comandas: {
+          where: { status: { in: ["ABERTA", "FECHANDO"] } },
+          select: { id: true, chamadoGarcomEm: true },
+          take: 1,
+        },
       },
-    },
-  });
+    })
+  );
 
   if (!mesa?.ativo) notFound();
 
   const comanda = mesa.comandas[0];
   // A tela do cliente é preta: a versão que serve aqui é a de fundo escuro.
-  const marca = await logomarcaDoTenant(mesa.unidade.tenantId, FUNDO_ESCURO);
+  // Declarado: sob RLS e sem sessão, a logo voltava vazia sem erro nenhum.
+  const marca = await comTenant(mesa.unidade.tenantId, () => logomarcaDoTenant(mesa.unidade.tenantId, FUNDO_ESCURO));
 
   return (
     <main className="flex min-h-tela flex-col items-center justify-center bg-neutral-950 px-6 text-center text-neutral-100">
