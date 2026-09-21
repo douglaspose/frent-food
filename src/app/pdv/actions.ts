@@ -149,6 +149,29 @@ export async function enviarCarrinho(comandaId: string) {
         porEstacao.set(estacaoId, [...(porEstacao.get(estacaoId) ?? []), item.id]);
       }
 
+      // Dentro da transação: o item enviado e a baixa do estoque têm que nascer
+      // juntos, senão o consumo fica sem contrapartida quando algo falhar.
+      await baixarVenda(tx, {
+        tenantId: comanda.tenantId,
+        unidadeId: comanda.unidadeId,
+        usuarioId: sessao.usuarioId,
+        itens: pendentes.map((i) => ({
+          produtoId: i.produtoId,
+          quantidade: Number(i.quantidade),
+          comandaItemId: i.id,
+        })),
+      });
+
+      /**
+       * A numeração dos tickets, por último e em fila.
+       *
+       * O max+1 corria solto: dois envios ao mesmo tempo liam o mesmo último
+       * número, e no dia simulado 140 de 620 tickets repetiam número — o que a
+       * cozinha grita e o que vai pendurado na chapa. A trava (consultiva, só
+       * desta numeração) dura até o fim da transação; por isso este é o último
+       * passo, depois da baixa do estoque, e segura a fila só pelos inserts.
+       */
+      await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${`pedido:${comanda.unidadeId}`}))) AS trava`;
       const ultimo = await tx.pedido.findFirst({
         where: { unidadeId: comanda.unidadeId },
         orderBy: { numero: "desc" },
@@ -171,19 +194,6 @@ export async function enviarCarrinho(comandaId: string) {
         });
         pedidosCriados.push(pedido.id);
       }
-
-      // Dentro da transação: o item enviado e a baixa do estoque têm que nascer
-      // juntos, senão o consumo fica sem contrapartida quando algo falhar.
-      await baixarVenda(tx, {
-        tenantId: comanda.tenantId,
-        unidadeId: comanda.unidadeId,
-        usuarioId: sessao.usuarioId,
-        itens: pendentes.map((i) => ({
-          produtoId: i.produtoId,
-          quantidade: Number(i.quantidade),
-          comandaItemId: i.id,
-        })),
-      });
       return pendentes;
     });
     if (pendentes.length === 0) return { enviados: 0 };
