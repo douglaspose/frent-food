@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { temErro } from "@/lib/erro-de-operacao";
 import { abrirComanda, enviarCarrinho } from "@/app/pdv/actions";
-import { adicionarAoCarrinho, alterarQuantidade } from "@/app/pdv/carrinho-actions";
+import { adicionarAoCarrinho, alterarQuantidade, definirPontoCarne } from "@/app/pdv/carrinho-actions";
 import { cancelarItem } from "@/app/pdv/cancelamento-actions";
 import { pedirAutorizacao } from "@/app/pdv/autorizacao-actions";
 import { avancarPedido } from "@/app/kds/actions";
@@ -1127,5 +1127,38 @@ describe("papel da impressora", () => {
   it("nome do cliente com byte zero não vira erro de sistema", async () => {
     const t = await tentar(A.garcons[0]!, () => abrirComanda(A.mesas[46]!.id, 2, "Ana\x00Maria"));
     expect(t.lancou, "a action lançou").toBeNull();
+  });
+
+  it("ponto da carne com comando ESC/POS não chega à cozinha como comando", async () => {
+    const g = A.garcons[0]!;
+    const aberta = (await como(g, () => abrirComanda(A.mesas[48]!.id, 2))) as { comandaId: string };
+    const carne = A.itens.find((i) => i.exigePontoCarne)!;
+    await como(g, () =>
+      adicionarAoCarrinho({
+        comandaId: aberta.comandaId,
+        produtoId: carne.produtoId,
+        cardapioItemId: carne.cardapioItemId,
+        precoUnitario: carne.preco,
+        exigePontoCarne: true,
+      })
+    );
+    const item = await admin.comandaItem.findFirstOrThrow({ where: { comandaId: aberta.comandaId } });
+    await como(g, () => definirPontoCarne(item.id, "Mal passada\x1bp\x01\x19\xfa"));
+    await como(g, () => enviarCarrinho(aberta.comandaId));
+    const pedido = await admin.pedido.findFirstOrThrow({ where: { comandaId: aberta.comandaId } });
+    const fila = await admin.filaImpressao.findFirstOrThrow({ where: { referenciaId: pedido.id } });
+    await admin.filaImpressao.updateMany({
+      where: { unidadeId: A.unidade.id, status: "PENDENTE", NOT: { id: fila.id } },
+      data: { status: "IMPRESSO" },
+    });
+    const token = `agente-cozinha-${A.unidade.id}`;
+    await admin.unidade.update({ where: { id: A.unidade.id }, data: { tokenImpressao: token } });
+    const resposta = await GETImpressao(
+      new NextRequest("http://demo.frentfood.test/api/impressao", { headers: { authorization: `Bearer ${token}` } })
+    );
+    const { trabalhos } = (await resposta.json()) as { trabalhos: { id: string; conteudo: string }[] };
+    const papel = trabalhos.find((t) => t.id === fila.id)!.conteudo;
+    const semOsDoServidor = papel.split("\x1d\x21\x11").join("").split("\x1d\x21\x00").join("");
+    expect(semOsDoServidor).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
   });
 });
