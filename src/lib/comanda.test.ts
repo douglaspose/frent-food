@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calcularTotais, centavos } from "./comanda";
+import { calcularTotais, centavos, dividirTaxaDeServico } from "./comanda";
 
 describe("centavos", () => {
   it("arredonda para duas casas", () => {
@@ -56,5 +56,23 @@ describe("calcularTotais", () => {
     const t = calcularTotais({ itens: muitos, taxaServicoPct: 10, descontoValor: 0 });
     expect(t.subtotal).toBe(369.9);
     expect(t.total).toBe(406.89);
+  });
+});
+
+describe("divisão da taxa de serviço", () => {
+  it("4% da conta para a cozinha e 6% para o atendimento, com a taxa de 10%", () => {
+    // Conta de R$ 200 com 10%: R$ 20 de taxa.
+    expect(dividirTaxaDeServico(20, 40)).toEqual({ cozinha: 8, atendimento: 12 });
+  });
+
+  it("as duas partes somam exatamente o que entrou, mesmo com centavo quebrado", () => {
+    for (const total of [0.01, 0.05, 4.17, 13.33, 999.99]) {
+      const { cozinha, atendimento } = dividirTaxaDeServico(total, 40);
+      expect(centavos(cozinha + atendimento)).toBe(total);
+    }
+  });
+
+  it("zero para a cozinha deixa tudo no atendimento", () => {
+    expect(dividirTaxaDeServico(35.5, 0)).toEqual({ cozinha: 0, atendimento: 35.5 });
   });
 });

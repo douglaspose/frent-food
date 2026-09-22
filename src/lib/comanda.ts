@@ -24,5 +24,17 @@ export function calcularTotais({ itens, taxaServicoPct, descontoValor }: TotaisE
   return { subtotal, desconto, base, taxaServico, total };
 }
 
+/**
+ * A taxa de serviço repartida entre cozinha e atendimento.
+ *
+ * A cozinha leva a sua porcentagem arredondada ao centavo e o atendimento leva
+ * o resto — e não a porcentagem dele arredondada também: arredondando as duas,
+ * a soma podia sair um centavo acima ou abaixo do que entrou.
+ */
+export function dividirTaxaDeServico(total: number, parteCozinhaPct: number) {
+  const cozinha = centavos(total * (parteCozinhaPct / 100));
+  return { cozinha, atendimento: centavos(total - cozinha) };
+}
+
 /** Diferença tolerada ao conferir se a conta foi quitada (arredondamento de centavo). */
 export const TOLERANCIA = 0.005;

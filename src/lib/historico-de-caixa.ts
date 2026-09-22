@@ -1,5 +1,6 @@
 import { db } from "./db";
-import { centavos } from "./comanda";
+import { calcularTotais, centavos } from "./comanda";
+import { CONSUMO } from "./itens";
 
 /**
  * O histórico dos turnos de caixa.
@@ -163,7 +164,41 @@ export type DetalheDoTurno = {
     usuario: string;
     criadoEm: Date;
   }[];
+  /** A taxa de serviço das contas fechadas neste turno. */
+  taxaDeServico: { total: number; contasComTaxa: number; contasSemTaxa: number };
 };
+
+/**
+ * Quanto entrou de taxa de serviço nas contas que este turno fechou.
+ *
+ * Calculado conta a conta pela mesma regra da finalização, e não somado em SQL:
+ * desconto antes da taxa, carrinho e cancelado fora. Uma segunda cópia da
+ * regra, em outra linguagem, é a que diverge primeiro. A conta entra no turno
+ * que a finalizou, mesmo com parte dela paga num turno anterior.
+ */
+async function taxaDoTurno(unidadeId: string, caixaId: string) {
+  const comandas = await db.comanda.findMany({
+    where: { unidadeId, caixaId, status: "PAGA" },
+    select: {
+      taxaServicoPct: true,
+      descontoValor: true,
+      itens: { where: CONSUMO, select: { precoTotal: true } },
+    },
+  });
+
+  let total = 0;
+  let contasComTaxa = 0;
+  for (const c of comandas) {
+    const { taxaServico } = calcularTotais({
+      itens: c.itens.map((i) => ({ precoTotal: Number(i.precoTotal) })),
+      taxaServicoPct: Number(c.taxaServicoPct),
+      descontoValor: Number(c.descontoValor),
+    });
+    total += taxaServico;
+    if (taxaServico > 0) contasComTaxa++;
+  }
+  return { total: centavos(total), contasComTaxa, contasSemTaxa: comandas.length - contasComTaxa };
+}
 
 /** O turno por inteiro: o que entrou por forma e o que saiu da gaveta. */
 export async function detalheDoTurno(
@@ -195,8 +230,11 @@ export async function detalheDoTurno(
     include: { usuario: { select: { nome: true } } },
   });
 
+  const taxaDeServico = await taxaDoTurno(unidadeId, caixaId);
+
   return {
     turno,
+    taxaDeServico,
     porForma: porForma.map((f) => ({
       nome: f.nome,
       tipo: f.tipo,

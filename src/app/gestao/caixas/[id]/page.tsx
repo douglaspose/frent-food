@@ -4,6 +4,8 @@ import { notFound, redirect } from "next/navigation";
 import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { detalheDoTurno } from "@/lib/historico-de-caixa";
 import { RETIRA_DA_GAVETA } from "@/lib/caixa";
+import { dividirTaxaDeServico } from "@/lib/comanda";
+import { ajusteNumerico } from "@/lib/parametros-servidor";
 
 export const metadata: Metadata = { title: "Fechamento de caixa" };
 export const dynamic = "force-dynamic";
@@ -54,10 +56,14 @@ export default async function TurnoPage({ params }: { params: Promise<{ id: stri
   if (!temPermissao(sessao, "auditoria.ver")) redirect("/gestao");
 
   const { id } = await params;
-  const detalhe = await detalheDoTurno(sessao.unidadeId, id);
+  const [detalhe, parteCozinha] = await Promise.all([
+    detalheDoTurno(sessao.unidadeId, id),
+    ajusteNumerico(sessao.unidadeId, "caixa.taxaServicoParteCozinhaPct"),
+  ]);
   if (!detalhe) notFound();
 
-  const { turno, porForma, movimentos } = detalhe;
+  const { turno, porForma, movimentos, taxaDeServico } = detalhe;
+  const divisao = dividirTaxaDeServico(taxaDeServico.total, parteCozinha);
   const aberto = turno.status === "ABERTO";
   const diferente = turno.divergencia !== null && turno.divergencia !== 0;
 
@@ -134,6 +140,52 @@ export default async function TurnoPage({ params }: { params: Promise<{ id: stri
           }
         />
       </div>
+
+      {/*
+        A taxa de serviço é da equipe, não da casa: é o número que o dono
+        reparte no fim do turno. Por isso vem em destaque e já dividido, em vez
+        de o gerente refazer a conta na calculadora.
+      */}
+      <section className="mt-8 rounded-xl border border-neutral-200 bg-white p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold">
+            Taxa de serviço
+            <span className="ml-2 font-normal text-neutral-500">
+              {taxaDeServico.contasComTaxa} conta(s) com taxa
+              {taxaDeServico.contasSemTaxa > 0 && ` · ${taxaDeServico.contasSemTaxa} sem`}
+              {aberto && " · até agora"}
+            </span>
+          </h2>
+          <p className="text-xl font-bold tabular-nums">{brl.format(taxaDeServico.total)}</p>
+        </div>
+
+        {parteCozinha > 0 ? (
+          <dl className="mt-4 grid gap-3 border-t border-neutral-100 pt-4 sm:grid-cols-2">
+            <div className="flex items-baseline justify-between gap-3 rounded-lg bg-neutral-50 px-4 py-3">
+              <dt className="text-sm">
+                Cozinha
+                <span className="ml-2 text-xs text-neutral-500">{parteCozinha}% da taxa</span>
+              </dt>
+              <dd className="font-semibold tabular-nums">{brl.format(divisao.cozinha)}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 rounded-lg bg-neutral-50 px-4 py-3">
+              <dt className="text-sm">
+                Atendimento
+                <span className="ml-2 text-xs text-neutral-500">{100 - parteCozinha}% da taxa</span>
+              </dt>
+              <dd className="font-semibold tabular-nums">{brl.format(divisao.atendimento)}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="mt-3 border-t border-neutral-100 pt-3 text-xs text-neutral-500">
+            Para dividir entre cozinha e atendimento, defina a parte da cozinha em{" "}
+            <Link href="/gestao/ajustes" className="underline underline-offset-2 hover:text-neutral-900">
+              Ajustes → Caixa
+            </Link>
+            .
+          </p>
+        )}
+      </section>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         <section className="min-w-0 rounded-xl border border-neutral-200 bg-white p-5">

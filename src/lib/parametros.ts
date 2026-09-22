@@ -155,6 +155,18 @@ export const PARAMETROS: Parametro[] = [
     padrao: true,
   },
   {
+    chave: "caixa.taxaServicoParteCozinhaPct",
+    grupo: "CAIXA",
+    tipo: "inteiro",
+    rotulo: "Parte da cozinha na taxa de serviço",
+    explicacao:
+      "Do que entra de taxa de serviço, quanto é da equipe da cozinha; o resto é do atendimento. Com a taxa de 10%, 40 aqui dá 4% da conta para a cozinha e 6% para o atendimento. Zero não divide.",
+    padrao: 0,
+    min: 0,
+    max: 100,
+    sufixo: "%",
+  },
+  {
     chave: "caixa.perguntarQtdPessoasAoPagar",
     grupo: "CAIXA",
     tipo: "bool",
