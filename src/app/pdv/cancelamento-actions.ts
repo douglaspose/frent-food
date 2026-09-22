@@ -22,6 +22,8 @@ import { emResultado, ErroDeOperacao, type ComErro } from "@/lib/erro-de-operaca
  * entregar e cancelar. O que o torna seguro não é a permissão sozinha, é ela
  * junto com o registro no diário — cancelamento sem rastro é o buraco.
  */
+const CONTA_PAGA = "A conta já foi paga. Um item pago não se cancela: a devolução sai como sangria, com o motivo.";
+
 export async function cancelarItem(
   itemId: string,
   motivo: string,
@@ -54,7 +56,7 @@ export async function cancelarItem(
       throw new ErroDeOperacao("Este item ainda está no carrinho. Use o menos para retirá-lo.");
     }
     if (item.comanda.status === "PAGA") {
-      throw new ErroDeOperacao("A conta já foi paga. Um item pago se resolve por estorno, não por cancelamento.");
+      throw new ErroDeOperacao(CONTA_PAGA);
     }
 
     const limpo = motivo.trim();
@@ -79,7 +81,26 @@ export async function cancelarItem(
       },
     });
 
-    await db.$transaction(async (tx) => {
+    const cancelouAgora = await db.$transaction(async (tx) => {
+      /**
+       * A comanda travada, e o item e a conta relidos dentro da trava.
+       *
+       * A conferência acima é feita antes, solta: dois toques em "cancelar"
+       * passavam os dois por ela e devolviam o estoque duas vezes (e deixavam
+       * dois cancelamentos no diário); e o cancelamento no mesmo instante do
+       * "finalizar" tirava o item de uma conta que acabava de ser paga. A
+       * finalização trava a mesma linha, então um espera o outro.
+       */
+      await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${item.comanda.id} FOR UPDATE`;
+      const atual = await tx.comandaItem.findUniqueOrThrow({
+        where: { id: itemId },
+        select: { status: true, comanda: { select: { status: true } } },
+      });
+      if (atual.status === "CANCELADO") return false;
+      if (atual.comanda.status === "PAGA") {
+        throw new ErroDeOperacao(CONTA_PAGA);
+      }
+
       await tx.comandaItem.update({
         where: { id: itemId },
         data: {
@@ -122,7 +143,10 @@ export async function cancelarItem(
 
       await tx.auditLog.create({ data: registro });
       await liberacao.consumir(tx);
+      return true;
     });
+    // O outro toque chegou primeiro: o item já está cancelado, e nada mais a fazer.
+    if (!cancelouAgora) return { ok: true };
 
     // Papel e aviso ficam fora da transação: impressora fora do ar não pode
     // desfazer um cancelamento que já vale no salão e na cozinha.
