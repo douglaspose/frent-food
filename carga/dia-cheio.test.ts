@@ -257,12 +257,17 @@ async function caixa(c: Membro) {
 /** A cozinha tocando o que chega, do "aguardando" ao "entregue". */
 async function cozinha(quem: Membro) {
   const proximo = { AGUARDANDO: "EM_PREPARO", EM_PREPARO: "PRONTO", PRONTO: "ENTREGUE" } as const;
-  while (!fimDoSalao || paraFechar.length) {
+  // A cozinha só vai embora com a fila vazia. Parando junto com o salão, ela
+  // deixava centenas de tickets "na fila" — e o KDS do dia simulado mostrava
+  // uma cozinha que nenhum sábado de verdade tem.
+  for (;;) {
     const fila = await admin.pedido.findMany({
       where: { unidadeId: r.unidade.id, status: { in: ["AGUARDANDO", "EM_PREPARO", "PRONTO"] } },
+      orderBy: { criadoEm: "asc" },
       take: 20,
     });
     if (!fila.length) {
+      if (fimDoSalao && !paraFechar.length) break;
       await esperar(20);
       continue;
     }
