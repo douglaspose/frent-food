@@ -10,7 +10,8 @@ type Trabalho = {
   tipo: string;
   titulo: string;
   status: string;
-  conteudo: string;
+  /** O papel linha a linha; `grande` é letra dupla, como sai na térmica. */
+  linhas: { texto: string; grande: boolean }[];
   impressora: string | null;
   tentativas: number;
   erro: string | null;
@@ -171,9 +172,20 @@ export function FilaTela({
               fechar
             </button>
           </div>
-          {/* Fundo claro e monoespaçado: é a prévia de como sai no papel. */}
+          {/*
+            Fundo claro e monoespaçado: é a prévia de como sai no papel.
+
+            A linha de letra dupla vai com o dobro do tamanho da fonte. Em fonte
+            monoespaçada isso dobra também a largura de cada letra — as 24
+            colunas dela ocupam as mesmas 48 das outras, como na térmica. Em
+            tamanho normal, a mesa e o total apareciam encolhidos à esquerda.
+          */}
           <pre className="overflow-x-auto rounded-lg bg-neutral-50 p-4 font-mono text-xs leading-tight text-neutral-800">
-            {vendo.conteudo}
+            {vendo.linhas.map((l, i) => (
+              <span key={i} className={l.grande ? "block text-[2em] font-bold leading-snug" : "block"}>
+                {l.texto || " "}
+              </span>
+            ))}
           </pre>
         </section>
       )}

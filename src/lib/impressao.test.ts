@@ -6,6 +6,7 @@ import {
   conferenciaDeConta,
   cupomDePagamento,
   larguraImpressa,
+  linhasParaTela,
   pares,
   paraImpressora,
   paraTela,
@@ -206,6 +207,13 @@ describe("conferência de conta", () => {
   it("o que vai para a fila não tem byte zero — o banco recusaria", () => {
     expect(papel).not.toContain("\x00");
     expect(paraImpressora(papel)).toContain("\x00");
+  });
+
+  it("a prévia da tela sabe quais linhas saem em letra dupla", () => {
+    const linhas = linhasParaTela(papel);
+    const grandes = linhas.filter((l) => l.grande).map((l) => l.texto.trim());
+    expect(grandes).toEqual(["Mesa 3", expect.stringMatching(/^TOTAL\s+R\$ 178,09$/)]);
+    expect(linhas.every((l) => !/[\x0e\x0f]/.test(l.texto))).toBe(true);
   });
 
   it("na tela, a letra dupla some e o texto fica limpo", () => {

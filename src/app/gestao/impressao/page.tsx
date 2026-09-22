@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { sessaoDaTela, temPermissao } from "@/lib/session";
-import { paraTela } from "@/lib/impressao";
+import { linhasParaTela } from "@/lib/impressao";
 import { FilaTela } from "./fila-tela";
 
 export const metadata: Metadata = { title: "Impressão" };
@@ -39,8 +39,8 @@ export default async function ImpressaoPage() {
         tipo: t.tipo,
         titulo: t.titulo,
         status: t.status,
-        // Sem os comandos de impressora (letra dupla): na tela viravam lixo.
-        conteudo: paraTela(t.conteudo),
+        // Linha a linha, marcando as de letra dupla: a prévia desenha o papel.
+        linhas: linhasParaTela(t.conteudo),
         impressora: t.impressora?.nome ?? null,
         tentativas: t.tentativas,
         erro: t.erro,

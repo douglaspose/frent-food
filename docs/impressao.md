@@ -69,7 +69,9 @@ Na fila, o texto é guardado com marcadores no lugar desses comandos (SO,
 `0x0E`, e SI, `0x0F`): o comando que desliga termina no byte zero, e o Postgres
 não aceita byte zero numa coluna de texto. A rota troca os marcadores pelos
 comandos na entrega (`paraImpressora` em `src/lib/impressao.ts`). Quem mostrar o
-conteúdo numa tela deve usar `paraTela`, que os remove.
+conteúdo numa tela deve usar `paraTela`, que os remove, ou `linhasParaTela`, que
+devolve linha a linha dizendo quais saem em letra dupla (é o que a prévia do
+histórico de impressões usa).
 
 ## A logomarca
 

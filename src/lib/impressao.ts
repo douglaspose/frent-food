@@ -49,6 +49,20 @@ export function paraTela(conteudo: string) {
   return conteudo.split(LIGA_GRANDE).join("").split(DESLIGA_GRANDE).join("");
 }
 
+/**
+ * O papel linha a linha, dizendo quais saem em letra dupla — para a prévia na
+ * tela desenhar o que a impressora desenha.
+ *
+ * Só tirar os marcadores (`paraTela`) não bastava: a linha grande é montada em
+ * 24 colunas para ocupar 48 no papel, e em letra normal na tela ela aparecia
+ * torta, com a mesa e o total encolhidos à esquerda.
+ */
+export function linhasParaTela(conteudo: string) {
+  return conteudo
+    .split("\n")
+    .map((l) => ({ texto: paraTela(l), grande: l.includes(LIGA_GRANDE) }));
+}
+
 /** O texto como vai para a impressora: marcadores trocados pelo ESC/POS. */
 export function paraImpressora(conteudo: string) {
   return conteudo.split(LIGA_GRANDE).join("\x1d\x21\x11").split(DESLIGA_GRANDE).join("\x1d\x21\x00");
