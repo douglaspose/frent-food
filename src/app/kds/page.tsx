@@ -26,7 +26,13 @@ export default async function KdsPage() {
     }),
     db.pedido.findMany({
       // ENTREGUE sai do quadro: o que já foi para a mesa não ocupa espaço na cozinha.
-      where: { unidadeId: unidade.id, status: { in: ["AGUARDANDO", "EM_PREPARO", "PRONTO"] } },
+      // Conta paga também sai: a finalização já conclui os tickets, e este
+      // filtro cobre os que ficaram de antes dela.
+      where: {
+        unidadeId: unidade.id,
+        status: { in: ["AGUARDANDO", "EM_PREPARO", "PRONTO"] },
+        comanda: { status: { notIn: ["PAGA", "CANCELADA"] } },
+      },
       orderBy: { criadoEm: "asc" },
       include: {
         estacao: { select: { id: true, nome: true, corHex: true } },

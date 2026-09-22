@@ -612,6 +612,28 @@ describe("exploração de 21/09", () => {
   });
 
   /**
+   * Os tickets de conta paga ficavam no KDS: depois do dia simulado eram 433
+   * "na fila". Decidido pelo dono em 22/09: saem sozinhos quando a conta é
+   * paga — e a cozinha, com a tela ainda velha, não os devolve ao preparo.
+   */
+  it("conta paga tira os tickets do KDS, e a cozinha não os mexe mais", async () => {
+    const comandaId = await comandaPronta(A.garcons[0]!, 52);
+    const pedido = await admin.pedido.findFirstOrThrow({ where: { comandaId } });
+    await pagarTudo(A.caixas[0]!, comandaId);
+
+    const pendentes = await admin.pedido.count({
+      where: { comandaId, status: { in: ["AGUARDANDO", "EM_PREPARO", "PRONTO"] } },
+    });
+    const t = await tentar(A.garcons[1]!, () => avancarPedido(pedido.id, "EM_PREPARO"));
+    const itens = await admin.comandaItem.findMany({ where: { comandaId }, select: { status: true } });
+    expect({
+      pendentes,
+      recusou: recusou(t),
+      itens: [...new Set(itens.map((i) => i.status))],
+    }).toEqual({ pendentes: 0, recusou: true, itens: ["ENTREGUE"] });
+  });
+
+  /**
    * O que continua permitido: corrigir um fechamento em andamento. Proibir o
    * estorno depois de pago não pode tirar do caixa o jeito de desfazer uma
    * forma de pagamento escolhida errado antes de finalizar.

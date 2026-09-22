@@ -814,6 +814,13 @@ export async function finalizarComanda(comandaId: string) {
         where: { comandaId, status: { notIn: ["CANCELADO", "ENTREGUE", "PENDENTE"] } },
         data: { status: "ENTREGUE" },
       });
+      // Os tickets acompanham os itens. Sem isto, cada conta paga deixava os
+      // seus na cozinha: depois de um dia cheio o KDS mostrava centenas "na
+      // fila", e tocar num deles voltava para preparo um prato já pago.
+      await tx.pedido.updateMany({
+        where: { comandaId, status: { in: ["AGUARDANDO", "EM_PREPARO", "PRONTO"] } },
+        data: { status: "ENTREGUE", entregueEm: new Date() },
+      });
       if (comanda.mesaId) {
         await tx.mesa.update({
           where: { id: comanda.mesaId },

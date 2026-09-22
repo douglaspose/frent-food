@@ -34,10 +34,18 @@ export async function avancarPedido(pedidoId: string, para: Avanco) {
 
     const pedido = await db.pedido.findUniqueOrThrow({
       where: { id: pedidoId },
-      include: { itens: { select: { comandaItemId: true } } },
+      include: {
+        itens: { select: { comandaItemId: true } },
+        comanda: { select: { status: true } },
+      },
     });
     if (pedido.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Pedido de outro restaurante.");
     if (pedido.status === "CANCELADO") throw new ErroDeOperacao("Este pedido foi cancelado.");
+    // Uma tela aberta desde antes do pagamento ainda mostra o ticket; o toque
+    // nele voltaria um prato de conta fechada para preparo.
+    if (pedido.comanda.status === "PAGA" || pedido.comanda.status === "CANCELADA") {
+      throw new ErroDeOperacao("A conta desta mesa já foi encerrada.");
+    }
 
     await db.$transaction([
       db.pedido.update({
