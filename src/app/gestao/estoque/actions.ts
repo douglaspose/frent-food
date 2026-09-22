@@ -14,6 +14,28 @@ async function produtoDoTenant(produtoId: string, tenantId: string) {
   return produto;
 }
 
+/**
+ * Quantidade vinda da tela, conferida antes de chegar ao banco.
+ *
+ * NaN e Infinity passavam pelas comparações (`NaN <= 0` é falso) e morriam no
+ * Prisma como erro de sistema. O teto fica bem abaixo do que a coluna guarda
+ * (14 dígitos, 4 decimais): um milhão de unidades num lançamento só já é erro
+ * de digitação.
+ */
+const MAXIMO = 1_000_000;
+
+function quantidadeValida(valor: number, rotulo = "Quantidade", { zero = false } = {}) {
+  if (typeof valor !== "number" || !Number.isFinite(valor)) {
+    throw new ErroDeOperacao(`${rotulo} inválida.`);
+  }
+  if (zero ? valor < 0 : valor <= 0) {
+    throw new ErroDeOperacao(
+      zero ? `${rotulo} não pode ser negativa.` : `${rotulo} deve ser maior que zero.`
+    );
+  }
+  if (valor > MAXIMO) throw new ErroDeOperacao(`${rotulo} acima do permitido.`);
+}
+
 /** Compra recebida: soma ao saldo e recalcula o custo médio. */
 export async function registrarEntrada(dados: {
   produtoId: string;
@@ -23,8 +45,15 @@ export async function registrarEntrada(dados: {
 }) {
   return emResultado(async () => {
     const sessao = await exigirPermissao(PERMISSAO);
-    if (dados.quantidade <= 0) throw new ErroDeOperacao("Quantidade deve ser maior que zero.");
+    quantidadeValida(dados.quantidade);
+    if (typeof dados.custoTotal !== "number" || !Number.isFinite(dados.custoTotal)) {
+      throw new ErroDeOperacao("Custo inválido.");
+    }
     if (dados.custoTotal < 0) throw new ErroDeOperacao("Custo não pode ser negativo.");
+    // O custo unitário mora numa coluna menor (12 dígitos, 4 decimais).
+    if (dados.custoTotal / dados.quantidade > MAXIMO) {
+      throw new ErroDeOperacao("Custo por unidade acima do permitido.");
+    }
 
     await produtoDoTenant(dados.produtoId, sessao.tenantId);
 
@@ -54,7 +83,7 @@ export async function registrarPerda(dados: {
 }) {
   return emResultado(async () => {
     const sessao = await exigirPermissao(PERMISSAO);
-    if (dados.quantidade <= 0) throw new ErroDeOperacao("Quantidade deve ser maior que zero.");
+    quantidadeValida(dados.quantidade);
     if (!dados.motivo.trim()) throw new ErroDeOperacao("Informe o motivo da perda.");
 
     await produtoDoTenant(dados.produtoId, sessao.tenantId);
@@ -87,6 +116,7 @@ export async function registrarContagem(dados: {
 }) {
   return emResultado(async () => {
     const sessao = await exigirPermissao(PERMISSAO);
+    quantidadeValida(dados.quantidadeContada, "Quantidade contada", { zero: true });
     await produtoDoTenant(dados.produtoId, sessao.tenantId);
 
     const saldo = await db.estoqueSaldo.findUnique({
@@ -121,6 +151,9 @@ export async function configurarProdutoEstoque(dados: {
 }) {
   return emResultado(async () => {
     const sessao = await exigirPermissao(PERMISSAO);
+    if (dados.estoqueMinimo !== null) {
+      quantidadeValida(dados.estoqueMinimo, "Estoque mínimo", { zero: true });
+    }
     await produtoDoTenant(dados.produtoId, sessao.tenantId);
 
     await db.produto.update({
@@ -148,6 +181,7 @@ export async function salvarComposicao(
     }
 
     const validas = partes.filter((p) => p.insumoId && p.quantidade > 0);
+    for (const parte of validas) quantidadeValida(parte.quantidade, "Quantidade do insumo");
 
     await db.$transaction(async (tx) => {
       // Substitui a ficha inteira: é mais previsível que calcular a diferença,

@@ -1035,11 +1035,13 @@ describe("exploração de 21/09, segunda rodada", () => {
     const s = await admin.estoqueSaldo.findUniqueOrThrow({
       where: { unidadeId_produtoId: { unidadeId: A.unidade.id, produtoId: b.produtoId } },
     });
+    // Recusada com mensagem, e não com erro de sistema: quem digitou precisa
+    // saber o que corrigir.
     expect({
-      recusadas: r.map(recusou),
+      comMensagem: r.map((t) => t.lancou === null && temErro(t.resposta)),
       saldo: Number(s.quantidade),
       custo: Number.isFinite(Number(s.custoMedio)),
-    }).toEqual({ recusadas: [true, true, true, true, true], saldo: antes, custo: true });
+    }).toEqual({ comMensagem: [true, true, true, true, true], saldo: antes, custo: true });
   });
 
   it("nome do cliente com 5 mil caracteres não vai inteiro para a comanda", async () => {
