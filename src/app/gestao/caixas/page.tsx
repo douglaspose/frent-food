@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { sessaoDaTela, temPermissao } from "@/lib/session";
-import { historicoDeCaixa, TURNOS_POR_PAGINA } from "@/lib/historico-de-caixa";
+import { historicoDeCaixa, taxaPorTurno, TURNOS_POR_PAGINA } from "@/lib/historico-de-caixa";
+import { centavos } from "@/lib/comanda";
 import { redirect } from "next/navigation";
 
 export const metadata: Metadata = { title: "Fechamentos de caixa" };
@@ -40,6 +41,7 @@ export default async function CaixasPage() {
   if (!temPermissao(sessao, "auditoria.ver")) redirect("/gestao");
 
   const turnos = await historicoDeCaixa(sessao.unidadeId);
+  const taxas = await taxaPorTurno(sessao.unidadeId, turnos.map((t) => t.id));
 
   /**
    * O caixa aberto fica de fora da conta.
@@ -71,15 +73,17 @@ export default async function CaixasPage() {
             sobram 325px e esta pede bem mais.
           */}
           <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white">
-            <table className="w-full min-w-[46rem] text-sm">
-              <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
+            <table className="w-full min-w-[60rem] text-sm">
+              <thead className="whitespace-nowrap border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Dia</th>
                   <th className="px-4 py-3 font-semibold">Fechou</th>
                   <th className="px-4 py-3 text-right font-semibold">Recebido</th>
+                  <th className="px-4 py-3 text-right font-semibold">Taxa de serviço</th>
                   <th className="px-4 py-3 text-right font-semibold">Na gaveta</th>
                   <th className="px-4 py-3 text-right font-semibold">Contado</th>
                   <th className="px-4 py-3 text-right font-semibold">Diferença</th>
+                  <th className="px-4 py-3 text-right font-semibold">Líquido</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
@@ -88,6 +92,9 @@ export default async function CaixasPage() {
                 {turnos.map((t) => {
                   const aberto = t.status === "ABERTO";
                   const diferente = t.divergencia !== null && t.divergencia !== 0;
+                  const taxa = taxas.get(t.id)?.total ?? 0;
+                  // A taxa é da equipe: o que fica para a casa é o resto.
+                  const liquido = centavos(t.recebido - taxa);
 
                   return (
                     <tr key={t.id} className={aberto ? "bg-orange-50/50" : ""}>
@@ -108,11 +115,15 @@ export default async function CaixasPage() {
                         )}
                       </td>
 
-                      <td className="px-4 py-3 text-right tabular-nums">
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                         {brl.format(t.recebido)}
                         <span className="ml-2 text-xs text-neutral-500">
                           {t.comandas} comanda(s)
                         </span>
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-neutral-500">
+                        {taxa > 0 ? `−${brl.format(taxa)}` : brl.format(0)}
                       </td>
 
                       {/*
@@ -124,7 +135,7 @@ export default async function CaixasPage() {
                         {t.valorApurado === null ? "—" : brl.format(t.valorApurado)}
                       </td>
 
-                      <td className="px-4 py-3 text-right tabular-nums">
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                         {t.valorInformado === null ? "—" : brl.format(t.valorInformado)}
                       </td>
 
@@ -142,6 +153,10 @@ export default async function CaixasPage() {
                           : diferente
                             ? `${t.divergencia < 0 ? "−" : "+"}${brl.format(Math.abs(t.divergencia))}`
                             : "bateu"}
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-emerald-700">
+                        {brl.format(liquido)}
                       </td>
 
                       <td className="px-4 py-3 text-right">

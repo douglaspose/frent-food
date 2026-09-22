@@ -168,36 +168,52 @@ export type DetalheDoTurno = {
   taxaDeServico: { total: number; contasComTaxa: number; contasSemTaxa: number };
 };
 
-/**
- * Quanto entrou de taxa de serviço nas contas que este turno fechou.
- *
- * Calculado conta a conta pela mesma regra da finalização, e não somado em SQL:
- * desconto antes da taxa, carrinho e cancelado fora. Uma segunda cópia da
- * regra, em outra linguagem, é a que diverge primeiro. A conta entra no turno
- * que a finalizou, mesmo com parte dela paga num turno anterior.
- */
-async function taxaDoTurno(unidadeId: string, caixaId: string) {
-  const comandas = await db.comanda.findMany({
-    where: { unidadeId, caixaId, status: "PAGA" },
-    select: {
-      taxaServicoPct: true,
-      descontoValor: true,
-      itens: { where: CONSUMO, select: { precoTotal: true } },
-    },
-  });
+export type TaxaDoTurno = DetalheDoTurno["taxaDeServico"];
 
-  let total = 0;
-  let contasComTaxa = 0;
+/**
+ * Quanto entrou de taxa de serviço nas contas que cada turno fechou.
+ *
+ * Calculado conta a conta pela mesma regra da finalização (`calcularTotais`),
+ * e não somado em SQL: desconto antes da taxa, carrinho e cancelado fora. Uma
+ * segunda cópia da regra, em outra linguagem, é a que diverge primeiro. O
+ * banco só soma o consumo de cada conta — o que faz a lista de sessenta turnos
+ * trazer uma linha por conta, e não uma por item.
+ *
+ * A conta entra no turno que a finalizou, mesmo com parte dela paga num turno
+ * anterior.
+ */
+export async function taxaPorTurno(
+  unidadeId: string,
+  caixaIds: string[]
+): Promise<Map<string, TaxaDoTurno>> {
+  const porTurno = new Map<string, TaxaDoTurno>(
+    caixaIds.map((id) => [id, { total: 0, contasComTaxa: 0, contasSemTaxa: 0 }])
+  );
+  if (caixaIds.length === 0) return porTurno;
+
+  const comandas = await db.comanda.findMany({
+    where: { unidadeId, caixaId: { in: caixaIds }, status: "PAGA" },
+    select: { id: true, caixaId: true, taxaServicoPct: true, descontoValor: true },
+  });
+  const consumo = await db.comandaItem.groupBy({
+    by: ["comandaId"],
+    where: { ...CONSUMO, comandaId: { in: comandas.map((c) => c.id) }, comanda: { unidadeId } },
+    _sum: { precoTotal: true },
+  });
+  const consumoDe = new Map(consumo.map((c) => [c.comandaId, Number(c._sum.precoTotal ?? 0)]));
+
   for (const c of comandas) {
+    const turno = porTurno.get(c.caixaId!)!;
     const { taxaServico } = calcularTotais({
-      itens: c.itens.map((i) => ({ precoTotal: Number(i.precoTotal) })),
+      itens: [{ precoTotal: consumoDe.get(c.id) ?? 0 }],
       taxaServicoPct: Number(c.taxaServicoPct),
       descontoValor: Number(c.descontoValor),
     });
-    total += taxaServico;
-    if (taxaServico > 0) contasComTaxa++;
+    turno.total = centavos(turno.total + taxaServico);
+    if (taxaServico > 0) turno.contasComTaxa++;
+    else turno.contasSemTaxa++;
   }
-  return { total: centavos(total), contasComTaxa, contasSemTaxa: comandas.length - contasComTaxa };
+  return porTurno;
 }
 
 /** O turno por inteiro: o que entrou por forma e o que saiu da gaveta. */
@@ -230,7 +246,7 @@ export async function detalheDoTurno(
     include: { usuario: { select: { nome: true } } },
   });
 
-  const taxaDeServico = await taxaDoTurno(unidadeId, caixaId);
+  const taxaDeServico = (await taxaPorTurno(unidadeId, [caixaId])).get(caixaId)!;
 
   return {
     turno,
