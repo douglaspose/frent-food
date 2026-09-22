@@ -7,6 +7,7 @@ import { MenuDaGestao } from "./menu";
 import { logomarcaDoTenant } from "@/lib/logomarca";
 import { FUNDO_CLARO } from "@/lib/marca";
 import { BarraAmbientes } from "../pdv/barra-ambientes";
+import { TopoDaGestao } from "./topo";
 
 /**
  * Chave que separa o escritório do salão. Gerente e proprietário têm; garçom e
@@ -63,48 +64,40 @@ export default async function GestaoLayout({ children }: { children: ReactNode }
       style={{ "--cor-do-veu": "#f5f5f5" } as React.CSSProperties}
     >
       {/*
-        O preto por trás da barra de ambientes.
+        O topo recolhe a barra de ambientes no computador (ver `topo.tsx`).
 
-        Ela é `bg-neutral-950/80` — translúcida —, e sobre o cinza claro da
-        gestão desbotava: a mesma barra ficava de um tom em Mesas e de outro
-        aqui. Com o preto por trás, a translucidez cai sobre o mesmo fundo do
-        salão, e as duas telas passam a mostrar exatamente a mesma cor.
-
-        Só ela: o menu da gestão, logo abaixo, continua branco.
+        Ela vai sobre preto (`bg-neutral-950` no invólucro): é translúcida, e
+        sobre o cinza claro da gestão desbotava — a mesma barra ficava de um
+        tom em Mesas e de outro aqui. Com o preto por trás, as duas telas
+        mostram exatamente a mesma cor. O menu da gestão continua branco.
       */}
-      <div className="bg-neutral-950">
-        <BarraAmbientes dados={await dadosDaBarra(sessao)} />
-      </div>
+      <TopoDaGestao barra={<BarraAmbientes dados={await dadosDaBarra(sessao)} />}>
+        {/*
+          A marca da casa no lugar da palavra "Gestão".
 
-      <header className="border-b border-neutral-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center gap-x-6 gap-y-2 px-6 py-3">
-          {/*
-            A marca da casa no lugar da palavra "Gestão".
+          O retângulo de cor só entra quando a versão mostrada não é a de
+          fundo claro — é o resgate de quem cadastrou uma logo só. Com a
+          versão certa, ela é desenhada direto na barra branca, que é o
+          ponto inteiro de existirem duas.
+        */}
+        {marca.src ? (
+          <span
+            className={`flex shrink-0 items-center ${marca.corDeFundo ? "rounded-lg px-2.5 py-1" : ""}`}
+            style={marca.corDeFundo ? { backgroundColor: marca.corDeFundo } : undefined}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={marca.src}
+              alt={marca.nome}
+              className="max-h-11 max-w-[13rem] object-contain"
+            />
+          </span>
+        ) : (
+          <span className="shrink-0 font-bold tracking-tight">{marca.nome}</span>
+        )}
 
-            O retângulo de cor só entra quando a versão mostrada não é a de
-            fundo claro — é o resgate de quem cadastrou uma logo só. Com a
-            versão certa, ela é desenhada direto na barra branca, que é o
-            ponto inteiro de existirem duas.
-          */}
-          {marca.src ? (
-            <span
-              className={`flex shrink-0 items-center ${marca.corDeFundo ? "rounded-lg px-2.5 py-1" : ""}`}
-              style={marca.corDeFundo ? { backgroundColor: marca.corDeFundo } : undefined}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={marca.src}
-                alt={marca.nome}
-                className="max-h-11 max-w-[13rem] object-contain"
-              />
-            </span>
-          ) : (
-            <span className="shrink-0 font-bold tracking-tight">{marca.nome}</span>
-          )}
-
-          <MenuDaGestao />
-        </div>
-      </header>
+        <MenuDaGestao />
+      </TopoDaGestao>
 
       {/*
         A faixa decorativa atrás dos títulos.
