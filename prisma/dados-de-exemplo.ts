@@ -27,6 +27,9 @@ export const PERMISSOES: Record<string, string[]> = {
     "comanda.receberPagamento",
     "comanda.cancelarItem",
     "comanda.aplicarDesconto",
+    // O garçom já transfere; o gerente, que responde pelo salão, precisava
+    // chamar um garçom para mudar uma mesa de lugar.
+    "mesa.transferir",
     "caixa.abrir",
     "caixa.fechar",
     "caixa.sangria",

@@ -633,6 +633,14 @@ describe("exploração de 21/09", () => {
     }).toEqual({ pendentes: 0, recusou: true, itens: ["ENTREGUE"] });
   });
 
+  // Decidido pelo dono em 22/09: o gerente transfere mesa, como o garçom.
+  it("o gerente da instalação padrão transfere mesa", async () => {
+    const comandaId = await comandaPronta(A.garcons[0]!, 53, 1);
+    const t = await tentar(A.gerentes[0]!, () => transferirMesa(comandaId, A.mesas[54]!.id));
+    const comanda = await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    expect({ recusou: recusou(t), mesa: comanda.mesaId }).toEqual({ recusou: false, mesa: A.mesas[54]!.id });
+  });
+
   /**
    * O que continua permitido: corrigir um fechamento em andamento. Proibir o
    * estorno depois de pago não pode tirar do caixa o jeito de desfazer uma
@@ -1007,7 +1015,7 @@ describe("exploração de 21/09, segunda rodada", () => {
     }).toEqual({ nan: true, fracao: true, quantidade: 1, precoTotal: b.preco });
   });
 
-  // Quem transfere é o garçom: o cargo de gerente da instalação padrão não tem mesa.transferir.
+  // Quem transfere é o garçom, que tem mesa.transferir desde a instalação padrão.
   it("duas mesas transferidas ao mesmo tempo para a mesma mesa livre não a dividem", async () => {
     const destino = A.mesas[41]!;
     const um = (await como(A.garcons[0]!, () => abrirComanda(A.mesas[39]!.id, 2))) as { comandaId: string };
