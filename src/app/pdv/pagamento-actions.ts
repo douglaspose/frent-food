@@ -97,15 +97,33 @@ export async function fecharCaixa(caixaId: string, valorInformado: number) {
       );
     }
 
-    // A mesma função que a tela usa para mostrar "esperado na gaveta" durante o
-    // turno. Duas contas separadas acabariam divergindo, e a divergência do
-    // fechamento passaria a medir o desencontro entre elas, não a da gaveta.
-    const valorApurado = gavetaDoCaixa(caixa);
+    const { valorApurado, divergencia } = await db.$transaction(async (tx) => {
+      /**
+       * O caixa travado, e relido dentro da trava.
+       *
+       * Lido antes, sem trava: dois toques em "fechar" passavam os dois pela
+       * conferência de "ainda aberto" e o segundo regravava o valor contado e
+       * a divergência do primeiro; e uma sangria no mesmo instante entrava num
+       * caixa já apurado sem ela — a gaveta fechava com R$ 100 a menos que o
+       * número assinado. A sangria trava a mesma linha.
+       */
+      await tx.$queryRaw`SELECT id FROM caixas WHERE id = ${caixaId} FOR UPDATE`;
+      const atual = await tx.caixa.findUniqueOrThrow({
+        where: { id: caixaId },
+        include: {
+          pagamentos: { include: { formaPagamento: { select: { tipo: true } } } },
+          movimentos: true,
+        },
+      });
+      if (atual.status !== "ABERTO") throw new ErroDeOperacao("Este caixa já foi fechado.");
 
-    const divergencia = centavos(valorInformado - valorApurado);
+      // A mesma função que a tela usa para mostrar "esperado na gaveta" durante o
+      // turno. Duas contas separadas acabariam divergindo, e a divergência do
+      // fechamento passaria a medir o desencontro entre elas, não a da gaveta.
+      const valorApurado = gavetaDoCaixa(atual);
+      const divergencia = centavos(valorInformado - valorApurado);
 
-    await db.$transaction([
-      db.caixa.update({
+      await tx.caixa.update({
         where: { id: caixaId },
         data: {
           status: "FECHADO",
@@ -115,18 +133,19 @@ export async function fecharCaixa(caixaId: string, valorInformado: number) {
           fechadoPorId: sessao.usuarioId,
           fechadoEm: new Date(),
         },
-      }),
-      db.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: await auditoria(sessao, {
           entidade: "Caixa",
           entidadeId: caixaId,
           acao: "CAIXA_FECHADO",
           // A divergência do turno é o número que o dono compara entre pessoas:
           // uma falta de R$ 5 é contagem, todo sábado é outra conversa.
-          depois: { valorApurado, valorInformado, divergencia, turno: caixa.turno },
+          depois: { valorApurado, valorInformado, divergencia, turno: atual.turno },
         }),
-      }),
-    ]);
+      });
+      return { valorApurado, divergencia };
+    });
 
     revalidatePath("/pdv");
     await publicar(sessao.unidadeId, "caixa");
@@ -216,6 +235,25 @@ export async function registrarMovimentoCaixa(
     });
 
     await db.$transaction(async (tx) => {
+      // O fechamento trava a mesma linha: ou a sangria entra antes e é
+      // apurada, ou encontra o caixa fechado. A gaveta é conferida de novo,
+      // porque outra retirada pode ter passado na frente.
+      await tx.$queryRaw`SELECT id FROM caixas WHERE id = ${caixaId} FOR UPDATE`;
+      const atual = await tx.caixa.findUniqueOrThrow({
+        where: { id: caixaId },
+        include: {
+          pagamentos: { include: { formaPagamento: { select: { tipo: true } } } },
+          movimentos: true,
+        },
+      });
+      if (atual.status !== "ABERTO") throw new ErroDeOperacao("Este caixa já foi fechado.");
+      const agoraNaGaveta = gavetaDoCaixa(atual);
+      if (RETIRA[tipo] && valor > agoraNaGaveta + TOLERANCIA) {
+        throw new ErroDeOperacao(
+          `A gaveta tem ${agoraNaGaveta.toFixed(2).replace(".", ",")} em dinheiro. Não dá para retirar mais que isso.`
+        );
+      }
+
       await tx.movimentoCaixa.create({
         data: {
           tenantId: caixa.tenantId,
