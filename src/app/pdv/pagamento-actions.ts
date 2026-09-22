@@ -677,30 +677,9 @@ export async function finalizarComanda(comandaId: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.fechar");
 
-    const comanda = await db.comanda.findUniqueOrThrow({
-      where: { id: comandaId },
-      include: {
-        itens: { where: CONSUMO, select: { precoTotal: true } },
-        pagamentos: { select: { valor: true, troco: true } },
-      },
-    });
+    const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
     if (comanda.status === "PAGA") return;
-
-    const { total } = calcularTotais({
-      itens: comanda.itens.map((i) => ({ precoTotal: Number(i.precoTotal) })),
-      taxaServicoPct: Number(comanda.taxaServicoPct),
-      descontoValor: Number(comanda.descontoValor),
-    });
-
-    const recebido = centavos(
-      comanda.pagamentos.reduce((soma, p) => soma + Number(p.valor) - Number(p.troco), 0)
-    );
-
-    if (recebido + TOLERANCIA < total) {
-      throw new ErroDeOperacao(
-        `Faltam R$ ${(total - recebido).toFixed(2).replace(".", ",")} para quitar a comanda.`
-      );
-    }
 
     const caixa = await db.caixa.findFirst({
       where: { unidadeId: comanda.unidadeId, tipo: "GERAL", status: "ABERTO" },
@@ -719,8 +698,45 @@ export async function finalizarComanda(comandaId: string) {
      */
     const fechouAgora = await db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${comandaId} FOR UPDATE`;
-      const atual = await tx.comanda.findUniqueOrThrow({ where: { id: comandaId }, select: { status: true } });
+      const atual = await tx.comanda.findUniqueOrThrow({
+        where: { id: comandaId },
+        include: {
+          itens: { where: CONSUMO, select: { precoTotal: true } },
+          pagamentos: { select: { valor: true, troco: true } },
+        },
+      });
       if (atual.status === "PAGA") return false;
+
+      /**
+       * A conta é conferida aqui, dentro da trava, e não antes.
+       *
+       * Conferida antes, um estorno ou um cancelamento no mesmo instante
+       * passava pelo meio: a conta saía PAGA sem o pagamento que acabava de
+       * ser estornado, ou com o dinheiro de um item que acabava de ser
+       * cancelado. Estorno e cancelamento travam a mesma linha.
+       *
+       * E conta paga recebeu o total — nem a menos, nem a mais. O que sobra
+       * (item cancelado ou desconto dado depois de receber) é dinheiro sem
+       * venda: o caixa estorna e recebe o valor certo.
+       */
+      const { total } = calcularTotais({
+        itens: atual.itens.map((i) => ({ precoTotal: Number(i.precoTotal) })),
+        taxaServicoPct: Number(atual.taxaServicoPct),
+        descontoValor: Number(atual.descontoValor),
+      });
+      const recebido = centavos(
+        atual.pagamentos.reduce((soma, p) => soma + Number(p.valor) - Number(p.troco), 0)
+      );
+      const reais = (v: number) => v.toFixed(2).replace(".", ",");
+      if (recebido + TOLERANCIA < total) {
+        throw new ErroDeOperacao(`Faltam R$ ${reais(total - recebido)} para quitar a comanda.`);
+      }
+      if (recebido > total + TOLERANCIA) {
+        throw new ErroDeOperacao(
+          `Foram recebidos R$ ${reais(recebido - total)} a mais que a conta (R$ ${reais(total)}). ` +
+            "Estorne o pagamento e receba o valor certo."
+        );
+      }
 
       await tx.comanda.update({
         where: { id: comandaId },
