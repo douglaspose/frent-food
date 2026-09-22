@@ -152,6 +152,13 @@ async function itemPendente(itemId: string, tenantId: string) {
 export async function alterarQuantidade(itemId: string, delta: number) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.lancarItem");
+    /**
+     * A tela manda +1 e −1; o que chega é o que alguém quiser mandar. Com
+     * −0,99, a cerveja de R$ 12 virava 0,01 cerveja a R$ 0,12 — e ia assim
+     * para o bar e para a conta. Com NaN, a action estourava. A quantidade
+     * anda de inteiro em inteiro.
+     */
+    if (!Number.isInteger(delta)) throw new ErroDeOperacao("Quantidade inválida.");
     const item = await itemPendente(itemId, sessao.tenantId);
 
     const quantidade = Number(item.quantidade) + delta;
