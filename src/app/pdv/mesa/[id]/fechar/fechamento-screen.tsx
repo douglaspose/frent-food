@@ -75,7 +75,12 @@ export function FechamentoScreen({
     comanda.pagamentos.reduce((s, p) => s + p.valor - p.troco, 0)
   );
   const falta = centavos(Math.max(0, totais.total - recebido));
-  const quitada = falta <= TOLERANCIA;
+  // Recebido acima do total só acontece quando a conta encolhe depois de paga
+  // — item cancelado, desconto dado. O "Finalizar" recusa; a tela avisa antes,
+  // em vez de mostrar "Quitada" e só explicar no toque.
+  const aMais = centavos(Math.max(0, recebido - totais.total));
+  const sobrou = aMais > TOLERANCIA;
+  const quitada = falta <= TOLERANCIA && !sobrou;
 
   const forma = formas.find((f) => f.id === formaSelecionada);
   const digitado = Number(valorRecebido.replace(",", ".")) || 0;
@@ -376,7 +381,7 @@ export function FechamentoScreen({
 
             <button
               onClick={receber}
-              disabled={pendente || quitada || !caixaAberto || !podeReceber}
+              disabled={pendente || falta <= TOLERANCIA || !caixaAberto || !podeReceber}
               className="w-full rounded-lg bg-emerald-600 py-3 font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-30"
             >
               Lançar pagamento
@@ -419,13 +424,26 @@ export function FechamentoScreen({
                 <dt className="text-neutral-400">Recebido</dt>
                 <dd className="tabular-nums">{brl.format(recebido)}</dd>
               </div>
-              <div className="flex justify-between font-bold">
-                <dt>{quitada ? "Quitada" : "Falta"}</dt>
-                <dd className={`tabular-nums ${quitada ? "text-emerald-400" : "text-red-400"}`}>
-                  {brl.format(falta)}
-                </dd>
-              </div>
+              {sobrou ? (
+                <div className="flex justify-between font-bold">
+                  <dt>Recebido a mais</dt>
+                  <dd className="tabular-nums text-amber-400">{brl.format(aMais)}</dd>
+                </div>
+              ) : (
+                <div className="flex justify-between font-bold">
+                  <dt>{quitada ? "Quitada" : "Falta"}</dt>
+                  <dd className={`tabular-nums ${quitada ? "text-emerald-400" : "text-red-400"}`}>
+                    {brl.format(falta)}
+                  </dd>
+                </div>
+              )}
             </dl>
+            {sobrou && (
+              <p className="mt-2 text-xs text-amber-400">
+                A conta diminuiu depois de paga. Estorne o pagamento e receba o valor certo
+                para finalizar.
+              </p>
+            )}
           </div>
 
           {erro && <p className="text-sm text-red-400">{erro}</p>}
