@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "./db";
 import { padroes, valorDoParametro } from "./parametros";
+import { CHAVE_DIVISAO_DA_TAXA, lerDivisao, type AreaDaTaxa } from "./divisao-da-taxa";
 
 export type Ajustes = Record<string, boolean | number>;
 
@@ -31,4 +32,13 @@ export async function ajusteBooleano(unidadeId: string, chave: string): Promise<
 
 export async function ajusteNumerico(unidadeId: string, chave: string): Promise<number> {
   return Number((await lerAjustes(unidadeId, [chave]))[chave]);
+}
+
+/** As áreas que repartem a taxa de serviço; vazio quando a casa não divide. */
+export async function divisaoDaTaxa(unidadeId: string): Promise<AreaDaTaxa[]> {
+  const linha = await db.parametroUnidade.findUnique({
+    where: { unidadeId_chave: { unidadeId, chave: CHAVE_DIVISAO_DA_TAXA } },
+    select: { valor: true },
+  });
+  return lerDivisao(linha?.valor);
 }

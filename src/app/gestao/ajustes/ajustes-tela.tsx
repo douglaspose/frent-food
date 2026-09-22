@@ -1,11 +1,19 @@
 "use client";
 
 import { temErro } from "@/lib/erro-de-operacao";
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { GRUPOS, PARAMETROS, TITULO_DO_GRUPO, type Parametro } from "@/lib/parametros";
+import type { AreaDaTaxa } from "@/lib/divisao-da-taxa";
 import { salvarAjuste } from "./actions";
+import { DivisaoDaTaxa } from "./divisao-da-taxa";
 
-export function AjustesTela({ valores }: { valores: Record<string, boolean | number> }) {
+export function AjustesTela({
+  valores,
+  divisaoDaTaxa,
+}: {
+  valores: Record<string, boolean | number>;
+  divisaoDaTaxa: AreaDaTaxa[];
+}) {
   // Estado local para o interruptor responder ao dedo na hora; o servidor
   // confirma logo atrás e corrige se recusar.
   const [atual, setAtual] = useState(valores);
@@ -56,7 +64,7 @@ export function AjustesTela({ valores }: { valores: Record<string, boolean | num
           const doGrupo = PARAMETROS.filter((p) => p.grupo === grupo);
           if (doGrupo.length === 0) return null;
 
-          return (
+          const secao = (
             <section key={grupo} className="rounded-xl border border-neutral-200 bg-white">
               <h2 className="border-b border-neutral-200 px-5 py-3 text-xs font-semibold uppercase tracking-widest text-neutral-500">
                 {TITULO_DO_GRUPO[grupo]}
@@ -81,6 +89,16 @@ export function AjustesTela({ valores }: { valores: Record<string, boolean | num
                 ))}
               </ul>
             </section>
+          );
+
+          // A divisão da taxa é do caixa, mas é uma lista, não um interruptor:
+          // vem logo abaixo, com o editor próprio.
+          if (grupo !== "CAIXA") return secao;
+          return (
+            <Fragment key={grupo}>
+              {secao}
+              <DivisaoDaTaxa salva={divisaoDaTaxa} />
+            </Fragment>
           );
         })}
       </div>

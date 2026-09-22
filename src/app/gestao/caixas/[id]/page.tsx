@@ -4,8 +4,8 @@ import { notFound, redirect } from "next/navigation";
 import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { detalheDoTurno } from "@/lib/historico-de-caixa";
 import { RETIRA_DA_GAVETA } from "@/lib/caixa";
-import { dividirTaxaDeServico } from "@/lib/comanda";
-import { ajusteNumerico } from "@/lib/parametros-servidor";
+import { dividirTaxa } from "@/lib/divisao-da-taxa";
+import { divisaoDaTaxa } from "@/lib/parametros-servidor";
 
 export const metadata: Metadata = { title: "Fechamento de caixa" };
 export const dynamic = "force-dynamic";
@@ -56,14 +56,14 @@ export default async function TurnoPage({ params }: { params: Promise<{ id: stri
   if (!temPermissao(sessao, "auditoria.ver")) redirect("/gestao");
 
   const { id } = await params;
-  const [detalhe, parteCozinha] = await Promise.all([
+  const [detalhe, areas] = await Promise.all([
     detalheDoTurno(sessao.unidadeId, id),
-    ajusteNumerico(sessao.unidadeId, "caixa.taxaServicoParteCozinhaPct"),
+    divisaoDaTaxa(sessao.unidadeId),
   ]);
   if (!detalhe) notFound();
 
   const { turno, porForma, movimentos, taxaDeServico } = detalhe;
-  const divisao = dividirTaxaDeServico(taxaDeServico.total, parteCozinha);
+  const divisao = dividirTaxa(taxaDeServico.total, areas);
   const aberto = turno.status === "ABERTO";
   const diferente = turno.divergencia !== null && turno.divergencia !== 0;
 
@@ -159,28 +159,26 @@ export default async function TurnoPage({ params }: { params: Promise<{ id: stri
           <p className="text-xl font-bold tabular-nums">{brl.format(taxaDeServico.total)}</p>
         </div>
 
-        {parteCozinha > 0 ? (
-          <dl className="mt-4 grid gap-3 border-t border-neutral-100 pt-4 sm:grid-cols-2">
-            <div className="flex items-baseline justify-between gap-3 rounded-lg bg-neutral-50 px-4 py-3">
-              <dt className="text-sm">
-                Cozinha
-                <span className="ml-2 text-xs text-neutral-500">{parteCozinha}% da taxa</span>
-              </dt>
-              <dd className="font-semibold tabular-nums">{brl.format(divisao.cozinha)}</dd>
-            </div>
-            <div className="flex items-baseline justify-between gap-3 rounded-lg bg-neutral-50 px-4 py-3">
-              <dt className="text-sm">
-                Atendimento
-                <span className="ml-2 text-xs text-neutral-500">{100 - parteCozinha}% da taxa</span>
-              </dt>
-              <dd className="font-semibold tabular-nums">{brl.format(divisao.atendimento)}</dd>
-            </div>
+        {divisao.length > 0 ? (
+          <dl className="mt-4 grid gap-3 border-t border-neutral-100 pt-4 sm:grid-cols-2 lg:grid-cols-3">
+            {divisao.map((a) => (
+              <div
+                key={a.nome}
+                className="flex items-baseline justify-between gap-3 rounded-lg bg-neutral-50 px-4 py-3"
+              >
+                <dt className="min-w-0 text-sm">
+                  <span className="break-words">{a.nome}</span>
+                  <span className="ml-2 whitespace-nowrap text-xs text-neutral-500">{a.pct}% da taxa</span>
+                </dt>
+                <dd className="shrink-0 font-semibold tabular-nums">{brl.format(a.valor)}</dd>
+              </div>
+            ))}
           </dl>
         ) : (
           <p className="mt-3 border-t border-neutral-100 pt-3 text-xs text-neutral-500">
-            Para dividir entre cozinha e atendimento, defina a parte da cozinha em{" "}
+            Para repartir entre as áreas da equipe, monte a divisão em{" "}
             <Link href="/gestao/ajustes" className="underline underline-offset-2 hover:text-neutral-900">
-              Ajustes → Caixa
+              Ajustes → Divisão da taxa de serviço
             </Link>
             .
           </p>

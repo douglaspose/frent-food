@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { sessaoDaTela, temPermissao } from "@/lib/session";
-import { lerAjustes } from "@/lib/parametros-servidor";
+import { divisaoDaTaxa, lerAjustes } from "@/lib/parametros-servidor";
 import { AjustesTela } from "./ajustes-tela";
 
 export const metadata: Metadata = { title: "Ajustes" };
@@ -16,5 +16,9 @@ export default async function AjustesPage() {
    */
   if (!temPermissao(sessao, "unidade.configurar")) redirect("/gestao");
 
-  return <AjustesTela valores={await lerAjustes(sessao.unidadeId)} />;
+  const [valores, divisao] = await Promise.all([
+    lerAjustes(sessao.unidadeId),
+    divisaoDaTaxa(sessao.unidadeId),
+  ]);
+  return <AjustesTela valores={valores} divisaoDaTaxa={divisao} />;
 }

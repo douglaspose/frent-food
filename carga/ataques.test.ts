@@ -7,6 +7,7 @@ import { pedirAutorizacao } from "@/app/pdv/autorizacao-actions";
 import { avancarPedido } from "@/app/kds/actions";
 import { transferirMesa } from "@/app/pdv/transferencia-actions";
 import { registrarContagem, registrarEntrada, registrarPerda } from "@/app/gestao/estoque/actions";
+import { salvarDivisaoDaTaxa } from "@/app/gestao/ajustes/actions";
 import LoginPage from "@/app/login/page";
 import PdvMesasPage from "@/app/pdv/page";
 import GestaoLayout from "@/app/gestao/layout";
@@ -1085,6 +1086,39 @@ describe("exploração de 21/09, segunda rodada", () => {
       saldo: Number(s.quantidade),
       custo: Number.isFinite(Number(s.custoMedio)),
     }).toEqual({ comMensagem: [true, true, true, true, true], saldo: antes, custo: true });
+  });
+
+  /**
+   * A divisão da taxa de serviço decide quanto cada área da equipe recebe.
+   * Garçom não pode reescrevê-la chamando a action direto, e a soma que não
+   * fecha 100 não entra nem pelo dono.
+   */
+  it("divisão da taxa: só quem configura salva, e só somando 100", async () => {
+    const certa = [
+      { nome: "Cozinha", pct: 40 },
+      { nome: "Atendimento", pct: 60 },
+    ];
+    const garcom = await tentar(A.garcons[0]!, () => salvarDivisaoDaTaxa(certa));
+    const torta = await tentar(A.proprietario, () =>
+      salvarDivisaoDaTaxa([
+        { nome: "Cozinha", pct: 40 },
+        { nome: "Atendimento", pct: 70 },
+      ])
+    );
+    const lixo = await tentar(A.proprietario, () =>
+      salvarDivisaoDaTaxa("tudo para mim" as unknown as { nome: string; pct: number }[])
+    );
+    const dono = await tentar(A.proprietario, () => salvarDivisaoDaTaxa(certa));
+    const gravado = await admin.parametroUnidade.findUnique({
+      where: { unidadeId_chave: { unidadeId: A.unidade.id, chave: "caixa.divisaoTaxaServico" } },
+    });
+    expect({
+      garcom: recusou(garcom),
+      torta: recusou(torta),
+      lixo: recusou(lixo),
+      dono: recusou(dono),
+      gravado: gravado?.valor,
+    }).toEqual({ garcom: true, torta: true, lixo: true, dono: false, gravado: certa });
   });
 
   it("nome do cliente com 5 mil caracteres não vai inteiro para a comanda", async () => {
