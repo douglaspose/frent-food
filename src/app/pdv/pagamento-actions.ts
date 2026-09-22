@@ -624,33 +624,57 @@ export async function estornarPagamento(pagamentoId: string) {
 
     // O pagamento desaparece da tabela: se o diário não guardar o valor agora,
     // não sobra nenhum rastro de que R$ 300 entraram e saíram.
-    await db.$transaction([
-      db.pagamento.delete({ where: { id: pagamentoId } }),
-      db.auditLog.create({
-        data: await auditoria(sessao, {
-          entidade: "Pagamento",
-          entidadeId: pagamentoId,
-          acao: "PAGAMENTO_ESTORNADO",
-          antes: {
-            valor: Number(pagamento.valor),
-            troco: Number(pagamento.troco),
-            comandaId: pagamento.comanda.id,
-          },
-        }),
-      }),
-    ]);
+    const registro = await auditoria(sessao, {
+      entidade: "Pagamento",
+      entidadeId: pagamentoId,
+      acao: "PAGAMENTO_ESTORNADO",
+      antes: {
+        valor: Number(pagamento.valor),
+        troco: Number(pagamento.troco),
+        comandaId: pagamento.comanda.id,
+      },
+    });
 
-    /**
-     * Estornar tudo é o sinal de que o fechamento foi desfeito — mesa errada,
-     * ou o cliente resolveu continuar. A comanda volta a aceitar lançamento sem
-     * exigir um clique a mais.
-     *
-     * Quando o caixa só troca a forma de pagamento, a mesa pisca azul por
-     * alguns segundos e volta ao laranja no lançamento seguinte: inofensivo.
-     */
-    const restantes = await db.pagamento.count({ where: { comandaId: pagamento.comanda.id } });
-    if (restantes === 0 && pagamento.comanda.status === "FECHANDO") {
-      await db.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
+      /**
+       * As duas proibições acima, conferidas de novo dentro da trava.
+       *
+       * Conferidas só antes, um "finalizar" no mesmo instante fechava a conta
+       * entre a conferência e a exclusão: a conta ficava PAGA sem o pagamento
+       * — o que a proibição existe para impedir. A finalização trava a mesma
+       * linha da comanda; o segundo a chegar encontra o que o primeiro fez.
+       */
+      await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${pagamento.comanda.id} FOR UPDATE`;
+      const atual = await tx.pagamento.findUnique({
+        where: { id: pagamentoId },
+        select: { comanda: { select: { status: true } }, caixa: { select: { status: true } } },
+      });
+      // Dois toques em "estornar": o primeiro já apagou.
+      if (!atual) throw new ErroDeOperacao("Este pagamento já foi estornado.");
+      if (atual.caixa?.status === "FECHADO") {
+        throw new ErroDeOperacao(
+          "O caixa deste pagamento já foi fechado. Para devolver ao cliente, registre uma sangria no caixa de hoje, com o motivo."
+        );
+      }
+      if (atual.comanda.status === "PAGA") {
+        throw new ErroDeOperacao(
+          "Esta conta já foi paga e fechada. Para devolver ao cliente, registre uma sangria com o motivo."
+        );
+      }
+
+      await tx.pagamento.delete({ where: { id: pagamentoId } });
+      await tx.auditLog.create({ data: registro });
+
+      /**
+       * Estornar tudo é o sinal de que o fechamento foi desfeito — mesa errada,
+       * ou o cliente resolveu continuar. A comanda volta a aceitar lançamento sem
+       * exigir um clique a mais.
+       *
+       * Quando o caixa só troca a forma de pagamento, a mesa pisca azul por
+       * alguns segundos e volta ao laranja no lançamento seguinte: inofensivo.
+       */
+      const restantes = await tx.pagamento.count({ where: { comandaId: pagamento.comanda.id } });
+      if (restantes === 0 && atual.comanda.status === "FECHANDO") {
         await tx.comanda.update({
           where: { id: pagamento.comanda.id },
           data: { status: "ABERTA" },
@@ -661,8 +685,8 @@ export async function estornarPagamento(pagamentoId: string) {
             data: { status: "OCUPADA" },
           });
         }
-      });
-    }
+      }
+    });
 
     revalidatePath("/pdv");
     await publicar(sessao.unidadeId, "pagamento");
