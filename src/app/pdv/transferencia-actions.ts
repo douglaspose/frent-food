@@ -75,6 +75,30 @@ export async function transferirMesa(comandaId: string, mesaDestinoId: string) {
     });
 
     await db.$transaction(async (tx) => {
+      /**
+       * A mesma fila das aberturas: a trava da linha da unidade.
+       *
+       * A mesa de destino era conferida solta, antes. Duas transferências
+       * para a mesma mesa livre — ou uma transferência e uma abertura nela —
+       * passavam as duas pela conferência, e a mesa ficava com duas comandas
+       * abertas: o mapa mostra uma, a outra some do salão. Dentro da trava, a
+       * mesa e a conta são conferidas de novo.
+       */
+      await tx.$queryRaw`SELECT id FROM unidades WHERE id = ${comanda.unidadeId} FOR NO KEY UPDATE`;
+      const ocupada = await tx.comanda.findFirst({
+        where: { mesaId: mesaDestinoId, status: { in: ["ABERTA", "FECHANDO"] } },
+        select: { numero: true },
+      });
+      if (ocupada) {
+        throw new ErroDeOperacao(
+          `A mesa ${destino.numero} acabou de receber a comanda #${ocupada.numero}. Escolha outra mesa.`
+        );
+      }
+      const agora = await tx.comanda.findUniqueOrThrow({ where: { id: comandaId }, select: { status: true } });
+      if (agora.status !== "ABERTA" && agora.status !== "FECHANDO") {
+        throw new ErroDeOperacao("Esta comanda acabou de ser fechada.");
+      }
+
       await tx.comanda.update({ where: { id: comandaId }, data: { mesaId: mesaDestinoId } });
 
       // A mesa de destino herda o estado da conta: uma mesa que estava pedindo

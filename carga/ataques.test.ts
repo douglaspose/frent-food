@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { temErro } from "@/lib/erro-de-operacao";
 import { abrirComanda, enviarCarrinho } from "@/app/pdv/actions";
-import { adicionarAoCarrinho, alterarQuantidade } from "@/app/pdv/carrinho-actions";
+import { adicionarAoCarrinho, alterarQuantidade, definirPontoCarne } from "@/app/pdv/carrinho-actions";
 import { cancelarItem } from "@/app/pdv/cancelamento-actions";
 import { pedirAutorizacao } from "@/app/pdv/autorizacao-actions";
 import { avancarPedido } from "@/app/kds/actions";
+import { transferirMesa } from "@/app/pdv/transferencia-actions";
+import { registrarContagem, registrarEntrada, registrarPerda } from "@/app/gestao/estoque/actions";
 import LoginPage from "@/app/login/page";
 import PdvMesasPage from "@/app/pdv/page";
 import GestaoLayout from "@/app/gestao/layout";
@@ -819,5 +821,344 @@ describe("conferência impressa com pagamento parcial", () => {
     expect(entregue_!.conteudo).toContain("\x1d\x21\x11");
     expect(entregue_!.conteudo).toContain("\x1d\x21\x00");
     expect(entregue_!.conteudo).not.toMatch(/[\x0e\x0f]/);
+  });
+});
+
+/**
+ * Segunda rodada de 21/09: o que as correções da primeira ainda deixavam
+ * passar quando duas pessoas tocam ao mesmo tempo, e o que o navegador pode
+ * mandar que a tela nunca manda.
+ */
+describe("exploração de 21/09, segunda rodada", () => {
+  const bebida = () => A.itens.find((i) => i.controlaEstoque && !i.exigePontoCarne)!;
+
+  /** A conta pela regra do sistema, e o que entrou líquido de troco. */
+  async function totalConsumido(comandaId: string) {
+    const c = await admin.comanda.findUniqueOrThrow({
+      where: { id: comandaId },
+      include: { itens: { where: { status: { notIn: ["PENDENTE", "CANCELADO"] } } }, pagamentos: true },
+    });
+    const subtotal = c.itens.reduce((s, i) => s + Number(i.precoTotal), 0);
+    const base = Math.max(0, subtotal - Number(c.descontoValor));
+    const total = Math.round(base * (1 + Number(c.taxaServicoPct) / 100) * 100) / 100;
+    const pago = c.pagamentos.reduce((s, p) => s + Number(p.valor) - Number(p.troco), 0);
+    return { total, pago: Math.round(pago * 100) / 100 };
+  }
+
+  /** Uma mesa com uma bebida (que tem estoque) já enviada. Devolve a comanda e o item. */
+  async function mesaComBebida(g: Membro, mesaIndice: number) {
+    const aberta = (await como(g, () => abrirComanda(A.mesas[mesaIndice]!.id, 2))) as { comandaId: string };
+    const b = bebida();
+    await como(g, () =>
+      adicionarAoCarrinho({
+        comandaId: aberta.comandaId,
+        produtoId: b.produtoId,
+        cardapioItemId: b.cardapioItemId,
+        precoUnitario: b.preco,
+        exigePontoCarne: false,
+      })
+    );
+    await como(g, () => enviarCarrinho(aberta.comandaId));
+    const item = await admin.comandaItem.findFirstOrThrow({ where: { comandaId: aberta.comandaId } });
+    return { comandaId: aberta.comandaId, item, produtoId: b.produtoId };
+  }
+
+  const saldo = async (produtoId: string) =>
+    Number(
+      (
+        await admin.estoqueSaldo.findUniqueOrThrow({
+          where: { unidadeId_produtoId: { unidadeId: A.unidade.id, produtoId } },
+        })
+      ).quantidade
+    );
+
+  it("dois toques em 'cancelar item' não devolvem o estoque duas vezes", async () => {
+    const { item, produtoId } = await mesaComBebida(A.garcons[0]!, 18);
+    const antes = await saldo(produtoId);
+    const gerente = A.gerentes[0]!;
+    await Promise.all([
+      tentar(gerente, () => cancelarItem(item.id, "cliente desistiu")),
+      tentar(gerente, () => cancelarItem(item.id, "cliente desistiu")),
+    ]);
+    const devolucoes = await admin.movimentoEstoque.count({
+      where: { referenciaId: item.id, tipo: "DEVOLUCAO" },
+    });
+    const diario = await admin.auditLog.count({ where: { entidadeId: item.id, acao: "ITEM_CANCELADO" } });
+    expect({ saldo: await saldo(produtoId), devolucoes, diario }).toEqual({
+      saldo: antes + Number(item.quantidade),
+      devolucoes: 1,
+      diario: 1,
+    });
+  });
+
+  /**
+   * O estorno foi proibido em conta paga — mas a conferência era feita antes,
+   * fora de qualquer trava. Com o caixa corrigindo a forma de pagamento no
+   * mesmo instante em que outro toca em "finalizar", a conta podia sair PAGA
+   * sem o pagamento: exatamente o que a proibição queria impedir.
+   */
+  it("estorno e finalização ao mesmo tempo não deixam conta paga devendo", async () => {
+    const caixa = A.caixas[0]!;
+    const erradas: string[] = [];
+    for (const mesa of [19, 20, 21, 23, 24]) {
+      const comandaId = await comandaPronta(A.garcons[1]!, mesa);
+      await como(caixa, () => iniciarFechamento(comandaId));
+      const { falta } = await quantoDeve(comandaId);
+      await como(caixa, () => registrarPagamento(comandaId, A.formas.pix.id, falta, 0));
+      const pagamento = await admin.pagamento.findFirstOrThrow({ where: { comandaId } });
+      await Promise.all([
+        tentar(caixa, () => estornarPagamento(pagamento.id)),
+        tentar(caixa, () => finalizarComanda(comandaId)),
+      ]);
+      const c = await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+      const { total, pago } = await totalConsumido(comandaId);
+      if (c.status === "PAGA" && Math.abs(total - pago) > 0.009) erradas.push(`mesa ${mesa}: total ${total}, recebido ${pago}`);
+    }
+    expect(erradas).toEqual([]);
+  });
+
+  it("dois toques em 'estornar' dão um estorno e uma mensagem, não erro de sistema", async () => {
+    const caixa = A.caixas[0]!;
+    const comandaId = await comandaPronta(A.garcons[1]!, 47);
+    await como(caixa, () => iniciarFechamento(comandaId));
+    const { falta } = await quantoDeve(comandaId);
+    await como(caixa, () => registrarPagamento(comandaId, A.formas.pix.id, falta, 0));
+    const pagamento = await admin.pagamento.findFirstOrThrow({ where: { comandaId } });
+    const r = await Promise.all([
+      tentar(caixa, () => estornarPagamento(pagamento.id)),
+      tentar(caixa, () => estornarPagamento(pagamento.id)),
+    ]);
+    const diario = await admin.auditLog.count({ where: { entidadeId: pagamento.id, acao: "PAGAMENTO_ESTORNADO" } });
+    expect({ lancaram: r.filter((t) => t.lancou !== null).map((t) => t.lancou!.slice(-120)), diario }).toEqual({
+      lancaram: [],
+      diario: 1,
+    });
+  });
+
+  /**
+   * Mesma corrida, com o cancelamento. Conta paga é conta que recebeu
+   * exatamente o total — nem a menos, nem a mais: o item cancelado depois do
+   * pagamento, e antes do "finalizar", deixava a conta paga com o dinheiro de
+   * um item que ela não tem mais.
+   */
+  it("item cancelado no mesmo instante da finalização: conta paga recebeu exatamente o total", async () => {
+    const caixa = A.caixas[0]!;
+    const erradas: string[] = [];
+    for (const mesa of [25, 26, 27, 28, 29]) {
+      const { comandaId, item } = await mesaComBebida(A.garcons[2]!, mesa);
+      await como(caixa, () => iniciarFechamento(comandaId));
+      const { falta } = await quantoDeve(comandaId);
+      await como(caixa, () => registrarPagamento(comandaId, A.formas.pix.id, falta, 0));
+      await Promise.all([
+        tentar(A.gerentes[0]!, () => cancelarItem(item.id, "engano")),
+        tentar(caixa, () => finalizarComanda(comandaId)),
+      ]);
+      const c = await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+      const { total, pago } = await totalConsumido(comandaId);
+      if (c.status === "PAGA" && Math.abs(total - pago) > 0.009) erradas.push(`mesa ${mesa}: total ${total}, recebido ${pago}`);
+    }
+    expect(erradas).toEqual([]);
+  });
+
+  it("a quantidade do carrinho só anda de um em um: NaN e fração são recusados", async () => {
+    const g = A.garcons[0]!;
+    const aberta = (await como(g, () => abrirComanda(A.mesas[38]!.id, 2))) as { comandaId: string };
+    const b = bebida();
+    await como(g, () =>
+      adicionarAoCarrinho({
+        comandaId: aberta.comandaId,
+        produtoId: b.produtoId,
+        cardapioItemId: b.cardapioItemId,
+        precoUnitario: b.preco,
+        exigePontoCarne: false,
+      })
+    );
+    const item = await admin.comandaItem.findFirstOrThrow({ where: { comandaId: aberta.comandaId } });
+    const nan = await tentar(g, () => alterarQuantidade(item.id, Number.NaN));
+    const fracao = await tentar(g, () => alterarQuantidade(item.id, -0.99));
+    const depois = await admin.comandaItem.findUnique({ where: { id: item.id } });
+    expect({
+      nan: recusou(nan),
+      fracao: recusou(fracao),
+      quantidade: depois ? Number(depois.quantidade) : null,
+      precoTotal: depois ? Number(depois.precoTotal) : null,
+    }).toEqual({ nan: true, fracao: true, quantidade: 1, precoTotal: b.preco });
+  });
+
+  // Quem transfere é o garçom: o cargo de gerente da instalação padrão não tem mesa.transferir.
+  it("duas mesas transferidas ao mesmo tempo para a mesma mesa livre não a dividem", async () => {
+    const destino = A.mesas[41]!;
+    const um = (await como(A.garcons[0]!, () => abrirComanda(A.mesas[39]!.id, 2))) as { comandaId: string };
+    const dois = (await como(A.garcons[1]!, () => abrirComanda(A.mesas[40]!.id, 2))) as { comandaId: string };
+    await Promise.all([
+      tentar(A.garcons[0]!, () => transferirMesa(um.comandaId, destino.id)),
+      tentar(A.garcons[1]!, () => transferirMesa(dois.comandaId, destino.id)),
+    ]);
+    const abertas = await admin.comanda.count({
+      where: { mesaId: destino.id, status: { in: ["ABERTA", "FECHANDO"] } },
+    });
+    expect(abertas, "comandas abertas na mesa de destino").toBe(1);
+  });
+
+  it("transferir para uma mesa que outro garçom está abrindo não a divide", async () => {
+    const destino = A.mesas[43]!;
+    const um = (await como(A.garcons[0]!, () => abrirComanda(A.mesas[42]!.id, 2))) as { comandaId: string };
+    await Promise.all([
+      tentar(A.garcons[0]!, () => transferirMesa(um.comandaId, destino.id)),
+      tentar(A.garcons[1]!, () => abrirComanda(destino.id, 3)),
+    ]);
+    const abertas = await admin.comanda.count({
+      where: { mesaId: destino.id, status: { in: ["ABERTA", "FECHANDO"] } },
+    });
+    expect(abertas, "comandas abertas na mesa de destino").toBe(1);
+  });
+
+  it("estoque: quantidade inválida na entrada, na perda ou na contagem não estraga o saldo", async () => {
+    const dono = A.proprietario;
+    const b = A.itens.filter((i) => i.controlaEstoque)[1]!;
+    const antes = await saldo(b.produtoId);
+    const r = [
+      await tentar(dono, () =>
+        registrarEntrada({ produtoId: b.produtoId, quantidade: Number.NaN, custoTotal: 10, motivo: "nota" })
+      ),
+      await tentar(dono, () =>
+        registrarEntrada({ produtoId: b.produtoId, quantidade: 10, custoTotal: Number.NaN, motivo: "nota" })
+      ),
+      await tentar(dono, () => registrarPerda({ produtoId: b.produtoId, quantidade: Number.NaN, motivo: "quebra" })),
+      await tentar(dono, () =>
+        registrarContagem({ produtoId: b.produtoId, quantidadeContada: Number.NaN, motivo: "contagem" })
+      ),
+      await tentar(dono, () =>
+        registrarPerda({ produtoId: b.produtoId, quantidade: Number.POSITIVE_INFINITY, motivo: "quebra" })
+      ),
+    ];
+    const s = await admin.estoqueSaldo.findUniqueOrThrow({
+      where: { unidadeId_produtoId: { unidadeId: A.unidade.id, produtoId: b.produtoId } },
+    });
+    expect({
+      recusadas: r.map(recusou),
+      saldo: Number(s.quantidade),
+      custo: Number.isFinite(Number(s.custoMedio)),
+    }).toEqual({ recusadas: [true, true, true, true, true], saldo: antes, custo: true });
+  });
+
+  it("nome do cliente com 5 mil caracteres não vai inteiro para a comanda", async () => {
+    const g = A.garcons[0]!;
+    const t = await tentar(g, () => abrirComanda(A.mesas[44]!.id, 2, "Z".repeat(5000)));
+    const c = await admin.comanda.findFirst({
+      where: { mesaId: A.mesas[44]!.id, status: "ABERTA" },
+      select: { nomeCliente: true },
+    });
+    expect(recusou(t) || (c?.nomeCliente?.length ?? 0) <= 80, `gravou ${c?.nomeCliente?.length} caracteres`).toBe(
+      true
+    );
+  });
+
+  /**
+   * O vizinho tem o caixa fechado por um teste anterior, e nenhuma mesa
+   * aberta: cada teste abre um caixa novo e o fecha, sem tocar no do demo.
+   */
+  it("sangria no mesmo instante do fechamento não fica fora do apurado", async () => {
+    const c = B.caixas[0]!;
+    const erradas: string[] = [];
+    for (let vez = 1; vez <= 5; vez++) {
+      await como(c, () => abrirCaixa("NOITE", 300));
+      const caixa = await admin.caixa.findFirstOrThrow({ where: { unidadeId: B.unidade.id, status: "ABERTO" } });
+      await Promise.all([
+        tentar(c, () => fecharCaixa(caixa.id, 300)),
+        tentar(B.gerentes[0]!, () => registrarMovimentoCaixa(caixa.id, "SANGRIA", 100, "cofre")),
+      ]);
+      const depois = await admin.caixa.findUniqueOrThrow({ where: { id: caixa.id }, include: { movimentos: true } });
+      const retirado = depois.movimentos.reduce((s, m) => s + Number(m.valor), 0);
+      if (depois.status !== "FECHADO") erradas.push(`vez ${vez}: caixa ficou ${depois.status}`);
+      else if (Number(depois.valorApurado) !== 300 - retirado) {
+        erradas.push(`vez ${vez}: apurado ${Number(depois.valorApurado)} com ${retirado} de sangria`);
+      }
+    }
+    expect(erradas).toEqual([]);
+  });
+
+  it("dois toques em 'fechar caixa' com valores diferentes: vale o primeiro, o segundo é recusado", async () => {
+    const c = B.caixas[0]!;
+    await como(c, () => abrirCaixa("NOITE", 300));
+    const caixa = await admin.caixa.findFirstOrThrow({ where: { unidadeId: B.unidade.id, status: "ABERTO" } });
+    const r = await Promise.all([
+      tentar(c, () => fecharCaixa(caixa.id, 300)),
+      tentar(B.gerentes[0]!, () => fecharCaixa(caixa.id, 50)),
+    ]);
+    const fechamentos = await admin.auditLog.count({ where: { entidadeId: caixa.id, acao: "CAIXA_FECHADO" } });
+    expect({ recusadas: r.filter(recusou).length, fechamentos }).toEqual({ recusadas: 1, fechamentos: 1 });
+  });
+});
+
+/**
+ * O papel vai byte a byte para a térmica: o agente escreve o `conteudo` como
+ * está. Texto digitado — nome do cliente, ponto da carne — não pode levar
+ * comando de impressora junto. `ESC p` é o pulso que abre a gaveta de
+ * dinheiro, e pela action dá para mandar qualquer byte.
+ */
+describe("papel da impressora", () => {
+  it("nome do cliente com comando ESC/POS não chega à impressora como comando", async () => {
+    const g = A.garcons[0]!;
+    const mesa = A.mesas[45]!;
+    const aberta = (await como(g, () => abrirComanda(mesa.id, 2, "Ana\x1bp\x01\x19\xfa\x1dV\x01"))) as {
+      comandaId: string;
+    };
+    await como(g, () => imprimirConferencia(aberta.comandaId));
+    const fila = await admin.filaImpressao.findFirstOrThrow({
+      where: { referenciaId: aberta.comandaId, tipo: "CONFERENCIA" },
+    });
+    await admin.filaImpressao.updateMany({
+      where: { unidadeId: A.unidade.id, status: "PENDENTE", NOT: { id: fila.id } },
+      data: { status: "IMPRESSO" },
+    });
+    const token = `agente-papel-${A.unidade.id}`;
+    await admin.unidade.update({ where: { id: A.unidade.id }, data: { tokenImpressao: token } });
+    const resposta = await GETImpressao(
+      new NextRequest("http://demo.frentfood.test/api/impressao", { headers: { authorization: `Bearer ${token}` } })
+    );
+    const { trabalhos } = (await resposta.json()) as { trabalhos: { id: string; conteudo: string }[] };
+    const papel = trabalhos.find((t) => t.id === fila.id)!.conteudo;
+    // Só o que o próprio servidor põe: a letra dupla (GS ! n). Nada de ESC, nem GS V (corte).
+    const semOsDoServidor = papel.split("\x1d\x21\x11").join("").split("\x1d\x21\x00").join("");
+    expect(semOsDoServidor).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
+  });
+
+  it("nome do cliente com byte zero não vira erro de sistema", async () => {
+    const t = await tentar(A.garcons[0]!, () => abrirComanda(A.mesas[46]!.id, 2, "Ana\x00Maria"));
+    expect(t.lancou, "a action lançou").toBeNull();
+  });
+
+  it("ponto da carne com comando ESC/POS não chega à cozinha como comando", async () => {
+    const g = A.garcons[0]!;
+    const aberta = (await como(g, () => abrirComanda(A.mesas[48]!.id, 2))) as { comandaId: string };
+    const carne = A.itens.find((i) => i.exigePontoCarne)!;
+    await como(g, () =>
+      adicionarAoCarrinho({
+        comandaId: aberta.comandaId,
+        produtoId: carne.produtoId,
+        cardapioItemId: carne.cardapioItemId,
+        precoUnitario: carne.preco,
+        exigePontoCarne: true,
+      })
+    );
+    const item = await admin.comandaItem.findFirstOrThrow({ where: { comandaId: aberta.comandaId } });
+    await como(g, () => definirPontoCarne(item.id, "Mal passada\x1bp\x01\x19\xfa"));
+    await como(g, () => enviarCarrinho(aberta.comandaId));
+    const pedido = await admin.pedido.findFirstOrThrow({ where: { comandaId: aberta.comandaId } });
+    const fila = await admin.filaImpressao.findFirstOrThrow({ where: { referenciaId: pedido.id } });
+    await admin.filaImpressao.updateMany({
+      where: { unidadeId: A.unidade.id, status: "PENDENTE", NOT: { id: fila.id } },
+      data: { status: "IMPRESSO" },
+    });
+    const token = `agente-cozinha-${A.unidade.id}`;
+    await admin.unidade.update({ where: { id: A.unidade.id }, data: { tokenImpressao: token } });
+    const resposta = await GETImpressao(
+      new NextRequest("http://demo.frentfood.test/api/impressao", { headers: { authorization: `Bearer ${token}` } })
+    );
+    const { trabalhos } = (await resposta.json()) as { trabalhos: { id: string; conteudo: string }[] };
+    const papel = trabalhos.find((t) => t.id === fila.id)!.conteudo;
+    const semOsDoServidor = papel.split("\x1d\x21\x11").join("").split("\x1d\x21\x00").join("");
+    expect(semOsDoServidor).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
   });
 });

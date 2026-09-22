@@ -19,6 +19,17 @@ export async function abrirComanda(mesaId: string, pessoas: number, nomeCliente?
       throw new ErroDeOperacao("Informe de 1 a 99 pessoas.");
     }
 
+    /**
+     * O nome vai para a comanda, para o mapa e para o papel da impressora.
+     * Caractere de controle sai (o byte zero derrubava a action, e o resto
+     * chegava à térmica como comando); e um nome tem tamanho de nome — cinco
+     * mil caracteres eram gravados e impressos inteiros.
+     */
+    nomeCliente = nomeCliente?.replace(/[\x00-\x1f\x7f]/g, "").trim();
+    if (nomeCliente && nomeCliente.length > 80) {
+      throw new ErroDeOperacao("O nome do cliente vai até 80 caracteres.");
+    }
+
     const mesa = await db.mesa.findUniqueOrThrow({
       where: { id: mesaId },
       include: { unidade: true },

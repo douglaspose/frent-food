@@ -63,9 +63,28 @@ export function linhasParaTela(conteudo: string) {
     .map((l) => ({ texto: paraTela(l), grande: l.includes(LIGA_GRANDE) }));
 }
 
-/** O texto como vai para a impressora: marcadores trocados pelo ESC/POS. */
+/**
+ * Caractere de controle que não é a quebra de linha nem um dos marcadores.
+ * Escrito pelo código do caractere para o arquivo não carregar nenhum deles.
+ */
+const CONTROLE_ESTRANHO = new RegExp("[\\u0000-\\u0009\\u000b-\\u000d\\u0010-\\u001f\\u007f]", "g");
+
+/**
+ * O texto como vai para a impressora: marcadores trocados pelo ESC/POS.
+ *
+ * Antes disso, sai todo caractere de controle que não seja a quebra de linha
+ * ou um marcador. O agente manda o conteúdo byte a byte para a térmica, e o
+ * papel carrega texto digitado — ponto da carne, nome do cliente, observação.
+ * Um `ESC p` no meio dele é o pulso que abre a gaveta de dinheiro; um `GS V`
+ * corta o papel. O único comando no papel é o que este arquivo põe.
+ */
 export function paraImpressora(conteudo: string) {
-  return conteudo.split(LIGA_GRANDE).join("\x1d\x21\x11").split(DESLIGA_GRANDE).join("\x1d\x21\x00");
+  return conteudo
+    .replace(CONTROLE_ESTRANHO, "")
+    .split(LIGA_GRANDE)
+    .join("\x1d\x21\x11")
+    .split(DESLIGA_GRANDE)
+    .join("\x1d\x21\x00");
 }
 
 /**

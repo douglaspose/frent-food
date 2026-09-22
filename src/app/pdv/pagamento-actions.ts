@@ -97,15 +97,33 @@ export async function fecharCaixa(caixaId: string, valorInformado: number) {
       );
     }
 
-    // A mesma função que a tela usa para mostrar "esperado na gaveta" durante o
-    // turno. Duas contas separadas acabariam divergindo, e a divergência do
-    // fechamento passaria a medir o desencontro entre elas, não a da gaveta.
-    const valorApurado = gavetaDoCaixa(caixa);
+    const { valorApurado, divergencia } = await db.$transaction(async (tx) => {
+      /**
+       * O caixa travado, e relido dentro da trava.
+       *
+       * Lido antes, sem trava: dois toques em "fechar" passavam os dois pela
+       * conferência de "ainda aberto" e o segundo regravava o valor contado e
+       * a divergência do primeiro; e uma sangria no mesmo instante entrava num
+       * caixa já apurado sem ela — a gaveta fechava com R$ 100 a menos que o
+       * número assinado. A sangria trava a mesma linha.
+       */
+      await tx.$queryRaw`SELECT id FROM caixas WHERE id = ${caixaId} FOR UPDATE`;
+      const atual = await tx.caixa.findUniqueOrThrow({
+        where: { id: caixaId },
+        include: {
+          pagamentos: { include: { formaPagamento: { select: { tipo: true } } } },
+          movimentos: true,
+        },
+      });
+      if (atual.status !== "ABERTO") throw new ErroDeOperacao("Este caixa já foi fechado.");
 
-    const divergencia = centavos(valorInformado - valorApurado);
+      // A mesma função que a tela usa para mostrar "esperado na gaveta" durante o
+      // turno. Duas contas separadas acabariam divergindo, e a divergência do
+      // fechamento passaria a medir o desencontro entre elas, não a da gaveta.
+      const valorApurado = gavetaDoCaixa(atual);
+      const divergencia = centavos(valorInformado - valorApurado);
 
-    await db.$transaction([
-      db.caixa.update({
+      await tx.caixa.update({
         where: { id: caixaId },
         data: {
           status: "FECHADO",
@@ -115,18 +133,19 @@ export async function fecharCaixa(caixaId: string, valorInformado: number) {
           fechadoPorId: sessao.usuarioId,
           fechadoEm: new Date(),
         },
-      }),
-      db.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: await auditoria(sessao, {
           entidade: "Caixa",
           entidadeId: caixaId,
           acao: "CAIXA_FECHADO",
           // A divergência do turno é o número que o dono compara entre pessoas:
           // uma falta de R$ 5 é contagem, todo sábado é outra conversa.
-          depois: { valorApurado, valorInformado, divergencia, turno: caixa.turno },
+          depois: { valorApurado, valorInformado, divergencia, turno: atual.turno },
         }),
-      }),
-    ]);
+      });
+      return { valorApurado, divergencia };
+    });
 
     revalidatePath("/pdv");
     await publicar(sessao.unidadeId, "caixa");
@@ -216,6 +235,25 @@ export async function registrarMovimentoCaixa(
     });
 
     await db.$transaction(async (tx) => {
+      // O fechamento trava a mesma linha: ou a sangria entra antes e é
+      // apurada, ou encontra o caixa fechado. A gaveta é conferida de novo,
+      // porque outra retirada pode ter passado na frente.
+      await tx.$queryRaw`SELECT id FROM caixas WHERE id = ${caixaId} FOR UPDATE`;
+      const atual = await tx.caixa.findUniqueOrThrow({
+        where: { id: caixaId },
+        include: {
+          pagamentos: { include: { formaPagamento: { select: { tipo: true } } } },
+          movimentos: true,
+        },
+      });
+      if (atual.status !== "ABERTO") throw new ErroDeOperacao("Este caixa já foi fechado.");
+      const agoraNaGaveta = gavetaDoCaixa(atual);
+      if (RETIRA[tipo] && valor > agoraNaGaveta + TOLERANCIA) {
+        throw new ErroDeOperacao(
+          `A gaveta tem ${agoraNaGaveta.toFixed(2).replace(".", ",")} em dinheiro. Não dá para retirar mais que isso.`
+        );
+      }
+
       await tx.movimentoCaixa.create({
         data: {
           tenantId: caixa.tenantId,
@@ -624,33 +662,57 @@ export async function estornarPagamento(pagamentoId: string) {
 
     // O pagamento desaparece da tabela: se o diário não guardar o valor agora,
     // não sobra nenhum rastro de que R$ 300 entraram e saíram.
-    await db.$transaction([
-      db.pagamento.delete({ where: { id: pagamentoId } }),
-      db.auditLog.create({
-        data: await auditoria(sessao, {
-          entidade: "Pagamento",
-          entidadeId: pagamentoId,
-          acao: "PAGAMENTO_ESTORNADO",
-          antes: {
-            valor: Number(pagamento.valor),
-            troco: Number(pagamento.troco),
-            comandaId: pagamento.comanda.id,
-          },
-        }),
-      }),
-    ]);
+    const registro = await auditoria(sessao, {
+      entidade: "Pagamento",
+      entidadeId: pagamentoId,
+      acao: "PAGAMENTO_ESTORNADO",
+      antes: {
+        valor: Number(pagamento.valor),
+        troco: Number(pagamento.troco),
+        comandaId: pagamento.comanda.id,
+      },
+    });
 
-    /**
-     * Estornar tudo é o sinal de que o fechamento foi desfeito — mesa errada,
-     * ou o cliente resolveu continuar. A comanda volta a aceitar lançamento sem
-     * exigir um clique a mais.
-     *
-     * Quando o caixa só troca a forma de pagamento, a mesa pisca azul por
-     * alguns segundos e volta ao laranja no lançamento seguinte: inofensivo.
-     */
-    const restantes = await db.pagamento.count({ where: { comandaId: pagamento.comanda.id } });
-    if (restantes === 0 && pagamento.comanda.status === "FECHANDO") {
-      await db.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
+      /**
+       * As duas proibições acima, conferidas de novo dentro da trava.
+       *
+       * Conferidas só antes, um "finalizar" no mesmo instante fechava a conta
+       * entre a conferência e a exclusão: a conta ficava PAGA sem o pagamento
+       * — o que a proibição existe para impedir. A finalização trava a mesma
+       * linha da comanda; o segundo a chegar encontra o que o primeiro fez.
+       */
+      await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${pagamento.comanda.id} FOR UPDATE`;
+      const atual = await tx.pagamento.findUnique({
+        where: { id: pagamentoId },
+        select: { comanda: { select: { status: true } }, caixa: { select: { status: true } } },
+      });
+      // Dois toques em "estornar": o primeiro já apagou.
+      if (!atual) throw new ErroDeOperacao("Este pagamento já foi estornado.");
+      if (atual.caixa?.status === "FECHADO") {
+        throw new ErroDeOperacao(
+          "O caixa deste pagamento já foi fechado. Para devolver ao cliente, registre uma sangria no caixa de hoje, com o motivo."
+        );
+      }
+      if (atual.comanda.status === "PAGA") {
+        throw new ErroDeOperacao(
+          "Esta conta já foi paga e fechada. Para devolver ao cliente, registre uma sangria com o motivo."
+        );
+      }
+
+      await tx.pagamento.delete({ where: { id: pagamentoId } });
+      await tx.auditLog.create({ data: registro });
+
+      /**
+       * Estornar tudo é o sinal de que o fechamento foi desfeito — mesa errada,
+       * ou o cliente resolveu continuar. A comanda volta a aceitar lançamento sem
+       * exigir um clique a mais.
+       *
+       * Quando o caixa só troca a forma de pagamento, a mesa pisca azul por
+       * alguns segundos e volta ao laranja no lançamento seguinte: inofensivo.
+       */
+      const restantes = await tx.pagamento.count({ where: { comandaId: pagamento.comanda.id } });
+      if (restantes === 0 && atual.comanda.status === "FECHANDO") {
         await tx.comanda.update({
           where: { id: pagamento.comanda.id },
           data: { status: "ABERTA" },
@@ -661,8 +723,8 @@ export async function estornarPagamento(pagamentoId: string) {
             data: { status: "OCUPADA" },
           });
         }
-      });
-    }
+      }
+    });
 
     revalidatePath("/pdv");
     await publicar(sessao.unidadeId, "pagamento");
@@ -677,30 +739,9 @@ export async function finalizarComanda(comandaId: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.fechar");
 
-    const comanda = await db.comanda.findUniqueOrThrow({
-      where: { id: comandaId },
-      include: {
-        itens: { where: CONSUMO, select: { precoTotal: true } },
-        pagamentos: { select: { valor: true, troco: true } },
-      },
-    });
+    const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
     if (comanda.status === "PAGA") return;
-
-    const { total } = calcularTotais({
-      itens: comanda.itens.map((i) => ({ precoTotal: Number(i.precoTotal) })),
-      taxaServicoPct: Number(comanda.taxaServicoPct),
-      descontoValor: Number(comanda.descontoValor),
-    });
-
-    const recebido = centavos(
-      comanda.pagamentos.reduce((soma, p) => soma + Number(p.valor) - Number(p.troco), 0)
-    );
-
-    if (recebido + TOLERANCIA < total) {
-      throw new ErroDeOperacao(
-        `Faltam R$ ${(total - recebido).toFixed(2).replace(".", ",")} para quitar a comanda.`
-      );
-    }
 
     const caixa = await db.caixa.findFirst({
       where: { unidadeId: comanda.unidadeId, tipo: "GERAL", status: "ABERTO" },
@@ -719,8 +760,45 @@ export async function finalizarComanda(comandaId: string) {
      */
     const fechouAgora = await db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${comandaId} FOR UPDATE`;
-      const atual = await tx.comanda.findUniqueOrThrow({ where: { id: comandaId }, select: { status: true } });
+      const atual = await tx.comanda.findUniqueOrThrow({
+        where: { id: comandaId },
+        include: {
+          itens: { where: CONSUMO, select: { precoTotal: true } },
+          pagamentos: { select: { valor: true, troco: true } },
+        },
+      });
       if (atual.status === "PAGA") return false;
+
+      /**
+       * A conta é conferida aqui, dentro da trava, e não antes.
+       *
+       * Conferida antes, um estorno ou um cancelamento no mesmo instante
+       * passava pelo meio: a conta saía PAGA sem o pagamento que acabava de
+       * ser estornado, ou com o dinheiro de um item que acabava de ser
+       * cancelado. Estorno e cancelamento travam a mesma linha.
+       *
+       * E conta paga recebeu o total — nem a menos, nem a mais. O que sobra
+       * (item cancelado ou desconto dado depois de receber) é dinheiro sem
+       * venda: o caixa estorna e recebe o valor certo.
+       */
+      const { total } = calcularTotais({
+        itens: atual.itens.map((i) => ({ precoTotal: Number(i.precoTotal) })),
+        taxaServicoPct: Number(atual.taxaServicoPct),
+        descontoValor: Number(atual.descontoValor),
+      });
+      const recebido = centavos(
+        atual.pagamentos.reduce((soma, p) => soma + Number(p.valor) - Number(p.troco), 0)
+      );
+      const reais = (v: number) => v.toFixed(2).replace(".", ",");
+      if (recebido + TOLERANCIA < total) {
+        throw new ErroDeOperacao(`Faltam R$ ${reais(total - recebido)} para quitar a comanda.`);
+      }
+      if (recebido > total + TOLERANCIA) {
+        throw new ErroDeOperacao(
+          `Foram recebidos R$ ${reais(recebido - total)} a mais que a conta (R$ ${reais(total)}). ` +
+            "Estorne o pagamento e receba o valor certo."
+        );
+      }
 
       await tx.comanda.update({
         where: { id: comandaId },
