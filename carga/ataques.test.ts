@@ -917,6 +917,24 @@ describe("exploração de 21/09, segunda rodada", () => {
     expect(erradas).toEqual([]);
   });
 
+  it("dois toques em 'estornar' dão um estorno e uma mensagem, não erro de sistema", async () => {
+    const caixa = A.caixas[0]!;
+    const comandaId = await comandaPronta(A.garcons[1]!, 47);
+    await como(caixa, () => iniciarFechamento(comandaId));
+    const { falta } = await quantoDeve(comandaId);
+    await como(caixa, () => registrarPagamento(comandaId, A.formas.pix.id, falta, 0));
+    const pagamento = await admin.pagamento.findFirstOrThrow({ where: { comandaId } });
+    const r = await Promise.all([
+      tentar(caixa, () => estornarPagamento(pagamento.id)),
+      tentar(caixa, () => estornarPagamento(pagamento.id)),
+    ]);
+    const diario = await admin.auditLog.count({ where: { entidadeId: pagamento.id, acao: "PAGAMENTO_ESTORNADO" } });
+    expect({ lancaram: r.filter((t) => t.lancou !== null).map((t) => t.lancou!.slice(-120)), diario }).toEqual({
+      lancaram: [],
+      diario: 1,
+    });
+  });
+
   /**
    * Mesma corrida, com o cancelamento. Conta paga é conta que recebeu
    * exatamente o total — nem a menos, nem a mais: o item cancelado depois do
