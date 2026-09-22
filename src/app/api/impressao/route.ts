@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db, dbSemRls } from "@/lib/db";
 import { atravessandoRestaurantes, declararTenant } from "@/lib/tenant-atual";
 import { LEVA_MARCA, marcaParaImpressora } from "@/lib/marca-impressa";
+import { paraImpressora } from "@/lib/impressao";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +77,9 @@ export async function GET(request: NextRequest) {
       id: t.id,
       tipo: t.tipo,
       titulo: t.titulo,
-      conteudo: t.conteudo,
+      // A fila guarda marcadores no lugar dos comandos de letra dupla (o
+      // Postgres não aceita o byte zero do comando); aqui eles viram ESC/POS.
+      conteudo: paraImpressora(t.conteudo),
       /*
        * Campo novo, e por isso um booleano em vez de mudar o `conteudo`: o
        * agente que não souber de marca nenhuma ignora e continua imprimindo

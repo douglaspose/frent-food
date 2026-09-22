@@ -237,6 +237,15 @@ export async function enfileirarConferencia(comandaId: string, segundaVia = fals
         orderBy: { lancadoEm: "asc" },
         include: { produto: { select: { titulo: true } } },
       },
+      pagamentos: {
+        orderBy: { criadoEm: "asc" },
+        select: {
+          valor: true,
+          troco: true,
+          criadoEm: true,
+          formaPagamento: { select: { nome: true } },
+        },
+      },
     },
   });
 
@@ -268,6 +277,11 @@ export async function enfileirarConferencia(comandaId: string, segundaVia = fals
       titulo: i.produto.titulo,
       quantidade: Number(i.quantidade),
       precoTotal: Number(i.precoTotal),
+    })),
+    pagamentos: comanda.pagamentos.map((p) => ({
+      forma: p.formaPagamento.nome,
+      valor: Number(p.valor) - Number(p.troco),
+      em: p.criadoEm,
     })),
   });
 

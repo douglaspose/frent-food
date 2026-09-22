@@ -9,7 +9,7 @@ import LoginPage from "@/app/login/page";
 import PdvMesasPage from "@/app/pdv/page";
 import GestaoLayout from "@/app/gestao/layout";
 import MesaPublicaPage from "@/app/mesa/[token]/page";
-import { POST as POSTImpressao } from "@/app/api/impressao/route";
+import { GET as GETImpressao, POST as POSTImpressao } from "@/app/api/impressao/route";
 import { NextRequest } from "next/server";
 import { chamarGarcomPeloQr } from "@/app/mesa/[token]/actions";
 import {
@@ -19,10 +19,12 @@ import {
   estornarPagamento,
   fecharCaixa,
   finalizarComanda,
+  imprimirConferencia,
   iniciarFechamento,
   registrarMovimentoCaixa,
   registrarPagamento,
 } from "@/app/pdv/pagamento-actions";
+import { paraTela } from "@/lib/impressao";
 import { admin } from "./admin";
 import { montarRestaurante, type Membro, type Restaurante } from "./cenario";
 import { entrar, quantoDeve } from "./operacao";
@@ -761,5 +763,61 @@ describe("sessão de quem foi desligado, nas telas", () => {
       erro: null,
       destino: "/login",
     });
+  });
+});
+
+/**
+ * A conferência que vai para a mesa, pelo caminho de verdade: o botão busca os
+ * pagamentos no banco e o papel vai para a fila. Os testes de `impressao.ts`
+ * conferem a montagem; este confere que os dados chegam nela.
+ */
+describe("conferência impressa com pagamento parcial", () => {
+  it("mostra quem já pagou, pelo valor líquido, e quanto falta", async () => {
+    const comandaId = await comandaPronta(A.garcons[0]!, 51);
+    const caixa = A.caixas[0]!;
+    await como(caixa, () => iniciarFechamento(comandaId));
+    const { total } = await quantoDeve(comandaId);
+
+    // Metade em dinheiro, com nota maior e troco: o papel deve mostrar a
+    // metade, não a nota que o cliente entregou.
+    const metade = Math.round((total / 2) * 100) / 100;
+    const entregue = Math.ceil(metade / 10) * 10 + 10;
+    const troco = Math.round((entregue - metade) * 100) / 100;
+    await como(caixa, () => registrarPagamento(comandaId, A.formas.dinheiro.id, entregue, troco));
+
+    await como(A.garcons[0]!, () => imprimirConferencia(comandaId));
+    const fila = await admin.filaImpressao.findFirstOrThrow({
+      where: { referenciaId: comandaId, tipo: "CONFERENCIA" },
+      orderBy: { criadoEm: "desc" },
+    });
+    const papel = paraTela(fila.conteudo);
+    const reais = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const linha = (trecho: string) => papel.split("\n").find((l) => l.includes(trecho)) ?? "";
+
+    expect(papel).toContain("JA PAGO");
+    expect(linha("Dinheiro")).toContain(reais(metade));
+    expect(linha("Dinheiro")).not.toContain(reais(entregue));
+    expect(linha("FALTA PAGAR")).toContain(`R$ ${reais(total - metade)}`);
+
+    // E o agente recebe a letra dupla em ESC/POS, não os marcadores da fila.
+    // A rota entrega os 20 pendentes mais antigos, e os outros testes já
+    // encheram a fila: o resto sai da frente para a conferência ser entregue.
+    await admin.filaImpressao.updateMany({
+      where: { unidadeId: A.unidade.id, status: "PENDENTE", NOT: { id: fila.id } },
+      data: { status: "IMPRESSO" },
+    });
+    const token = `agente-conferencia-${A.unidade.id}`;
+    await admin.unidade.update({ where: { id: A.unidade.id }, data: { tokenImpressao: token } });
+    const resposta = await GETImpressao(
+      new NextRequest("http://demo.frentfood.test/api/impressao", {
+        headers: { authorization: `Bearer ${token}` },
+      })
+    );
+    const { trabalhos } = (await resposta.json()) as { trabalhos: { id: string; conteudo: string }[] };
+    const entregue_ = trabalhos.find((t) => t.id === fila.id);
+    expect(entregue_, "a conferência na fila do agente").toBeTruthy();
+    expect(entregue_!.conteudo).toContain("\x1d\x21\x11");
+    expect(entregue_!.conteudo).toContain("\x1d\x21\x00");
+    expect(entregue_!.conteudo).not.toMatch(/[\x0e\x0f]/);
   });
 });

@@ -1,4 +1,4 @@
-import { calcularTotais } from "./comanda";
+import { calcularTotais, centavos } from "./comanda";
 
 /**
  * Impressora térmica de 80mm imprime 48 colunas na fonte padrão. Todo o layout
@@ -13,20 +13,74 @@ const brl = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 2,
 });
 
+/**
+ * Letra dupla na térmica: o dobro da largura e o dobro da altura.
+ *
+ * Na impressora é `GS ! n`, o comando de tamanho do ESC/POS — `0x11` dobra as
+ * duas medidas, `0x00` volta ao normal. Mas o texto que fica guardado na fila
+ * não leva o comando, leva um marcador: o comando que desliga termina no byte
+ * zero, e o Postgres não guarda byte zero numa coluna de texto ("invalid byte
+ * sequence for encoding UTF8: 0x00"). A primeira versão fazia exatamente isso,
+ * e derrubava a impressão da conferência em toda mesa.
+ *
+ * Os marcadores são SO e SI ("shift out" e "shift in") — dois caracteres que o
+ * ASCII criou justamente para trocar de conjunto de caracteres e voltar, e que
+ * não aparecem em texto de verdade. A rota do agente troca pelos comandos na
+ * entrega (`paraImpressora`), e a tela os tira (`paraTela`).
+ *
+ * Com a letra dupla cabem 24 colunas, e não 48. Quem usa `grande` monta a
+ * linha já nessa largura.
+ */
+const LIGA_GRANDE = "\x0e";
+const DESLIGA_GRANDE = "\x0f";
+export const COLUNAS_GRANDES = COLUNAS / 2;
+
+function grande(texto: string) {
+  return LIGA_GRANDE + texto.slice(0, COLUNAS_GRANDES) + DESLIGA_GRANDE;
+}
+
+/**
+ * O texto como deve aparecer numa tela, sem os marcadores de letra dupla.
+ *
+ * A fila de impressão tem um "ver" na gestão; com o marcador no meio do texto,
+ * a tela mostraria caractere estranho no lugar da letra grande.
+ */
+export function paraTela(conteudo: string) {
+  return conteudo.split(LIGA_GRANDE).join("").split(DESLIGA_GRANDE).join("");
+}
+
+/** O texto como vai para a impressora: marcadores trocados pelo ESC/POS. */
+export function paraImpressora(conteudo: string) {
+  return conteudo.split(LIGA_GRANDE).join("\x1d\x21\x11").split(DESLIGA_GRANDE).join("\x1d\x21\x00");
+}
+
+/**
+ * Quanto a linha ocupa no papel, em colunas.
+ *
+ * Contar caracteres não serve mais: o marcador não ocupa nada, e cada letra
+ * dupla ocupa duas colunas. É por esta medida que se garante que nenhuma
+ * linha estoura as 48 — uma linha grande de 25 letras quebraria no meio do
+ * valor.
+ */
+export function larguraImpressa(linhaDoPapel: string) {
+  const visivel = paraTela(linhaDoPapel).length;
+  return linhaDoPapel.includes(LIGA_GRANDE) ? visivel * 2 : visivel;
+}
+
 export function linha(caractere = "-") {
   return caractere.repeat(COLUNAS);
 }
 
-export function centro(texto: string) {
-  const t = texto.slice(0, COLUNAS);
-  const espacos = Math.max(0, Math.floor((COLUNAS - t.length) / 2));
+export function centro(texto: string, largura = COLUNAS) {
+  const t = texto.slice(0, largura);
+  const espacos = Math.max(0, Math.floor((largura - t.length) / 2));
   return " ".repeat(espacos) + t;
 }
 
 /** Texto à esquerda e valor à direita, preenchendo o meio. */
-export function pares(esquerda: string, direita: string, preenchimento = " ") {
-  const sobra = COLUNAS - esquerda.length - direita.length;
-  if (sobra < 1) return `${esquerda.slice(0, COLUNAS - direita.length - 1)} ${direita}`;
+export function pares(esquerda: string, direita: string, preenchimento = " ", largura = COLUNAS) {
+  const sobra = largura - esquerda.length - direita.length;
+  if (sobra < 1) return `${esquerda.slice(0, largura - direita.length - 1)} ${direita}`;
   return esquerda + preenchimento.repeat(sobra) + direita;
 }
 
@@ -69,6 +123,11 @@ function horario(data: Date) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Só a hora: o dia do pagamento é o da conferência, e o espaço da linha é curto. */
+function hora(data: Date) {
+  return data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
 export type ItemImpressao = {
@@ -229,6 +288,12 @@ export function conferenciaDeConta(dados: {
   descontoValor: number;
   descontoMotivo: string | null;
   itens: { titulo: string; quantidade: number; precoTotal: number }[];
+  /**
+   * O que já foi pago — os clientes que acertaram a parte deles e foram
+   * embora. Valor líquido, sem o troco: para quem ficou na mesa, o que conta
+   * é quanto entrou na conta, não quanto foi entregue na mão.
+   */
+  pagamentos?: { forma: string; valor: number; em: Date }[];
   segundaVia?: boolean;
 }) {
   const totais = calcularTotais({
@@ -242,12 +307,16 @@ export function conferenciaDeConta(dados: {
   linhas.push(centro("CONFERENCIA DE CONSUMO"));
   if (dados.segundaVia) linhas.push(centro("*** SEGUNDA VIA ***"));
   linhas.push(linha("="));
+  // A mesa em letra dupla: é o que o garçom procura no papel antes de levar.
   linhas.push(
-    pares(dados.mesa ? `Mesa ${dados.mesa}` : `Comanda ${dados.comandaNumero}`, horario(new Date()))
+    grande(
+      centro(dados.mesa ? `Mesa ${dados.mesa}` : `Comanda ${dados.comandaNumero}`, COLUNAS_GRANDES)
+    )
   );
   linhas.push(pares(`Comanda #${dados.comandaNumero}`, `${dados.pessoas} pessoa(s)`));
   if (dados.nomeCliente) linhas.push(`Cliente: ${dados.nomeCliente}`);
-  linhas.push(`Aberta em: ${horario(dados.abertaEm)}`);
+  // A hora da impressão morava na linha da mesa; em letra dupla não cabe.
+  linhas.push(pares(`Aberta em: ${horario(dados.abertaEm)}`, `Impressa: ${horario(new Date())}`));
   linhas.push(linha());
 
   for (const item of dados.itens) {
@@ -267,10 +336,33 @@ export function conferenciaDeConta(dados: {
     linhas.push(pares(`Taxa de servico ${dados.taxaServicoPct}%`, brl.format(totais.taxaServico)));
   }
   linhas.push(linha("="));
-  linhas.push(pares("TOTAL", `R$ ${brl.format(totais.total)}`));
+  // O total em letra dupla, montado em 24 colunas para caber no papel.
+  linhas.push(grande(pares("TOTAL", `R$ ${brl.format(totais.total)}`, " ", COLUNAS_GRANDES)));
   if (dados.pessoas > 1) {
     linhas.push(pares(`Por pessoa (${dados.pessoas})`, brl.format(totais.total / dados.pessoas)));
   }
+
+  /*
+   * Quem já pagou e foi embora.
+   *
+   * Sem isto, os que ficaram na mesa recebiam o total inteiro, sem sinal de
+   * que parte já entrou — e o garçom tinha de explicar de cabeça quem pagou o
+   * quê, ou alguém pagava de novo. Cada pagamento com a forma e a hora, que é
+   * o que ajuda a mesa a reconhecer "esse fui eu". Sem pagamento, o papel é o
+   * de sempre.
+   */
+  const pagamentos = dados.pagamentos ?? [];
+  if (pagamentos.length > 0) {
+    const pago = centavos(pagamentos.reduce((soma, p) => soma + p.valor, 0));
+    linhas.push(linha());
+    linhas.push("JA PAGO");
+    for (const p of pagamentos) {
+      linhas.push(pares(`  ${p.forma}`, `${hora(p.em)}   ${brl.format(p.valor)}`));
+    }
+    linhas.push(linha());
+    linhas.push(pares("FALTA PAGAR", `R$ ${brl.format(Math.max(0, centavos(totais.total - pago)))}`));
+  }
+
   linhas.push(linha("="));
   linhas.push("");
   linhas.push(centro("NAO E DOCUMENTO FISCAL"));

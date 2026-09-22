@@ -5,13 +5,21 @@ import {
   comandaDeProducao,
   conferenciaDeConta,
   cupomDePagamento,
+  larguraImpressa,
   pares,
+  paraImpressora,
+  paraTela,
   quebrar,
 } from "./impressao";
 
-/** Papel que estoura 48 colunas quebra a linha na impressora e vira ilegível. */
+/**
+ * Papel que estoura 48 colunas quebra a linha na impressora e vira ilegível.
+ *
+ * Medido pelo que sai no papel, e não pelo número de caracteres: a letra dupla
+ * ocupa duas colunas por letra, e o comando que a liga não ocupa nenhuma.
+ */
 function larguraMaxima(texto: string) {
-  return Math.max(...texto.split("\n").map((l) => l.length));
+  return Math.max(...texto.split("\n").map(larguraImpressa));
 }
 
 describe("primitivas de layout", () => {
@@ -170,6 +178,106 @@ describe("conferência de conta", () => {
     });
     expect(comDesconto).toContain("Cortesia gerente");
     expect(comDesconto).toContain("R$ 44,00");
+  });
+
+  /** A linha do papel que contém o texto, já sem os comandos de impressora. */
+  const linhaCom = (texto: string, trecho: string) =>
+    texto.split("\n").find((l) => paraTela(l).includes(trecho));
+
+  it("imprime a mesa e o total em letra dupla, sem estourar o papel", () => {
+    const mesa = linhaCom(papel, "Mesa 3")!;
+    const total = linhaCom(papel, "TOTAL")!;
+    // Na impressora, a letra dupla liga no começo da linha e desliga no fim.
+    for (const l of [mesa, total]) {
+      const naImpressora = paraImpressora(l);
+      expect(naImpressora.startsWith("\x1d\x21\x11")).toBe(true);
+      expect(naImpressora.endsWith("\x1d\x21\x00")).toBe(true);
+      expect(larguraImpressa(l)).toBeLessThanOrEqual(COLUNAS);
+    }
+    // O resto do papel continua em letra normal.
+    expect(paraImpressora(linhaCom(papel, "Espeto de Alcatra")!)).not.toContain("\x1d");
+  });
+
+  /**
+   * O comando que desliga a letra dupla termina no byte zero, e o Postgres
+   * recusa byte zero numa coluna de texto. A primeira versão guardava o
+   * comando direto — e a conferência de toda mesa falhava ao entrar na fila.
+   */
+  it("o que vai para a fila não tem byte zero — o banco recusaria", () => {
+    expect(papel).not.toContain("\x00");
+    expect(paraImpressora(papel)).toContain("\x00");
+  });
+
+  it("na tela, a letra dupla some e o texto fica limpo", () => {
+    expect(paraTela(papel)).not.toMatch(/[\x0e\x0f\x1d]/);
+    expect(paraTela(papel)).toContain("Mesa 3");
+    expect(paraTela(papel)).toContain("R$ 178,09");
+  });
+
+  it("sem pagamento, não fala em pago nem em falta", () => {
+    expect(papel).not.toContain("JA PAGO");
+    expect(papel).not.toContain("FALTA PAGAR");
+  });
+
+  describe("com pagamento parcial de quem já foi embora", () => {
+    const parcial = conferenciaDeConta({
+      restaurante: "Matriz",
+      mesa: "3",
+      comandaNumero: 4,
+      pessoas: 4,
+      nomeCliente: null,
+      abertaEm: new Date("2026-09-18T19:36:00"),
+      taxaServicoPct: 10,
+      descontoValor: 0,
+      descontoMotivo: null,
+      itens: [
+        { titulo: "Costela no Bafo", quantidade: 1, precoTotal: 119.9 },
+        { titulo: "Espeto de Alcatra", quantidade: 2, precoTotal: 35 },
+        { titulo: "Refrigerante Lata", quantidade: 1, precoTotal: 7 },
+      ],
+      pagamentos: [
+        { forma: "Pix", valor: 44.52, em: new Date("2026-09-18T21:14:00") },
+        { forma: "Dinheiro", valor: 44.52, em: new Date("2026-09-18T21:15:00") },
+      ],
+    });
+
+    it("lista cada pagamento com a forma, a hora e o valor", () => {
+      expect(parcial).toContain("JA PAGO");
+      expect(paraTela(parcial)).toMatch(/Pix\s+21:14\s+44,52/);
+      expect(paraTela(parcial)).toMatch(/Dinheiro\s+21:15\s+44,52/);
+    });
+
+    it("mostra quanto falta pagar", () => {
+      // 178,09 − 44,52 − 44,52
+      expect(linhaCom(parcial, "FALTA PAGAR")).toContain("R$ 89,05");
+    });
+
+    it("mantém o total da conta inteira e a divisão por pessoa", () => {
+      expect(paraTela(parcial)).toContain("R$ 178,09");
+      expect(paraTela(parcial)).toContain("Por pessoa (4)");
+      expect(paraTela(parcial)).toContain("44,52");
+    });
+
+    it("cabe no papel", () => {
+      expect(larguraMaxima(parcial)).toBeLessThanOrEqual(COLUNAS);
+    });
+  });
+
+  it("conta paga por inteiro mostra falta zero, nunca negativa", () => {
+    const quitada = conferenciaDeConta({
+      restaurante: "Matriz",
+      mesa: "3",
+      comandaNumero: 4,
+      pessoas: 1,
+      nomeCliente: null,
+      abertaEm: new Date(),
+      taxaServicoPct: 0,
+      descontoValor: 0,
+      descontoMotivo: null,
+      itens: [{ titulo: "Chopp", quantidade: 1, precoTotal: 11 }],
+      pagamentos: [{ forma: "Pix", valor: 11, em: new Date() }],
+    });
+    expect(linhaCom(quitada, "FALTA PAGAR")).toContain("R$ 0,00");
   });
 });
 

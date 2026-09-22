@@ -55,8 +55,21 @@ Devolve até 20 trabalhos pendentes, do mais antigo para o mais novo.
 }
 ```
 
-`conteudo` é texto puro, já quebrado em 48 colunas — a largura da fonte padrão
-de uma térmica de 80mm. O agente escreve como está e corta.
+`conteudo` é texto já quebrado em 48 colunas — a largura da fonte padrão de uma
+térmica de 80mm. O agente escreve como está e corta.
+
+Algumas linhas vêm em **letra dupla** (o dobro de largura e de altura): na
+conferência de conta, a mesa e o total. Elas chegam com o comando ESC/POS de
+tamanho em volta — `GS ! 0x11` (bytes `1D 21 11`) antes, `GS ! 0x00`
+(`1D 21 00`) depois — e o agente não precisa fazer nada: escrevendo os bytes
+como vieram, a impressora obedece. Em letra dupla cabem 24 colunas, e o
+servidor já monta essas linhas nessa largura.
+
+Na fila, o texto é guardado com marcadores no lugar desses comandos (SO,
+`0x0E`, e SI, `0x0F`): o comando que desliga termina no byte zero, e o Postgres
+não aceita byte zero numa coluna de texto. A rota troca os marcadores pelos
+comandos na entrega (`paraImpressora` em `src/lib/impressao.ts`). Quem mostrar o
+conteúdo numa tela deve usar `paraTela`, que os remove.
 
 ## A logomarca
 
