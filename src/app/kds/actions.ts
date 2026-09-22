@@ -41,17 +41,27 @@ export async function avancarPedido(pedidoId: string, para: Avanco) {
     });
     if (pedido.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Pedido de outro restaurante.");
     if (pedido.status === "CANCELADO") throw new ErroDeOperacao("Este pedido foi cancelado.");
-    // Uma tela aberta desde antes do pagamento ainda mostra o ticket; o toque
-    // nele voltaria um prato de conta fechada para preparo.
-    if (pedido.comanda.status === "PAGA" || pedido.comanda.status === "CANCELADA") {
-      throw new ErroDeOperacao("A conta desta mesa já foi encerrada.");
+    if (pedido.comanda.status === "CANCELADA") {
+      throw new ErroDeOperacao("A conta desta mesa foi cancelada.");
+    }
+
+    const avancarTicket = db.pedido.update({
+      where: { id: pedidoId },
+      data: { status: para, [CARIMBO[para]]: new Date() },
+    });
+
+    // Conta paga com prato ainda por fazer: a cozinha segue com o ticket, mas
+    // os itens ficam como a finalização os deixou. Propagar voltaria para
+    // "em preparo" um item de conta fechada.
+    if (pedido.comanda.status === "PAGA") {
+      await avancarTicket;
+      revalidatePath("/kds");
+      await publicar(sessao.unidadeId, "ticket-avancou");
+      return;
     }
 
     await db.$transaction([
-      db.pedido.update({
-        where: { id: pedidoId },
-        data: { status: para, [CARIMBO[para]]: new Date() },
-      }),
+      avancarTicket,
       /**
        * O item cancelado fica cancelado. Sem este filtro, a cozinha tocando
        * "em preparo" num ticket com um prato já cancelado devolvia o prato à

@@ -613,24 +613,37 @@ describe("exploração de 21/09", () => {
 
   /**
    * Os tickets de conta paga ficavam no KDS: depois do dia simulado eram 433
-   * "na fila". Decidido pelo dono em 22/09: saem sozinhos quando a conta é
-   * paga — e a cozinha, com a tela ainda velha, não os devolve ao preparo.
+   * "na fila". Decidido pelo dono em 22/09: ao pagar, sai sozinho o ticket
+   * pronto; o que ainda está na fila ou no fogo fica, porque há casa em que se
+   * paga antes de a comida sair. E a cozinha terminar esse prato não devolve à
+   * conta paga um item "em preparo".
    */
-  it("conta paga tira os tickets do KDS, e a cozinha não os mexe mais", async () => {
-    const comandaId = await comandaPronta(A.garcons[0]!, 52);
-    const pedido = await admin.pedido.findFirstOrThrow({ where: { comandaId } });
-    await pagarTudo(A.caixas[0]!, comandaId);
+  it("conta paga tira da cozinha o ticket pronto e deixa o que ainda está por fazer", async () => {
+    const pronta = await comandaPronta(A.garcons[0]!, 52);
+    const jaPronto = await admin.pedido.findFirstOrThrow({ where: { comandaId: pronta } });
+    await como(A.garcons[1]!, () => avancarPedido(jaPronto.id, "PRONTO"));
+    await pagarTudo(A.caixas[0]!, pronta);
+    const prontoDepois = await admin.pedido.findUniqueOrThrow({ where: { id: jaPronto.id } });
 
-    const pendentes = await admin.pedido.count({
-      where: { comandaId, status: { in: ["AGUARDANDO", "EM_PREPARO", "PRONTO"] } },
-    });
-    const t = await tentar(A.garcons[1]!, () => avancarPedido(pedido.id, "EM_PREPARO"));
-    const itens = await admin.comandaItem.findMany({ where: { comandaId }, select: { status: true } });
+    const porFazer = await comandaPronta(A.garcons[0]!, 55);
+    const noFogo = await admin.pedido.findFirstOrThrow({ where: { comandaId: porFazer } });
+    await pagarTudo(A.caixas[0]!, porFazer);
+    const porFazerDepois = await admin.pedido.findUniqueOrThrow({ where: { id: noFogo.id } });
+    const t = await tentar(A.garcons[1]!, () => avancarPedido(noFogo.id, "PRONTO"));
+    const aposCozinha = await admin.pedido.findUniqueOrThrow({ where: { id: noFogo.id } });
+    const itens = await admin.comandaItem.findMany({ where: { comandaId: porFazer }, select: { status: true } });
+
     expect({
-      pendentes,
-      recusou: recusou(t),
-      itens: [...new Set(itens.map((i) => i.status))],
-    }).toEqual({ pendentes: 0, recusou: true, itens: ["ENTREGUE"] });
+      prontoDepoisDePagar: prontoDepois.status,
+      porFazerDepoisDePagar: porFazerDepois.status,
+      cozinhaTerminou: !recusou(t) && aposCozinha.status === "PRONTO",
+      itensDaConta: [...new Set(itens.map((i) => i.status))],
+    }).toEqual({
+      prontoDepoisDePagar: "ENTREGUE",
+      porFazerDepoisDePagar: noFogo.status,
+      cozinhaTerminou: true,
+      itensDaConta: ["ENTREGUE"],
+    });
   });
 
   // Decidido pelo dono em 22/09: o gerente transfere mesa, como o garçom.

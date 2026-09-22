@@ -814,11 +814,16 @@ export async function finalizarComanda(comandaId: string) {
         where: { comandaId, status: { notIn: ["CANCELADO", "ENTREGUE", "PENDENTE"] } },
         data: { status: "ENTREGUE" },
       });
-      // Os tickets acompanham os itens. Sem isto, cada conta paga deixava os
-      // seus na cozinha: depois de um dia cheio o KDS mostrava centenas "na
-      // fila", e tocar num deles voltava para preparo um prato já pago.
+      /**
+       * O ticket pronto sai da cozinha junto com a conta: é o que acumulava no
+       * KDS, porque ninguém toca em "entregue" num prato que já está na mesa.
+       *
+       * O que ainda está na fila ou no fogo fica. Há casa em que se paga antes
+       * de a comida sair — balcão, a última rodada paga na hora —, e ali
+       * encerrar o ticket junto com a conta sumiria com um pedido por fazer.
+       */
       await tx.pedido.updateMany({
-        where: { comandaId, status: { in: ["AGUARDANDO", "EM_PREPARO", "PRONTO"] } },
+        where: { comandaId, status: "PRONTO" },
         data: { status: "ENTREGUE", entregueEm: new Date() },
       });
       if (comanda.mesaId) {

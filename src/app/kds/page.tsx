@@ -26,12 +26,16 @@ export default async function KdsPage() {
     }),
     db.pedido.findMany({
       // ENTREGUE sai do quadro: o que já foi para a mesa não ocupa espaço na cozinha.
-      // Conta paga também sai: a finalização já conclui os tickets, e este
-      // filtro cobre os que ficaram de antes dela.
+      // O pronto de conta paga também sai — a finalização já o conclui, e
+      // este filtro cobre os que ficaram de antes dela. O que está na fila ou
+      // no fogo continua, mesmo pago: ainda tem prato para fazer.
       where: {
         unidadeId: unidade.id,
-        status: { in: ["AGUARDANDO", "EM_PREPARO", "PRONTO"] },
-        comanda: { status: { notIn: ["PAGA", "CANCELADA"] } },
+        comanda: { status: { not: "CANCELADA" } },
+        OR: [
+          { status: { in: ["AGUARDANDO", "EM_PREPARO"] } },
+          { status: "PRONTO", comanda: { status: { not: "PAGA" } } },
+        ],
       },
       orderBy: { criadoEm: "asc" },
       include: {
