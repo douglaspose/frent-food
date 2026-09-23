@@ -13,6 +13,9 @@ import PdvMesasPage from "@/app/pdv/page";
 import GestaoLayout from "@/app/gestao/layout";
 import MesaPublicaPage from "@/app/mesa/[token]/page";
 import { GET as GETImpressao, POST as POSTImpressao } from "@/app/api/impressao/route";
+import { POST as POSTEntrar } from "@/app/api/maquininha/entrar/route";
+import { GET as GETMesas } from "@/app/api/maquininha/mesas/route";
+import { POST as POSTPagamentos } from "@/app/api/maquininha/pagamentos/route";
 import { NextRequest } from "next/server";
 import { chamarGarcomPeloQr } from "@/app/mesa/[token]/actions";
 import {
@@ -764,6 +767,190 @@ describe("exploração de 21/09", () => {
       })
     );
     expect(resposta.status).toBe(400);
+  });
+});
+
+/**
+ * A porta da maquininha.
+ *
+ * Ela fecha conta e recebe dinheiro sem passar por navegador nenhum: o que
+ * protege é o token do aparelho (de qual restaurante ele é) mais o PIN de quem
+ * está recebendo. Os dois precisam ser conferidos em toda chamada, e o reenvio
+ * de um resultado preso na rede não pode virar um segundo pagamento.
+ */
+describe("maquininha", () => {
+  const BASE = "http://demo.frentfood.test";
+
+  async function ligarAparelho(r: Restaurante, marca: string) {
+    const token = `maquininha-${marca}-${r.unidade.id}`;
+    await admin.unidade.update({ where: { id: r.unidade.id }, data: { tokenImpressao: token } });
+    return token;
+  }
+
+  function chamada(
+    caminho: string,
+    o: { aparelho?: string; operador?: string; corpo?: unknown } = {}
+  ) {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (o.aparelho) headers.authorization = `Bearer ${o.aparelho}`;
+    if (o.operador) headers["x-operador"] = o.operador;
+    return new NextRequest(`${BASE}${caminho}`, {
+      method: o.corpo === undefined ? "GET" : "POST",
+      headers,
+      ...(o.corpo === undefined ? {} : { body: JSON.stringify(o.corpo) }),
+    });
+  }
+
+  const tokenDoOperador = async (aparelho: string, pin: string) => {
+    const r = await POSTEntrar(chamada("/api/maquininha/entrar", { aparelho, corpo: { pin } }));
+    return { status: r.status, corpo: (await r.json()) as { token?: string; erro?: string } };
+  };
+
+  it("sem token do aparelho e sem operador, ninguém vê as mesas", async () => {
+    const aparelho = await ligarAparelho(A, "mesas");
+    const semNada = await GETMesas(chamada("/api/maquininha/mesas"));
+    const semOperador = await GETMesas(chamada("/api/maquininha/mesas", { aparelho }));
+    const comLixo = await GETMesas(
+      chamada("/api/maquininha/mesas", { aparelho, operador: "token.inventado.aqui" })
+    );
+    expect([semNada.status, semOperador.status, comLixo.status]).toEqual([401, 401, 401]);
+  });
+
+  it("o PIN do garçom não abre a maquininha; o do caixa abre", async () => {
+    const aparelho = await ligarAparelho(A, "pin");
+    const garcom = await tokenDoOperador(aparelho, A.garcons[0]!.pin);
+    const errado = await tokenDoOperador(aparelho, "9999");
+    const caixa = await tokenDoOperador(aparelho, A.caixas[0]!.pin);
+    expect({
+      garcom: garcom.status,
+      garcomSemToken: garcom.corpo.token === undefined,
+      errado: errado.status,
+      caixa: caixa.status,
+      caixaComToken: typeof caixa.corpo.token === "string",
+    }).toEqual({ garcom: 403, garcomSemToken: true, errado: 401, caixa: 200, caixaComToken: true });
+  });
+
+  it("operador de um restaurante não opera a maquininha do outro", async () => {
+    const doVizinho = await ligarAparelho(B, "vizinho");
+    const daCasa = await ligarAparelho(A, "casa");
+    const operadorVizinho = (await tokenDoOperador(doVizinho, B.caixas[0]!.pin)).corpo.token!;
+
+    const resposta = await GETMesas(
+      chamada("/api/maquininha/mesas", { aparelho: daCasa, operador: operadorVizinho })
+    );
+    expect(resposta.status).toBe(401);
+  });
+
+  it("a maquininha só enxerga as mesas do próprio restaurante", async () => {
+    const aparelho = await ligarAparelho(A, "lista");
+    const operador = (await tokenDoOperador(aparelho, A.caixas[0]!.pin)).corpo.token!;
+    const comandaId = await comandaPronta(A.garcons[0]!, 56, 2);
+
+    const resposta = await GETMesas(chamada("/api/maquininha/mesas", { aparelho, operador }));
+    const corpo = (await resposta.json()) as { mesas: { comandaId: string }[] };
+    const doVizinho = await admin.comanda.findMany({
+      where: { unidadeId: B.unidade.id },
+      select: { id: true },
+    });
+
+    expect({
+      trouxeAMinha: corpo.mesas.some((m) => m.comandaId === comandaId),
+      trouxeDoVizinho: corpo.mesas.some((m) => doVizinho.some((c) => c.id === m.comandaId)),
+    }).toEqual({ trouxeAMinha: true, trouxeDoVizinho: false });
+  });
+
+  it("o reenvio do mesmo pagamento não cobra duas vezes", async () => {
+    const aparelho = await ligarAparelho(A, "reenvio");
+    const operador = (await tokenDoOperador(aparelho, A.caixas[0]!.pin)).corpo.token!;
+    const comandaId = await comandaPronta(A.garcons[0]!, 57, 2);
+    const { falta } = await quantoDeve(comandaId);
+    const corpo = {
+      comandaId,
+      referencia: "rede-caiu-no-meio",
+      forma: "CREDITO",
+      valorEmCentavos: Math.round((falta / 2) * 100),
+      finalizar: false,
+    };
+
+    const uma = await POSTPagamentos(chamada("/api/maquininha/pagamentos", { aparelho, operador, corpo }));
+    const outra = await POSTPagamentos(chamada("/api/maquininha/pagamentos", { aparelho, operador, corpo }));
+    const pagamentos = await admin.pagamento.findMany({ where: { comandaId } });
+
+    expect({
+      uma: uma.status,
+      outra: outra.status,
+      quantos: pagamentos.length,
+      jaRegistrado: ((await outra.json()) as { jaRegistrado: boolean }).jaRegistrado,
+    }).toEqual({ uma: 200, outra: 200, quantos: 1, jaRegistrado: true });
+  });
+
+  it("pagamento acima do que falta é recusado, e nada entra", async () => {
+    const aparelho = await ligarAparelho(A, "demais");
+    const operador = (await tokenDoOperador(aparelho, A.caixas[0]!.pin)).corpo.token!;
+    const comandaId = await comandaPronta(A.garcons[0]!, 58, 2);
+    const { falta } = await quantoDeve(comandaId);
+
+    const resposta = await POSTPagamentos(
+      chamada("/api/maquininha/pagamentos", {
+        aparelho,
+        operador,
+        corpo: {
+          comandaId,
+          referencia: "dedo-pesado",
+          forma: "DEBITO",
+          valorEmCentavos: Math.round((falta + 50) * 100),
+        },
+      })
+    );
+    const pagamentos = await admin.pagamento.count({ where: { comandaId } });
+    expect({ status: resposta.status, pagamentos }).toEqual({ status: 409, pagamentos: 0 });
+  });
+
+  it("quando o pagamento quita, a conta fecha e a mesa volta para o salão", async () => {
+    const aparelho = await ligarAparelho(A, "quita");
+    const operador = (await tokenDoOperador(aparelho, A.caixas[0]!.pin)).corpo.token!;
+    const mesa = A.mesas[59]!;
+    const comandaId = await comandaPronta(A.garcons[0]!, 59, 2);
+    const { falta } = await quantoDeve(comandaId);
+
+    const resposta = await POSTPagamentos(
+      chamada("/api/maquininha/pagamentos", {
+        aparelho,
+        operador,
+        corpo: {
+          comandaId,
+          referencia: "pagou-tudo",
+          forma: "CREDITO",
+          valorEmCentavos: Math.round(falta * 100),
+          nsu: "123456",
+          bandeira: "MASTERCARD",
+        },
+      })
+    );
+    const corpo = (await resposta.json()) as { quitada: boolean; finalizada: boolean };
+    const comanda = await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    const depois = await admin.mesa.findUniqueOrThrow({ where: { id: mesa.id } });
+    const pagamento = await admin.pagamento.findFirstOrThrow({ where: { comandaId } });
+
+    expect({
+      status: resposta.status,
+      quitada: corpo.quitada,
+      finalizada: corpo.finalizada,
+      comanda: comanda.status,
+      mesa: depois.status,
+      // Quem recebeu é o operador do PIN, não o aparelho: é isso que o diário
+      // responde quando alguém pergunta de quem foi a venda.
+      recebedor: pagamento.usuarioId === A.caixas[0]!.usuarioId,
+      nsu: pagamento.nsu,
+    }).toEqual({
+      status: 200,
+      quitada: true,
+      finalizada: true,
+      comanda: "PAGA",
+      mesa: "LIVRE",
+      recebedor: true,
+      nsu: "123456",
+    });
   });
 });
 
