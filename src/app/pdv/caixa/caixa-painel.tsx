@@ -1,6 +1,6 @@
 "use client";
 
-import { temErro } from "@/lib/erro-de-operacao";
+import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { TEXTO_DE_CAMPO } from "@/lib/campo";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -80,7 +80,7 @@ export function CaixaPainel({
         }
         router.refresh();
       } catch (e) {
-        setErro(e instanceof Error ? e.message : "Não foi possível abrir o caixa.");
+        setErro(mensagemDeFalha(e, "Não foi possível abrir o caixa."));
       }
     });
   }
@@ -113,7 +113,7 @@ export function CaixaPainel({
         setAutorizandoMov(false);
         router.refresh();
       } catch (e) {
-        setErro(e instanceof Error ? e.message : "Não foi possível registrar o movimento.");
+        setErro(mensagemDeFalha(e, "Não foi possível registrar o movimento."));
       }
     });
   }
@@ -132,7 +132,7 @@ export function CaixaPainel({
         // apurar. Ele confere e sai pelo botão.
         setResultado({ apurado: r.valorApurado, divergencia: r.divergencia });
       } catch (e) {
-        setErro(e instanceof Error ? e.message : "Não foi possível fechar o caixa.");
+        setErro(mensagemDeFalha(e, "Não foi possível fechar o caixa."));
       }
     });
   }

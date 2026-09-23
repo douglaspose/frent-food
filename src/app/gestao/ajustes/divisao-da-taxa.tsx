@@ -1,6 +1,6 @@
 "use client";
 
-import { temErro } from "@/lib/erro-de-operacao";
+import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { useState, useTransition } from "react";
 import {
   MAXIMO_DE_AREAS,
@@ -59,12 +59,16 @@ export function DivisaoDaTaxa({ salva }: { salva: AreaDaTaxa[] }) {
     iniciar(async () => {
       try {
         const r = await salvarDivisaoDaTaxa(areas);
-        if (temErro(r)) throw new Error(r.erro);
+        // A recusa já vem escrita para a tela ("As áreas somam 110%...").
+        if (temErro(r)) {
+          setErro(r.erro);
+          return;
+        }
         setGravada(r.areas);
         setLinhas(r.areas.map(linha));
         setAviso(r.areas.length ? "Divisão salva." : "Salvo: a taxa não é mais dividida.");
       } catch (e) {
-        setErro(e instanceof Error ? e.message : "Não foi possível salvar.");
+        setErro(mensagemDeFalha(e, "Não foi possível salvar."));
       }
     });
   }

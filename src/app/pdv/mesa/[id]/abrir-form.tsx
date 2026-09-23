@@ -1,6 +1,6 @@
 "use client";
 
-import { temErro } from "@/lib/erro-de-operacao";
+import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { abrirComanda } from "../../actions";
@@ -39,7 +39,7 @@ export function AbrirForm({
         }
         router.refresh();
       } catch (e) {
-        setErro(e instanceof Error ? e.message : "Não foi possível abrir a mesa.");
+        setErro(mensagemDeFalha(e, "Não foi possível abrir a mesa."));
       }
     });
   }

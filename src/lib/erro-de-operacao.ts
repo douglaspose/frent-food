@@ -32,6 +32,23 @@ export function temErro(r: unknown): r is ComErro {
  * Prisma traz consulta e nomes de coluna na mensagem, e isso não vai para a
  * tela de ninguém.
  */
+/**
+ * A mensagem que a tela mostra quando a ação **lançou**.
+ *
+ * Nunca a da exceção. Em desenvolvimento ela é o texto cru do Prisma — nome de
+ * tabela, ids, a consulta inteira —, e foi isso que apareceu para o operador no
+ * meio do fechamento de uma conta. Em produção é um código minificado do React,
+ * que não diz nada a ninguém. Os dois são lixo na tela de quem está atendendo.
+ *
+ * O detalhe continua existindo: vai para o console, que é onde se investiga.
+ * Mensagem que o operador precisa ler é regra de negócio, e regra de negócio
+ * volta como valor (`ErroDeOperacao`), não como exceção.
+ */
+export function mensagemDeFalha(e: unknown, alternativa = "Algo deu errado. Tente de novo."): string {
+  console.error(e);
+  return alternativa;
+}
+
 export async function emResultado<T>(corpo: () => Promise<T>): Promise<T | ComErro> {
   try {
     return await corpo();

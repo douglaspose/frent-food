@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import { COOKIE_DA_SESSAO, chaveDaSessao } from "./tenant-da-sessao";
 import { db } from "./db";
+import { ErroDeOperacao } from "./erro-de-operacao";
 
 const COOKIE = COOKIE_DA_SESSAO;
 const DURACAO_HORAS = 12; // um turno inteiro, sem obrigar o garçom a relogar no meio
@@ -86,13 +87,19 @@ async function tentarEncerrarSessao() {
  * comanda e recebendo dinheiro até o cookie expirar.
  */
 export async function exigirSessao(): Promise<Sessao> {
+  /*
+   * `ErroDeOperacao`, e não um `Error` qualquer: sessão vencida é coisa que o
+   * operador precisa ler para saber o que fazer. Como exceção, a mensagem
+   * virava um código minificado do React em produção, e a tela mostrava o
+   * texto cru — que não explica que basta entrar de novo.
+   */
   const sessao = await lerSessao();
-  if (!sessao) throw new Error("Sessão expirada. Faça login novamente.");
+  if (!sessao) throw new ErroDeOperacao("Sessão expirada. Faça login novamente.");
 
   const valida = await conferirNoBanco(sessao);
   if (!valida) {
     await tentarEncerrarSessao();
-    throw new Error("Seu acesso foi encerrado. Faça login novamente.");
+    throw new ErroDeOperacao("Seu acesso foi encerrado. Faça login novamente.");
   }
 
   return valida;
@@ -180,7 +187,7 @@ export function temAlgumaPermissao(sessao: Sessao, chaves: string[]) {
 export async function exigirPermissao(chave: string): Promise<Sessao> {
   const sessao = await exigirSessao();
   if (!temPermissao(sessao, chave)) {
-    throw new Error(`Seu cargo (${sessao.cargo}) não tem permissão para: ${chave}`);
+    throw new ErroDeOperacao(`Seu cargo (${sessao.cargo}) não tem permissão para: ${chave}`);
   }
   return sessao;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { temErro } from "@/lib/erro-de-operacao";
+import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { Fragment, useState, useTransition } from "react";
 import { GRUPOS, PARAMETROS, TITULO_DO_GRUPO, type Parametro } from "@/lib/parametros";
 import type { AreaDaTaxa } from "@/lib/divisao-da-taxa";
@@ -30,13 +30,19 @@ export function AjustesTela({
     iniciar(async () => {
       try {
         const r = await salvarAjuste(chave, valor);
-        if (temErro(r)) throw new Error(r.erro);
+        // Recusa tem mensagem própria, escrita para quem está lendo a tela; só
+        // o que **lançou** vira a frase genérica.
+        if (temErro(r)) {
+          setAtual((v) => ({ ...v, [chave]: anterior }));
+          setErro(r.erro);
+          return;
+        }
         setAtual((v) => ({ ...v, [chave]: r.valor }));
       } catch (e) {
         // Volta ao que era: deixar o interruptor ligado depois de uma recusa
         // faria o gerente acreditar numa regra que não está valendo.
         setAtual((v) => ({ ...v, [chave]: anterior }));
-        setErro(e instanceof Error ? e.message : "Não foi possível salvar.");
+        setErro(mensagemDeFalha(e, "Não foi possível salvar."));
       } finally {
         setSalvando(null);
       }

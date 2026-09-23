@@ -1,6 +1,6 @@
 "use client";
 
-import { temErro } from "@/lib/erro-de-operacao";
+import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
 import {
@@ -75,7 +75,7 @@ export function MesasTela({
         aoTerminar?.();
         router.refresh();
       } catch (e) {
-        setErro(e instanceof Error ? e.message : "Algo deu errado.");
+        setErro(mensagemDeFalha(e, "Algo deu errado."));
       }
     });
   }

@@ -955,6 +955,34 @@ describe("maquininha", () => {
 });
 
 /**
+ * O que a tela mostra quando a ação recusa.
+ *
+ * Sessão vencida e cargo sem permissão são coisas que o operador precisa ler —
+ * e, como exceção, a mensagem não atravessa a server action em produção (vira
+ * um código minificado do React) e em desenvolvimento aparecia o texto cru.
+ * Elas voltam como valor, com a frase pronta.
+ */
+describe("recusa com mensagem, não com exceção", () => {
+  it("sem sessão, a ação devolve 'faça login' em vez de estourar", async () => {
+    const semLogin = pessoa("ninguém", "0000", "10.2.0.99", "demo.frentfood.test");
+    const comandaId = await comandaPronta(A.garcons[0]!, 47, 1);
+
+    const t = await tentar(semLogin as unknown as Membro, () =>
+      registrarPagamento(comandaId, A.formas.pix.id, 10, 0)
+    );
+    expect({ lancou: t.lancou, erro: temErro(t.resposta) ? t.resposta.erro : null }).toEqual({
+      lancou: null,
+      erro: "Sessão expirada. Faça login novamente.",
+    });
+  });
+
+  it("cargo sem permissão devolve o motivo, dizendo qual cargo é", async () => {
+    const t = await tentar(A.garcons[0]!, () => fecharCaixa("caixa-inventado", 0));
+    expect(temErro(t.resposta) && t.resposta.erro).toMatch(/GARCOM.*permissão.*caixa\.fechar/);
+  });
+});
+
+/**
  * A outra metade do tablet preso (linha de base, problema 9).
  *
  * A primeira correção fez a tela de login parar de empurrar para o PDV. Mas o

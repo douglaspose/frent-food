@@ -1,5 +1,6 @@
 "use client";
 
+import { mensagemDeFalha } from "@/lib/erro-de-operacao";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -67,7 +68,7 @@ export function FichaTela({
         );
         router.refresh();
       } catch (e) {
-        setErro(e instanceof Error ? e.message : "Não foi possível salvar.");
+        setErro(mensagemDeFalha(e, "Não foi possível salvar."));
       }
     });
   }

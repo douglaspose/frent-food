@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { temErro } from "@/lib/erro-de-operacao";
+import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { alterarPreco, alternarEsgotado } from "../actions";
 
 export type ItemCardapio = {
@@ -96,7 +96,7 @@ export function CardapioEditor({
         router.refresh();
       } catch (e) {
         campo.value = brl.format(item.preco);
-        setErro(e instanceof Error ? e.message : "Não foi possível alterar o preço.");
+        setErro(mensagemDeFalha(e, "Não foi possível alterar o preço."));
       }
     });
   }
@@ -112,7 +112,7 @@ export function CardapioEditor({
         }
         router.refresh();
       } catch (e) {
-        setErro(e instanceof Error ? e.message : "Não foi possível alterar.");
+        setErro(mensagemDeFalha(e, "Não foi possível alterar."));
       }
     });
   }

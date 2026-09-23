@@ -1,6 +1,6 @@
 "use client";
 
-import { temErro } from "@/lib/erro-de-operacao";
+import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -95,7 +95,7 @@ export function EstoqueTela({
         aoTerminar?.();
         router.refresh();
       } catch (e) {
-        setErro(e instanceof Error ? e.message : "Algo deu errado.");
+        setErro(mensagemDeFalha(e, "Algo deu errado."));
       }
     });
   }
@@ -151,7 +151,9 @@ export function EstoqueTela({
                     quantidadeContada: dados.quantidade,
                     motivo: dados.motivo,
                   });
-                  if (temErro(r)) throw new Error(r.erro);
+                  // Devolve a recusa para o `agir` mostrar a mensagem dela;
+                  // lançada aqui, ela virava a frase genérica de falha.
+                  if (temErro(r)) return r;
                   setAviso(
                     r.diferenca === 0
                       ? "Contagem bateu com o sistema."

@@ -1,6 +1,6 @@
 "use client";
 
-import { temErro } from "@/lib/erro-de-operacao";
+import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { TEXTO_DE_CAMPO } from "@/lib/campo";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
@@ -46,7 +46,7 @@ export function Transferir({
         if (temErro(lista)) setErro(lista.erro);
         else setMesas(lista);
       })
-      .catch((e) => vivo && setErro(e instanceof Error ? e.message : "Não consegui listar as mesas."));
+      .catch((e) => vivo && setErro(mensagemDeFalha(e, "Não consegui listar as mesas.")));
     return () => {
       vivo = false;
     };
@@ -70,7 +70,7 @@ export function Transferir({
         // velha, já livre, como se a conta tivesse sumido.
         aoTransferir(mesaId);
       } catch (e) {
-        setErro(e instanceof Error ? e.message : "Não foi possível transferir.");
+        setErro(mensagemDeFalha(e, "Não foi possível transferir."));
         setMesas(null);
         router.refresh();
       }

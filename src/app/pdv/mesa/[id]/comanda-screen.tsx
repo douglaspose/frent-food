@@ -1,6 +1,6 @@
 "use client";
 
-import { temErro } from "@/lib/erro-de-operacao";
+import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { useTemTeclado } from "../../teclado";
 import { BotaoVoltar } from "../../botao-voltar";
 import { TEXTO_DE_CAMPO } from "@/lib/campo";
@@ -165,7 +165,7 @@ export function ComandaScreen({
         aoConcluir?.();
         router.refresh();
       } catch (e) {
-        setErro(e instanceof Error ? e.message : "Algo deu errado.");
+        setErro(mensagemDeFalha(e, "Algo deu errado."));
       }
     });
   }
