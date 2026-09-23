@@ -979,6 +979,14 @@ model Pagamento {
   nsu      String?
   bandeira String?
 
+  /// A referência que a maquininha gerou para a cobrança, única no restaurante.
+  ///
+  /// É o que impede o pagamento em dobro: a maquininha cobra, a rede cai antes
+  /// da resposta, e ela reenvia o mesmo resultado quando voltar. Com o índice
+  /// único, o reenvio esbarra no primeiro registro em vez de criar outro — e
+  /// quem pagou uma vez não aparece tendo pago duas.
+  referenciaExterna String?
+
   /// Taxa da forma no instante do recebimento, congelada aqui.
   ///
   /// Sem isto o painel multiplicava cada pagamento pela taxa cadastrada hoje,
@@ -994,6 +1002,7 @@ model Pagamento {
   usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   criadoEm  DateTime @default(now())
 
+  @@unique([tenantId, referenciaExterna])
   @@index([tenantId])
   @@index([comandaId])
   @@map("pagamentos")
