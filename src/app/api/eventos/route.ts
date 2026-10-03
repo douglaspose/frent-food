@@ -4,6 +4,13 @@ import { lerSessao } from "@/lib/session";
 export const dynamic = "force-dynamic";
 // SSE precisa do runtime Node: o stream fica aberto durante todo o turno.
 export const runtime = "nodejs";
+/**
+ * Teto da função na Vercel. Numa VPS o stream fica aberto o turno inteiro; na
+ * Vercel toda função tem teto (60s no plano Hobby, até 300s no Pro — a conta
+ * escolhe o menor entre este número e o do plano). Quando ele estoura, o
+ * navegador reconecta sozinho, com um corte de poucos segundos no tempo real.
+ */
+export const maxDuration = 300;
 
 /** Proxies costumam cortar conexão parada. Um comentário a cada 25s a mantém. */
 const BATIDA_MS = 25_000;

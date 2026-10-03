@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "next dev",
     "dev:rls": "node scripts/dev-com-rls.mjs",
     "build": "next build",
