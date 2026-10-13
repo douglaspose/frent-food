@@ -170,7 +170,12 @@ A rodada inteira numa chamada só. Exige `comanda.lancarItem`.
 {
   "itens": [
     { "cardapioItemId": "cmu…", "quantidade": 2 },
-    { "cardapioItemId": "cmu…", "quantidade": 1, "observacao": "sem cebola" }
+    { "cardapioItemId": "cmu…", "quantidade": 1, "observacao": "sem cebola" },
+    {
+      "cardapioItemId": "cmu…",
+      "quantidade": 1,
+      "opcionais": [{ "opcionalId": "cmu…" }, { "opcionalId": "cmu…" }]
+    }
   ],
   "enviar": true
 }
@@ -184,8 +189,16 @@ A rodada inteira numa chamada só. Exige `comanda.lancarItem`.
 - **`observacao`** vai para o papel da cozinha, até 200 caracteres. Item com
   observação não agrupa com outro igual: dois chopes, um "sem colarinho", não
   são a mesma linha.
+- **`opcionais`** são as escolhas do prato: só os identificadores, porque
+  título e preço saem do cadastro e ficam congelados na comanda. O adicional
+  entra no preço do item — "picanha 129,90 + bacon 8,00" é uma picanha de
+  137,90, e é esse número que a divisão por pessoa e a taxa de serviço usam.
+  Escolhas diferentes do mesmo produto são linhas diferentes.
 - O **preço nunca vem daqui** — sai do cardápio. Item esgotado, de outro
-  restaurante ou fora do cardápio volta **409** com a frase pronta.
+  restaurante ou fora do cardápio volta **409** com a frase pronta. O mesmo
+  vale para as escolhas: opcional de outro produto, grupo obrigatório sem
+  escolha e grupo além do máximo voltam 409 dizendo qual grupo
+  ("Escolha uma opção em "Ponto da carne".").
 
 ### O reenvio ainda duplica
 
