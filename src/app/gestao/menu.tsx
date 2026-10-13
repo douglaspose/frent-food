@@ -21,6 +21,7 @@ const MENU = [
   { href: "/gestao", rotulo: "Painel" },
   { href: "/gestao/cardapio", rotulo: "Cardápio" },
   { href: "/gestao/produtos", rotulo: "Produtos" },
+  { href: "/gestao/opcionais", rotulo: "Opcionais" },
   { href: "/gestao/estoque", rotulo: "Estoque" },
   { href: "/gestao/auditoria", rotulo: "Diário" },
   { href: CONFIGURACOES, rotulo: "Configurações" },
