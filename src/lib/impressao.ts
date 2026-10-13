@@ -169,6 +169,12 @@ export type ItemImpressao = {
   precoTotal?: number;
   pontoCarne?: string | null;
   observacao?: string | null;
+  /**
+   * As escolhas do cliente: "sem cebola", "bacon extra", "ponto para a mesa".
+   * Vêm com o título congelado no lançamento, e não o de hoje — o papel tem de
+   * dizer o que foi pedido, mesmo que a casa renomeie o adicional depois.
+   */
+  opcionais?: { titulo: string; quantidade: number }[];
 };
 
 /**
@@ -204,6 +210,17 @@ export function comandaDeProducao(dados: {
     for (const parte of partes.slice(1)) linhas.push(" ".repeat(prefixo.length) + parte);
 
     if (item.pontoCarne) linhas.push(`   >> ${item.pontoCarne}`);
+    /*
+     * As escolhas antes da observação: elas mudam o prato (bacon extra, sem
+     * cebola), enquanto a observação é o recado solto. Na correria, o
+     * cozinheiro lê de cima para baixo e para no primeiro branco.
+     */
+    for (const opcional of item.opcionais ?? []) {
+      const vezes = opcional.quantidade > 1 ? `${opcional.quantidade}x ` : "";
+      for (const parte of quebrar(vezes + opcional.titulo, COLUNAS - 6)) {
+        linhas.push(`   + ${parte}`);
+      }
+    }
     if (item.observacao) {
       for (const parte of quebrar(item.observacao, COLUNAS - 6)) linhas.push(`   * ${parte}`);
     }

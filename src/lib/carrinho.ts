@@ -130,6 +130,8 @@ export async function cardapioDaUnidade(unidadeId: string) {
     { id: string; nome: string; itens: ItemDoCardapio[] }
   >();
 
+  const grupos = await gruposDosProdutos(cardapio.itens.map((i) => i.produto.id));
+
   for (const item of cardapio.itens) {
     const categoria = item.categoria ?? item.produto.categoria;
     const chave = categoria?.id ?? "sem-categoria";
@@ -148,6 +150,7 @@ export async function cardapioDaUnidade(unidadeId: string) {
       precoEmCentavos: Math.round(Number(item.preco) * 100),
       esgotado: item.esgotado,
       exigePontoCarne: item.produto.exigePontoCarne,
+      grupos: grupos.get(item.produto.id) ?? [],
     });
   }
 
@@ -167,7 +170,87 @@ export type ItemDoCardapio = {
   precoEmCentavos: number;
   esgotado: boolean;
   exigePontoCarne: boolean;
+  /** O que o cliente escolhe: ponto, adicionais, acompanhamentos. */
+  grupos: GrupoDeOpcionais[];
 };
+
+export type GrupoDeOpcionais = {
+  id: string;
+  titulo: string;
+  /**
+   * Quantas escolhas o grupo aceita. `min` 1 com `obrigatorio` é o "escolha o
+   * ponto da carne"; `max` 3 é o "até três adicionais".
+   */
+  minEscolhas: number;
+  maxEscolhas: number;
+  obrigatorio: boolean;
+  itens: OpcionalDoCardapio[];
+};
+
+export type OpcionalDoCardapio = {
+  opcionalId: string;
+  titulo: string;
+  /** Zero no que não cobra — "sem cebola" não tem preço. */
+  precoEmCentavos: number;
+};
+
+/**
+ * Os grupos de opcionais dos produtos pedidos, já em forma de tela.
+ *
+ * Numa consulta só para o cardápio inteiro, e não uma por produto: são
+ * algumas centenas de itens, e uma ida ao banco por item deixaria a abertura
+ * do cardápio na maquininha em segundos.
+ */
+async function gruposDosProdutos(produtoIds: string[]) {
+  if (produtoIds.length === 0) return new Map<string, GrupoDeOpcionais[]>()
+
+  const vinculos = await db.produtoGrupoOpcional.findMany({
+    where: { produtoId: { in: produtoIds } },
+    orderBy: { ordem: "asc" },
+    select: {
+      produtoId: true,
+      grupo: {
+        select: {
+          id: true,
+          titulo: true,
+          minEscolhas: true,
+          maxEscolhas: true,
+          obrigatorio: true,
+          ordem: true,
+          itens: {
+            // Opcional desativado sai da tela, mas segue existindo nos
+            // lançamentos antigos — por isso o título é congelado na comanda.
+            where: { ativo: true },
+            orderBy: { ordem: "asc" },
+            select: { id: true, titulo: true, preco: true },
+          },
+        },
+      },
+    },
+  });
+
+  const porProduto = new Map<string, GrupoDeOpcionais[]>();
+  for (const vinculo of vinculos) {
+    // Grupo sem opção ativa não vai para a tela: seria um título sozinho, e no
+    // obrigatório travaria o lançamento sem o garçom ter o que escolher.
+    if (vinculo.grupo.itens.length === 0) continue;
+    const lista = porProduto.get(vinculo.produtoId) ?? []
+    lista.push({
+      id: vinculo.grupo.id,
+      titulo: vinculo.grupo.titulo,
+      minEscolhas: vinculo.grupo.minEscolhas,
+      maxEscolhas: vinculo.grupo.maxEscolhas,
+      obrigatorio: vinculo.grupo.obrigatorio,
+      itens: vinculo.grupo.itens.map((i) => ({
+        opcionalId: i.id,
+        titulo: i.titulo,
+        precoEmCentavos: Math.round(Number(i.preco) * 100),
+      })),
+    });
+    porProduto.set(vinculo.produtoId, lista);
+  }
+  return porProduto;
+}
 
 /**
  * Põe um item no carrinho da comanda (status PENDENTE).
@@ -176,6 +259,75 @@ export type ItemDoCardapio = {
  * recarregar a tela perdia a rodada inteira, e o salão não tinha como avisar
  * que havia pedido esquecido sem enviar.
  */
+/** O que o garçom escolheu num grupo. */
+export type EscolhaDeOpcional = { opcionalId: string; quantidade?: number };
+
+/**
+ * Confere as escolhas contra os grupos do produto e devolve o que gravar.
+ *
+ * A conferência é aqui, e não na tela, pelo mesmo motivo do preço: a porta é
+ * aberta. Sem ela, dava para pedir "bacon extra" de graça mandando um opcional
+ * de outro produto, furar o "escolha o ponto" obrigatório, ou somar dez
+ * adicionais num grupo que aceita um.
+ *
+ * O título e o preço saem congelados: o papel da cozinha e a conta precisam
+ * dizer o que foi pedido, mesmo que a casa renomeie ou reprecifique depois.
+ */
+async function conferirOpcionais(produtoId: string, escolhas: EscolhaDeOpcional[]) {
+  const grupos = (await gruposDosProdutos([produtoId])).get(produtoId) ?? [];
+
+  const porOpcional = new Map<string, { grupo: GrupoDeOpcionais; opcional: OpcionalDoCardapio }>();
+  for (const grupo of grupos) {
+    for (const opcional of grupo.itens) porOpcional.set(opcional.opcionalId, { grupo, opcional });
+  }
+
+  const escolhidosPorGrupo = new Map<string, number>();
+  const paraGravar: { opcionalId: string; titulo: string; preco: number; quantidade: number }[] = [];
+
+  for (const escolha of escolhas) {
+    const achado = porOpcional.get(escolha.opcionalId);
+    if (!achado) throw new ErroDeOperacao("Opção que não pertence a este item.");
+
+    const quantidade = escolha.quantidade ?? 1;
+    if (!Number.isInteger(quantidade) || quantidade < 1) {
+      throw new ErroDeOperacao("Quantidade inválida numa das opções.");
+    }
+
+    const jaNoGrupo = escolhidosPorGrupo.get(achado.grupo.id) ?? 0;
+    escolhidosPorGrupo.set(achado.grupo.id, jaNoGrupo + quantidade);
+
+    paraGravar.push({
+      opcionalId: escolha.opcionalId,
+      titulo: achado.opcional.titulo,
+      preco: achado.opcional.precoEmCentavos / 100,
+      quantidade,
+    });
+  }
+
+  for (const grupo of grupos) {
+    const escolhidos = escolhidosPorGrupo.get(grupo.id) ?? 0;
+    // O obrigatório com `min` 0 ainda pede uma escolha: é o "escolha o ponto"
+    // que a casa marcou como obrigatório sem pensar no mínimo.
+    const minimo = grupo.obrigatorio ? Math.max(1, grupo.minEscolhas) : grupo.minEscolhas;
+    if (escolhidos < minimo) {
+      throw new ErroDeOperacao(
+        minimo === 1
+          ? `Escolha uma opção em "${grupo.titulo}".`
+          : `Escolha ao menos ${minimo} opções em "${grupo.titulo}".`
+      );
+    }
+    if (grupo.maxEscolhas > 0 && escolhidos > grupo.maxEscolhas) {
+      throw new ErroDeOperacao(
+        grupo.maxEscolhas === 1
+          ? `"${grupo.titulo}" aceita uma opção só.`
+          : `"${grupo.titulo}" aceita até ${grupo.maxEscolhas} opções.`
+      );
+    }
+  }
+
+  return paraGravar;
+}
+
 export async function adicionarItem(
   quem: QuemLanca,
   dados: {
@@ -183,6 +335,7 @@ export async function adicionarItem(
     cardapioItemId: string;
     quantidade?: number;
     observacao?: string | null;
+    opcionais?: EscolhaDeOpcional[];
   }
 ) {
   const quantidade = dados.quantidade ?? 1;
@@ -192,15 +345,27 @@ export async function adicionarItem(
 
   const comanda = await comandaAberta(dados.comandaId, quem.tenantId);
   const item = await itemDoCardapio(dados.cardapioItemId, comanda.unidadeId);
-  const precoUnitario = Number(item.preco);
+  const opcionais = await conferirOpcionais(item.produtoId, dados.opcionais ?? []);
+
+  /*
+   * O adicional entra no preço do item, não numa linha à parte: na conta do
+   * cliente, "Picanha 129,90 + bacon 8,00" é uma picanha de 137,90 — e é esse
+   * número que a divisão por pessoa e a taxa de serviço usam.
+   */
+  const somaDosOpcionais = opcionais.reduce((soma, o) => soma + o.preco * o.quantidade, 0);
+  const precoUnitario = Number(item.preco) + somaDosOpcionais;
 
   /*
    * Observação separa itens. Dois chopes, um "sem colarinho", não são a mesma
    * linha: agrupados, a cozinha receberia a observação valendo para os dois.
    * Item com ponto da carne também nunca agrupa — cada unidade pode ter o seu.
+   *
+   * Escolhas separam do mesmo jeito, e com mais razão: somar uma picanha com
+   * bacon a uma sem bacon daria uma linha cujo preço não corresponde a nenhum
+   * dos dois pratos.
    */
   const observacao = limparObservacao(dados.observacao);
-  if (!item.produto.exigePontoCarne && !observacao) {
+  if (!item.produto.exigePontoCarne && !observacao && opcionais.length === 0) {
     const existente = await db.comandaItem.findFirst({
       where: {
         comandaId: dados.comandaId,
@@ -208,6 +373,9 @@ export async function adicionarItem(
         status: "PENDENTE",
         pontoCarne: null,
         observacao: null,
+        // E sem escolhas: senão a picanha sem bacon somaria na linha da picanha
+        // com bacon, e a segunda sairia cobrada pelo preço da primeira.
+        opcionais: { none: {} },
       },
     });
 
@@ -236,6 +404,16 @@ export async function adicionarItem(
       observacao,
       status: "PENDENTE",
       lancadoPorId: quem.usuarioId,
+      // Título e preço congelados: o histórico não muda quando a casa
+      // renomeia "bacon" ou sobe o preço dele semana que vem.
+      opcionais: {
+        create: opcionais.map((o) => ({
+          opcionalId: o.opcionalId,
+          titulo: o.titulo,
+          preco: o.preco,
+          quantidade: o.quantidade,
+        })),
+      },
     },
   });
 
@@ -290,7 +468,20 @@ export async function enviarCarrinho(quem: QuemLanca, comandaId: string) {
 
     const pendentes = await tx.comandaItem.findMany({
       where: { comandaId, status: "PENDENTE" },
-      select: { id: true, produtoId: true, quantidade: true },
+      select: {
+        id: true,
+        produtoId: true,
+        quantidade: true,
+        /*
+         * O adicional que aponta para um produto também sai do estoque: duas
+         * picanhas com bacon consomem dois bacons. Sem isto, o adicional era
+         * cobrado do cliente e nunca dava baixa — e o inventário ia furando
+         * um pouco por noite, sem ninguém achar a causa.
+         */
+        opcionais: {
+          select: { quantidade: true, opcional: { select: { produtoId: true } } },
+        },
+      },
     });
     if (pendentes.length === 0) return pendentes;
 
@@ -320,11 +511,19 @@ export async function enviarCarrinho(quem: QuemLanca, comandaId: string) {
       tenantId: comanda.tenantId,
       unidadeId: comanda.unidadeId,
       usuarioId: quem.usuarioId,
-      itens: pendentes.map((i) => ({
-        produtoId: i.produtoId,
-        quantidade: Number(i.quantidade),
-        comandaItemId: i.id,
-      })),
+      itens: pendentes.flatMap((i) => [
+        { produtoId: i.produtoId, quantidade: Number(i.quantidade), comandaItemId: i.id },
+        // O opcional de texto solto ("sem cebola") não tem produto e não
+        // consome nada; o que aponta para um produto consome por unidade do
+        // item: 2 picanhas × 1 bacon = 2 bacons.
+        ...i.opcionais
+          .filter((o) => o.opcional?.produtoId)
+          .map((o) => ({
+            produtoId: o.opcional!.produtoId!,
+            quantidade: Number(i.quantidade) * o.quantidade,
+            comandaItemId: i.id,
+          })),
+      ]),
     });
 
     /**

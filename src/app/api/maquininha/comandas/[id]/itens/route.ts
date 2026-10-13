@@ -11,6 +11,12 @@ type ItemPedido = {
   cardapioItemId?: string;
   quantidade?: number;
   observacao?: string | null;
+  /**
+   * As escolhas do cliente nos grupos do produto (ponto, adicionais). Só os
+   * identificadores: título e preço saem do cadastro, congelados na comanda,
+   * porque é a porta aberta que manda isto.
+   */
+  opcionais?: { opcionalId?: string; quantidade?: number }[];
 };
 
 /**
@@ -62,6 +68,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (itens.some((i) => typeof i?.cardapioItemId !== "string" || !i.cardapioItemId)) {
     return NextResponse.json({ erro: "Item sem identificação do cardápio." }, { status: 400 });
   }
+  if (
+    itens.some((i) =>
+      (i.opcionais ?? []).some((o) => typeof o?.opcionalId !== "string" || !o.opcionalId)
+    )
+  ) {
+    return NextResponse.json({ erro: "Opção sem identificação." }, { status: 400 });
+  }
 
   // A comanda é conferida aqui também, antes de qualquer escrita: 404 de conta
   // que não é desta unidade é melhor do que erro genérico no meio da rodada.
@@ -89,6 +102,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         cardapioItemId: item.cardapioItemId!,
         quantidade: item.quantidade,
         observacao: item.observacao,
+        opcionais: item.opcionais?.map((o) => ({
+          opcionalId: o.opcionalId!,
+          quantidade: o.quantidade,
+        })),
       });
     }
 

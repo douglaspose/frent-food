@@ -93,6 +93,69 @@ export const CARDAPIO: { categoria: string; itens: [string, number][] }[] = [
   },
 ];
 
+/**
+ * Grupos de opcionais da demonstração.
+ *
+ * `produtos` são os títulos que recebem o grupo. Um grupo obrigatório com uma
+ * escolha é o "escolha o ponto"; um grupo com `max` acima de um é o "até três
+ * adicionais". Opcional com preço zero existe e é comum — "sem cebola" muda o
+ * prato sem mudar a conta.
+ */
+export const GRUPOS_OPCIONAIS: {
+  titulo: string;
+  min: number;
+  max: number;
+  obrigatorio: boolean;
+  produtos: string[];
+  /**
+   * `[título, preço]`, ou `[título, preço, produto]` quando o adicional é algo
+   * que sai do estoque: aí ele também dá baixa, como qualquer venda. Adicional
+   * cobrado que nunca baixa é inventário furando um pouco por noite, sem
+   * ninguém achar a causa.
+   */
+  itens: ([string, number] | [string, number, string])[];
+}[] = [
+  {
+    titulo: "Ponto da carne",
+    min: 1,
+    max: 1,
+    obrigatorio: true,
+    produtos: ["Picanha na Chapa", "Cupim na Chapa"],
+    itens: [
+      ["Mal passada", 0],
+      ["Ao ponto", 0],
+      ["Bem passada", 0],
+    ],
+  },
+  {
+    titulo: "Adicionais",
+    min: 0,
+    max: 3,
+    obrigatorio: false,
+    produtos: ["Picanha na Chapa", "Cupim na Chapa", "Batata Frita"],
+    itens: [
+      ["Bacon", 8.0],
+      // Este sai do estoque: é o mesmo espeto que a casa vende sozinho.
+      ["Queijo coalho", 7.0, "Espeto de Queijo Coalho"],
+      ["Cebola empanada", 6.5],
+      ["Molho da casa", 0],
+    ],
+  },
+  {
+    titulo: "Acompanhamento",
+    min: 1,
+    max: 2,
+    obrigatorio: true,
+    produtos: ["Carne de Sol com Mandioca"],
+    itens: [
+      ["Arroz", 0],
+      ["Feijão tropeiro", 0],
+      ["Vinagrete", 0],
+      ["Farofa", 0],
+    ],
+  },
+];
+
 /** Bebida vai para o bar, comida vai para a cozinha. */
 export const CATEGORIAS_DO_BAR = new Set(["Bebidas"]);
 

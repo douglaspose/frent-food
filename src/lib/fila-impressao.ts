@@ -61,7 +61,13 @@ export async function enfileirarPedidos(pedidoIds: string[]) {
       itens: {
         include: {
           comandaItem: {
-            include: { produto: { select: { titulo: true } }, lancadoPor: { select: { nome: true } } },
+            include: {
+              produto: { select: { titulo: true } },
+              lancadoPor: { select: { nome: true } },
+              // O título congelado no lançamento, não o de hoje: o papel diz
+              // o que foi pedido mesmo que a casa renomeie o adicional.
+              opcionais: { select: { titulo: true, quantidade: true } },
+            },
           },
         },
       },
@@ -81,6 +87,7 @@ export async function enfileirarPedidos(pedidoIds: string[]) {
         quantidade: Number(i.comandaItem.quantidade),
         pontoCarne: i.comandaItem.pontoCarne,
         observacao: i.comandaItem.observacao,
+        opcionais: i.comandaItem.opcionais,
       })),
     });
 

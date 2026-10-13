@@ -4,7 +4,15 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
 import { PARAMETROS as CATALOGO } from "../src/lib/parametros";
-import { PERMISSOES, CARDAPIO, CATEGORIAS_DO_BAR, CATEGORIAS_COM_PONTO, ehAlcoolica, FORMAS_DE_PAGAMENTO } from "./dados-de-exemplo";
+import {
+  PERMISSOES,
+  CARDAPIO,
+  GRUPOS_OPCIONAIS,
+  CATEGORIAS_DO_BAR,
+  CATEGORIAS_COM_PONTO,
+  ehAlcoolica,
+  FORMAS_DE_PAGAMENTO,
+} from "./dados-de-exemplo";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const db = new PrismaClient({ adapter });
@@ -161,6 +169,52 @@ async function main() {
         },
       });
     }
+  }
+
+  console.log("Criando grupos de opcionais...");
+  // Os produtos por título: tanto o vínculo do grupo quanto o adicional que
+  // sai do estoque são declarados pelo nome, que é como a casa pensa o
+  // cardápio ("a picanha pede ponto"), e não por id.
+  const porTitulo = new Map(
+    (
+      await db.produto.findMany({
+        where: { tenantId: tenant.id },
+        select: { id: true, titulo: true },
+      })
+    ).map((p) => [p.titulo, p.id])
+  );
+  /*
+   * Depois dos produtos, porque o vínculo é por título: é assim que a casa
+   * pensa o cardápio ("a picanha pede ponto"), e não por id.
+   */
+  for (const [i, grupo] of GRUPOS_OPCIONAIS.entries()) {
+    const produtos = await db.produto.findMany({
+      where: { tenantId: tenant.id, titulo: { in: grupo.produtos } },
+      select: { id: true },
+    });
+
+    await db.grupoOpcional.create({
+      data: {
+        tenantId: tenant.id,
+        titulo: grupo.titulo,
+        minEscolhas: grupo.min,
+        maxEscolhas: grupo.max,
+        obrigatorio: grupo.obrigatorio,
+        ordem: i,
+        itens: {
+          create: grupo.itens.map(([titulo, preco, produto], j) => ({
+            titulo,
+            preco,
+            ordem: j,
+            // Adicional que é produto dá baixa no estoque como qualquer venda.
+            produtoId: produto ? porTitulo.get(produto) : undefined,
+          })),
+        },
+        produtos: {
+          create: produtos.map((p, j) => ({ produtoId: p.id, ordem: j })),
+        },
+      },
+    });
   }
 
   console.log("Criando formas de pagamento...");
