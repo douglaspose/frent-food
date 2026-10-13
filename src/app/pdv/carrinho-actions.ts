@@ -6,6 +6,7 @@ import { exigirPermissao, exigirSessao } from "@/lib/session";
 import { publicar } from "@/lib/eventos";
 import { ajusteNumerico } from "@/lib/parametros-servidor";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
+import { adicionarItem, comandaAberta } from "@/lib/carrinho";
 
 /**
  * O carrinho é feito de itens com status PENDENTE.
@@ -31,101 +32,28 @@ async function limitarQuantidade(unidadeId: string, quantidade: number) {
   }
 }
 
-async function comandaAberta(comandaId: string, tenantId: string) {
-  const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
-  if (comanda.tenantId !== tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
-  if (comanda.status === "PAGA") throw new ErroDeOperacao("Comanda já paga. Abra uma nova.");
-  // A mensagem diz o que fazer: "não está aberta" deixava o garçom sem saída.
-  if (comanda.status !== "ABERTA") {
-    throw new ErroDeOperacao("A conta está em fechamento. Reabra a mesa para lançar itens.");
-  }
-  return comanda;
-}
+
 
 /**
- * O item do cardápio da unidade da comanda — e é dele que saem produto e preço.
- *
- * O navegador manda preço e produto, mas server action é endpoint público:
- * gravar o que chega deixava lançar picanha a um centavo, preço negativo para
- * abater a conta, item do cardápio de outro restaurante e a picanha cobrada a
- * preço de água. Nada disso aparecia no diário. O que vale é o cardápio.
+ * A regra mora em `@/lib/carrinho`, compartilhada com a maquininha. Aqui ficam
+ * a sessão e a tela; `produtoId`, `precoUnitario` e `exigePontoCarne` seguem na
+ * assinatura porque a tela os tem à mão, mas nenhum deles é usado: o que vale
+ * é o que está no cardápio, não o que o navegador mandou.
  */
-async function itemDoCardapio(cardapioItemId: string, unidadeId: string) {
-  const item = await db.cardapioItem.findUnique({
-    where: { id: cardapioItemId },
-    select: {
-      produtoId: true,
-      preco: true,
-      esgotado: true,
-      cardapio: { select: { unidadeId: true, ativo: true } },
-      produto: { select: { exigePontoCarne: true } },
-    },
-  });
-  // Chave estrangeira ignora o RLS: a conferência da unidade é aqui, no código.
-  if (!item || item.cardapio.unidadeId !== unidadeId || !item.cardapio.ativo) {
-    throw new ErroDeOperacao("Item fora do cardápio desta casa.");
-  }
-  if (item.esgotado) throw new ErroDeOperacao("Este item está esgotado.");
-  return item;
-}
-
 export async function adicionarAoCarrinho(dados: {
   comandaId: string;
   produtoId: string;
   cardapioItemId: string;
-  /** Ignorado: o preço vem do cardápio. Fica na assinatura pela tela. */
   precoUnitario: number;
   exigePontoCarne: boolean;
 }) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.lancarItem");
-    const comanda = await comandaAberta(dados.comandaId, sessao.tenantId);
-    const item = await itemDoCardapio(dados.cardapioItemId, comanda.unidadeId);
-    if (dados.produtoId !== item.produtoId) {
-      throw new ErroDeOperacao("O produto não corresponde ao item do cardápio.");
-    }
-    const precoUnitario = Number(item.preco);
-
-    // Item com ponto da carne nunca agrupa: cada unidade pode ter o seu.
-    if (!item.produto.exigePontoCarne) {
-      const existente = await db.comandaItem.findFirst({
-        where: {
-          comandaId: dados.comandaId,
-          produtoId: item.produtoId,
-          status: "PENDENTE",
-          pontoCarne: null,
-        },
-      });
-
-      if (existente) {
-        const quantidade = Number(existente.quantidade) + 1;
-        await limitarQuantidade(sessao.unidadeId, quantidade);
-        await db.comandaItem.update({
-          where: { id: existente.id },
-          data: { quantidade, precoTotal: quantidade * Number(existente.precoUnitario) },
-        });
-        revalidatePath("/pdv");
-        await publicar(sessao.unidadeId, "carrinho");
-        return;
-      }
-    }
-
-    await db.comandaItem.create({
-      data: {
-        tenantId: comanda.tenantId,
-        comandaId: dados.comandaId,
-        produtoId: item.produtoId,
-        cardapioItemId: dados.cardapioItemId,
-        quantidade: 1,
-        precoUnitario,
-        precoTotal: precoUnitario,
-        status: "PENDENTE",
-        lancadoPorId: sessao.usuarioId,
-      },
+    await adicionarItem(sessao, {
+      comandaId: dados.comandaId,
+      cardapioItemId: dados.cardapioItemId,
     });
-
     revalidatePath("/pdv");
-    await publicar(sessao.unidadeId, "carrinho");
   });
 }
 

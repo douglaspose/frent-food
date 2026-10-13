@@ -118,13 +118,94 @@ registra o que aconteceu.
 - Regra de negócio recusada volta **409** com a mensagem pronta para a tela
   ("Falta receber só R$ 12,30", "Nenhum caixa aberto").
 
+## GET /api/maquininha/cardapio
+
+O cardápio do salão, para o garçom lançar da mesa. Exige `comanda.lancarItem`.
+
+É o **mesmo cardápio do PDV**, da mesma tabela: o que a casa cadastra em
+Gestão → Cardápio aparece aqui com o preço de lá. Nada é duplicado para a
+maquininha — cardápio em dois lugares é cardápio que diverge, e o que diverge
+primeiro é o preço.
+
+```json
+{
+  "unidade": "Jantinha do Lipão",
+  "categorias": [
+    {
+      "id": "cmu…",
+      "nome": "Espetos",
+      "itens": [
+        {
+          "cardapioItemId": "cmu…",
+          "produtoId": "cmu…",
+          "titulo": "Espeto de Alcatra",
+          "descricao": null,
+          "precoEmCentavos": 1490,
+          "esgotado": false,
+          "exigePontoCarne": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+Três filtros que não são detalhe:
+
+- **`canal: SALAO`** — a casa pode ter um cardápio de delivery com outro preço
+  na mesma unidade, e quem está com a maquininha na mão está no salão.
+- **`visivel`** — é como a casa tira um prato da tela sem apagar o cadastro
+  nem perder o histórico de quem já pediu.
+- **`ordem`** manda na listagem, e a categoria do `CardapioItem` ganha da do
+  produto: é com elas que a casa decide o que aparece primeiro.
+
+O esgotado vem marcado, não some: fazer o item desaparecer faz o garçom
+procurar na tela um prato que ele sabe que existe.
+
+## POST /api/maquininha/comandas/{id}/itens
+
+A rodada inteira numa chamada só. Exige `comanda.lancarItem`.
+
+```json
+{
+  "itens": [
+    { "cardapioItemId": "cmu…", "quantidade": 2 },
+    { "cardapioItemId": "cmu…", "quantidade": 1, "observacao": "sem cebola" }
+  ],
+  "enviar": true
+}
+```
+
+- **`enviar`** (padrão `true`) manda a rodada para a cozinha na mesma chamada.
+  Com `false`, os itens ficam no carrinho — que é o mesmo carrinho do PDV, no
+  banco, e aparece no tablet do salão.
+- **`quantidade`** padrão 1. O teto por lançamento é o ajuste
+  `cozinha.qtdMaximaPorLancamento` da unidade.
+- **`observacao`** vai para o papel da cozinha, até 200 caracteres. Item com
+  observação não agrupa com outro igual: dois chopes, um "sem colarinho", não
+  são a mesma linha.
+- O **preço nunca vem daqui** — sai do cardápio. Item esgotado, de outro
+  restaurante ou fora do cardápio volta **409** com a frase pronta.
+
+### O reenvio ainda duplica
+
+Diferente do pagamento, que tem `referenciaExterna`, o lançamento de itens não
+é idempotente: se a resposta se perder depois de os itens entrarem, o garçom
+que tocar de novo lança a rodada duas vezes. O conserto é uma referência por
+rodada com índice único por restaurante, igual ao do pagamento. Enquanto não
+existe, vale saber que o estrago aqui é visível (a conta mostra o item a mais e
+dá para cancelar), ao contrário de uma cobrança em dobro.
+
 ## A regra é a mesma do PDV
 
-Receber e finalizar moram em [`src/lib/conta.ts`](../src/lib/conta.ts), e tanto
-o caixa no navegador quanto a maquininha passam por lá: trava na comanda, teto
-do que falta, taxa da adquirente congelada no pagamento, ticket pronto saindo
-do KDS, mesa voltando ao salão. Duas cópias da mesma regra é como uma delas
-passa a aceitar o que a outra recusa.
+Receber e finalizar moram em [`src/lib/conta.ts`](../src/lib/conta.ts), e
+lançar item e mandar a rodada para a cozinha, em
+[`src/lib/carrinho.ts`](../src/lib/carrinho.ts). Tanto o navegador quanto a
+maquininha passam por lá: trava na comanda, teto do que falta, taxa da
+adquirente congelada no pagamento, preço vindo do cardápio, baixa de estoque e
+numeração de ticket sob trava, ticket pronto saindo do KDS, mesa voltando ao
+salão. Duas cópias da mesma regra é como uma delas passa a aceitar o que a
+outra recusa.
 
 ## Migração
 
