@@ -200,14 +200,33 @@ A rodada inteira numa chamada só. Exige `comanda.lancarItem`.
   escolha e grupo além do máximo voltam 409 dizendo qual grupo
   ("Escolha uma opção em "Ponto da carne".").
 
-### O reenvio ainda duplica
+### Reenviar é seguro
 
-Diferente do pagamento, que tem `referenciaExterna`, o lançamento de itens não
-é idempotente: se a resposta se perder depois de os itens entrarem, o garçom
-que tocar de novo lança a rodada duas vezes. O conserto é uma referência por
-rodada com índice único por restaurante, igual ao do pagamento. Enquanto não
-existe, vale saber que o estrago aqui é visível (a conta mostra o item a mais e
-dá para cancelar), ao contrário de uma cobrança em dobro.
+Cada item leva a **`referencia`** da linha do carrinho na maquininha, única por
+restaurante (`ComandaItem.referenciaExterna`). A segunda tentativa encontra o
+que já entrou e não lança de novo — o mesmo mecanismo do pagamento.
+
+A conferência é **por item**, não por rodada: uma rodada que entrou pela metade
+porque a rede caiu no meio é completada no reenvio, em vez de duplicada.
+
+A resposta diz o que aconteceu de fato:
+
+```json
+{ "ok": true, "lancados": 0, "repetidos": 3, "enviados": 0 }
+```
+
+`lancados` conta o que entrou **agora**. Num reenvio é zero, e `repetidos` diz
+quantos já estavam lá.
+
+A referência nasce com a linha do carrinho no aparelho e não muda entre
+tentativas — se mudasse, cada tentativa seria uma rodada nova. Por isso,
+também, **item com referência não agrupa** com um pendente igual: somar
+quantidade não deixaria rastro da referência, e o reenvio somaria outra vez.
+O agrupamento continua valendo para o PDV, onde o "+" é um toque deliberado.
+
+Tudo isso acontece sob a trava da comanda (`SELECT ... FOR UPDATE`), como no
+pagamento: dois reenvios simultâneos se serializam, e o segundo encontra a
+linha pronta.
 
 ## A regra é a mesma do PDV
 
@@ -222,6 +241,7 @@ outra recusa.
 
 ## Migração
 
-A coluna da referência entrou em
-`prisma/migrations/20260923000000_pagamento_da_maquininha`. Em produção,
+As colunas de referência entraram em
+`prisma/migrations/20260923000000_pagamento_da_maquininha` (pagamento) e
+`prisma/migrations/20261013000000_referencia_do_lancamento` (lançamento). Em produção,
 `npm run db:deploy`.

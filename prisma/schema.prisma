@@ -776,6 +776,11 @@ model ComandaItem {
   observacao    String?
   pontoCarne    String?
 
+  /// A linha do carrinho que originou este item na maquininha. Única por
+  /// restaurante: é ela que faz o reenvio de uma rodada presa na rede não
+  /// lançar o pedido duas vezes.
+  referenciaExterna String?
+
   status StatusItem @default(PENDENTE)
 
   lancadoPorId String
@@ -789,6 +794,7 @@ model ComandaItem {
   opcionais   ComandaItemOpcional[]
   pedidoItens PedidoItem[]
 
+  @@unique([tenantId, referenciaExterna])
   @@index([tenantId])
   @@index([comandaId])
   @@map("comanda_itens")

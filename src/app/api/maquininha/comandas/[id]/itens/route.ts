@@ -9,6 +9,12 @@ export const dynamic = "force-dynamic";
 
 type ItemPedido = {
   cardapioItemId?: string;
+  /**
+   * A linha do carrinho na maquininha. Mandada igual em toda tentativa, é o
+   * que faz o reenvio de uma rodada presa na rede não lançar o pedido duas
+   * vezes — o mesmo papel da referência no pagamento.
+   */
+  referencia?: string;
   quantidade?: number;
   observacao?: string | null;
   /**
@@ -29,10 +35,10 @@ type ItemPedido = {
  * A regra é a mesma do PDV (`@/lib/carrinho`), inclusive o preço, que sai do
  * cardápio e nunca do que a maquininha mandou.
  *
- * **Reenvio ainda duplica.** Se a resposta se perder depois de os itens terem
- * entrado, o garçom que tocar de novo lança a rodada duas vezes — ao contrário
- * do pagamento, que tem `referenciaExterna` para isso. O conserto é uma
- * referência por rodada, com índice único, e está anotado em `docs/maquininha.md`.
+ * **Reenviar é seguro.** Cada item vai com a `referencia` da linha do
+ * carrinho, única por restaurante: a segunda tentativa encontra o que já
+ * entrou e não lança de novo. Uma rodada que entrou pela metade — a rede caiu
+ * no meio — é completada no reenvio, item por item, em vez de duplicada.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const unidade = await unidadeDoAparelho(request);
@@ -96,17 +102,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
      * encontrariam o mesmo pendente e cada um somaria por cima do outro —
      * três cervejas viravam duas.
      */
+    let lancados = 0;
     for (const item of itens) {
-      await adicionarItem(quem, {
+      const resultado = await adicionarItem(quem, {
         comandaId,
         cardapioItemId: item.cardapioItemId!,
         quantidade: item.quantidade,
         observacao: item.observacao,
+        referencia: item.referencia,
         opcionais: item.opcionais?.map((o) => ({
           opcionalId: o.opcionalId!,
           quantidade: o.quantidade,
         })),
       });
+      if (!resultado.jaExistia) lancados++;
     }
 
     // Por padrão a rodada vai para a cozinha: o garçom que lançou na mesa quer
@@ -114,7 +123,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const enviar = corpo.enviar !== false;
     const enviados = enviar ? (await enviarCarrinho(quem, comandaId)).enviados : 0;
 
-    return NextResponse.json({ ok: true, lancados: itens.length, enviados });
+    // `lancados` conta o que entrou agora: num reenvio é zero, e é assim que
+    // quem chamou sabe que a rodada já estava lá.
+    return NextResponse.json({ ok: true, lancados, repetidos: itens.length - lancados, enviados });
   } catch (e) {
     // ErroDeOperacao é frase pronta para a tela ("Este item está esgotado.");
     // o resto é defeito nosso e não vira texto na mão do garçom.

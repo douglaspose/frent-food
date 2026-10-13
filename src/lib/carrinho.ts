@@ -336,6 +336,15 @@ export async function adicionarItem(
     quantidade?: number;
     observacao?: string | null;
     opcionais?: EscolhaDeOpcional[];
+    /**
+     * A linha do carrinho que originou este item, quando quem chama tem uma.
+     *
+     * É o que torna o lançamento idempotente: a maquininha manda a mesma
+     * referência em toda tentativa, e a segunda não lança nada. O PDV não
+     * passa referência — ali o "+" é um toque deliberado do garçom, e somar
+     * de novo é o que ele quis.
+     */
+    referencia?: string | null;
   }
 ) {
   const quantidade = dados.quantidade ?? 1;
@@ -344,6 +353,7 @@ export async function adicionarItem(
   }
 
   const comanda = await comandaAberta(dados.comandaId, quem.tenantId);
+  const referencia = dados.referencia?.trim() || null;
   const item = await itemDoCardapio(dados.cardapioItemId, comanda.unidadeId);
   const opcionais = await conferirOpcionais(item.produtoId, dados.opcionais ?? []);
 
@@ -365,59 +375,109 @@ export async function adicionarItem(
    * dos dois pratos.
    */
   const observacao = limparObservacao(dados.observacao);
-  if (!item.produto.exigePontoCarne && !observacao && opcionais.length === 0) {
-    const existente = await db.comandaItem.findFirst({
-      where: {
+  /*
+   * Com referência, a linha nasce sozinha em vez de somar numa existente.
+   *
+   * Somar não deixaria rastro da referência, e o reenvio somaria de novo — a
+   * idempotência e o agrupamento não cabem na mesma linha. Quem perde pouco é
+   * o agrupamento: o carrinho da maquininha já junta as unidades na tela
+   * antes de mandar, e o que deixa de acontecer é só a fusão com um pendente
+   * que outro aparelho tenha deixado na mesma comanda.
+   */
+  /*
+   * Da conferência à gravação, tudo sob a trava da comanda.
+   *
+   * É o mesmo cuidado do pagamento em `conta.ts`, e pelo mesmo motivo: sem a
+   * trava, dois reenvios simultâneos da mesma rodada liam que a referência
+   * ainda não existia e os dois gravavam. O segundo agora espera o primeiro e
+   * encontra a linha pronta. Serve também ao agrupamento do PDV, onde dois
+   * toques no "+" liam a mesma linha pendente e somavam por cima um do outro.
+   */
+  // Quem chama precisa saber se a linha entrou agora ou já estava lá: é a
+  // diferença entre "lancei 3 itens" e "o reenvio não repetiu nada".
+  let jaExistia = false;
+
+  await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${dados.comandaId} FOR UPDATE`;
+
+    /*
+     * Já lançado é sucesso, não erro.
+     *
+     * Quem reenvia é a maquininha que não recebeu a resposta — a rodada pode
+     * ter entrado inteira, ou pela metade se a rede caiu no meio. Conferindo
+     * linha por linha, o reenvio completa o que falta em vez de duplicar o
+     * que já está lá.
+     */
+    if (referencia) {
+      const jaLancado = await tx.comandaItem.findFirst({
+        where: { tenantId: quem.tenantId, referenciaExterna: referencia },
+        select: { id: true },
+      });
+      if (jaLancado) {
+        jaExistia = true;
+        return;
+      }
+    }
+
+    if (!referencia && !item.produto.exigePontoCarne && !observacao && opcionais.length === 0) {
+      const existente = await tx.comandaItem.findFirst({
+        where: {
+          comandaId: dados.comandaId,
+          produtoId: item.produtoId,
+          status: "PENDENTE",
+          pontoCarne: null,
+          observacao: null,
+          // E sem escolhas: senão a picanha sem bacon somaria na linha da
+          // picanha com bacon, e a segunda sairia cobrada pelo preço da
+          // primeira.
+          opcionais: { none: {} },
+        },
+      });
+
+      if (existente) {
+        const somada = Number(existente.quantidade) + quantidade;
+        await limitarQuantidade(comanda.unidadeId, somada);
+        await tx.comandaItem.update({
+          where: { id: existente.id },
+          data: { quantidade: somada, precoTotal: somada * Number(existente.precoUnitario) },
+        });
+        return;
+      }
+    }
+
+    await limitarQuantidade(comanda.unidadeId, quantidade);
+    await tx.comandaItem.create({
+      data: {
+        tenantId: comanda.tenantId,
         comandaId: dados.comandaId,
         produtoId: item.produtoId,
+        cardapioItemId: dados.cardapioItemId,
+        quantidade,
+        precoUnitario,
+        precoTotal: precoUnitario * quantidade,
+        observacao,
+        referenciaExterna: referencia,
         status: "PENDENTE",
-        pontoCarne: null,
-        observacao: null,
-        // E sem escolhas: senão a picanha sem bacon somaria na linha da picanha
-        // com bacon, e a segunda sairia cobrada pelo preço da primeira.
-        opcionais: { none: {} },
+        lancadoPorId: quem.usuarioId,
+        // Título e preço congelados: o histórico não muda quando a casa
+        // renomeia "bacon" ou sobe o preço dele semana que vem.
+        opcionais: {
+          create: opcionais.map((o) => ({
+            opcionalId: o.opcionalId,
+            titulo: o.titulo,
+            preco: o.preco,
+            quantidade: o.quantidade,
+          })),
+        },
       },
     });
-
-    if (existente) {
-      const somada = Number(existente.quantidade) + quantidade;
-      await limitarQuantidade(comanda.unidadeId, somada);
-      await db.comandaItem.update({
-        where: { id: existente.id },
-        data: { quantidade: somada, precoTotal: somada * Number(existente.precoUnitario) },
-      });
-      await publicar(comanda.unidadeId, "carrinho");
-      return;
-    }
-  }
-
-  await limitarQuantidade(comanda.unidadeId, quantidade);
-  await db.comandaItem.create({
-    data: {
-      tenantId: comanda.tenantId,
-      comandaId: dados.comandaId,
-      produtoId: item.produtoId,
-      cardapioItemId: dados.cardapioItemId,
-      quantidade,
-      precoUnitario,
-      precoTotal: precoUnitario * quantidade,
-      observacao,
-      status: "PENDENTE",
-      lancadoPorId: quem.usuarioId,
-      // Título e preço congelados: o histórico não muda quando a casa
-      // renomeia "bacon" ou sobe o preço dele semana que vem.
-      opcionais: {
-        create: opcionais.map((o) => ({
-          opcionalId: o.opcionalId,
-          titulo: o.titulo,
-          preco: o.preco,
-          quantidade: o.quantidade,
-        })),
-      },
-    },
   });
 
-  await publicar(comanda.unidadeId, "carrinho");
+  // Fora da transação: avisar o salão é efeito externo, e uma falha no aviso
+  // não pode desfazer o item que já está no carrinho. No reenvio não há nada
+  // de novo para avisar.
+  if (!jaExistia) await publicar(comanda.unidadeId, "carrinho");
+  return { jaExistia };
 }
 
 /**
