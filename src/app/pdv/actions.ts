@@ -1,94 +1,23 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/lib/db";
 import { exigirPermissao } from "@/lib/session";
-import { publicar } from "@/lib/eventos";
-import { ajusteBooleano } from "@/lib/parametros-servidor";
-import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
+import { emResultado } from "@/lib/erro-de-operacao";
+import { abrirMesa } from "@/lib/abertura";
 import { enviarCarrinho as enviarRodada } from "@/lib/carrinho";
 
 export async function abrirComanda(mesaId: string, pessoas: number, nomeCliente?: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.abrir");
-
-    // A mesma regra de `definirPessoas`: -3 pessoas abria a mesa e estragava
-    // a divisão por pessoa na hora de pagar.
-    if (!Number.isInteger(pessoas) || pessoas < 1 || pessoas > 99) {
-      throw new ErroDeOperacao("Informe de 1 a 99 pessoas.");
-    }
-
-    /**
-     * O nome vai para a comanda, para o mapa e para o papel da impressora.
-     * Caractere de controle sai (o byte zero derrubava a action, e o resto
-     * chegava à térmica como comando); e um nome tem tamanho de nome — cinco
-     * mil caracteres eram gravados e impressos inteiros.
+    /*
+     * A regra mora em `@/lib/abertura`, compartilhada com a maquininha: a
+     * numeração da comanda e a trava que a protege não podem existir em duas
+     * cópias, uma por porta. O que sobra aqui é a sessão e a tela.
      */
-    nomeCliente = nomeCliente?.replace(/[\x00-\x1f\x7f]/g, "").trim();
-    if (nomeCliente && nomeCliente.length > 80) {
-      throw new ErroDeOperacao("O nome do cliente vai até 80 caracteres.");
-    }
-
-    const mesa = await db.mesa.findUniqueOrThrow({
-      where: { id: mesaId },
-      include: { unidade: true },
-    });
-    // Um usuário de um restaurante não abre mesa em outro, nem trocando o id na URL.
-    if (mesa.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Mesa de outro restaurante.");
-
-    const jaAberta = await db.comanda.findFirst({
-      where: { mesaId, status: { in: ["ABERTA", "FECHANDO"] } },
-    });
-    if (jaAberta) return { comandaId: jaAberta.id };
-
-    if (!nomeCliente?.trim() && (await ajusteBooleano(mesa.unidadeId, "mesa.exigirIdentificacaoCliente"))) {
-      throw new ErroDeOperacao("Esta unidade exige o nome do cliente para abrir a mesa.");
-    }
-
-    const comanda = await db.$transaction(async (tx) => {
-      /**
-       * Uma abertura por vez na unidade.
-       *
-       * O max+1 era lido fora da transação: no dia simulado de 180 comandas,
-       * 50 de 222 aberturas falharam por número repetido, e dois garçons na
-       * mesma mesa podiam abrir duas comandas. A trava da linha da unidade
-       * (NO KEY UPDATE, que não bloqueia quem só referencia a unidade)
-       * enfileira as aberturas; dentro dela, a mesa é conferida de novo e o
-       * número lido é o último de verdade.
-       */
-      await tx.$queryRaw`SELECT id FROM unidades WHERE id = ${mesa.unidadeId} FOR NO KEY UPDATE`;
-
-      const aberta = await tx.comanda.findFirst({
-        where: { mesaId, status: { in: ["ABERTA", "FECHANDO"] } },
-      });
-      if (aberta) return aberta;
-
-      const ultima = await tx.comanda.findFirst({
-        where: { unidadeId: mesa.unidadeId },
-        orderBy: { numero: "desc" },
-        select: { numero: true },
-      });
-
-      const criada = await tx.comanda.create({
-        data: {
-          tenantId: mesa.tenantId,
-          unidadeId: mesa.unidadeId,
-          numero: (ultima?.numero ?? 0) + 1,
-          origem: "MESA",
-          mesaId: mesa.id,
-          pessoas,
-          nomeCliente: nomeCliente || null,
-          taxaServicoPct: mesa.unidade.taxaServicoPct,
-          abertaPorId: sessao.usuarioId,
-        },
-      });
-      await tx.mesa.update({ where: { id: mesa.id }, data: { status: "OCUPADA" } });
-      return criada;
-    });
+    const { comandaId } = await abrirMesa(sessao, { mesaId, pessoas, nomeCliente });
 
     revalidatePath("/pdv");
-    await publicar(sessao.unidadeId, "mesa-aberta");
-    return { comandaId: comanda.id };
+    return { comandaId };
   });
 }
 

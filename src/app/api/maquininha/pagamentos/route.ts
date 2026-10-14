@@ -46,6 +46,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ erro: "Sessão do operador expirada." }, { status: 401 });
   }
 
+  /*
+   * Receber pagamento é conferido aqui, e não só na porta do turno.
+   *
+   * Enquanto o aparelho só cobrava, bastava o PIN: entrar era poder receber.
+   * Agora o garçom também entra — para lançar a rodada e abrir mesa —, e sem
+   * esta conferência o turno dele passaria a registrar pagamento, que é a
+   * permissão que o cargo dele não tem no salão.
+   */
+  const podeReceber =
+    operador.permissoes.includes("*") ||
+    operador.permissoes.includes("comanda.receberPagamento");
+  if (!podeReceber) {
+    return NextResponse.json(
+      { erro: "Seu acesso não permite receber pagamento." },
+      { status: 403 }
+    );
+  }
+
   let corpo: {
     comandaId?: string;
     referencia?: string;

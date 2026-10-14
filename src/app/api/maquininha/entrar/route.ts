@@ -7,8 +7,19 @@ import { limparFalhas, registrarFalha, verificar } from "@/lib/limite-tentativas
 
 export const dynamic = "force-dynamic";
 
-/** Quem recebe pela maquininha precisa poder receber pagamento no salão. */
-const PERMISSAO = "comanda.receberPagamento";
+/**
+ * O que abre a porta do aparelho.
+ *
+ * Era só receber pagamento, de quando a maquininha só cobrava. Com o salão
+ * dentro dela — lançar a rodada, abrir a mesa —, o garçom batia numa porta que
+ * nunca abria: o cargo GARCOM tem `comanda.abrir` e `comanda.lancarItem` e não
+ * tem `comanda.receberPagamento`, e toda a parte de salão do aparelho ficava
+ * inalcançável justamente para quem ela foi feita.
+ *
+ * Entrar não é poder tudo: cada porta confere a sua permissão depois, e a tela
+ * esconde o que o operador não pode fazer.
+ */
+const PERMISSOES_DO_APARELHO = ["comanda.receberPagamento", "comanda.lancarItem"];
 
 /**
  * POST /api/maquininha/entrar — o operador começa o turno no aparelho.
@@ -81,13 +92,16 @@ export async function POST(request: NextRequest) {
 
     const cargo = usuario.unidades[0]?.cargo;
     const permissoes = cargo?.permissoes.map((p) => p.chave) ?? [];
-    const pode = permissoes.includes("*") || permissoes.includes(PERMISSAO);
+    const pode =
+      permissoes.includes("*") || PERMISSOES_DO_APARELHO.some((c) => permissoes.includes(c));
     if (!pode) {
       // PIN certo, cargo errado: não conta como tentativa falha, e a mensagem
       // diz o que fazer — chamar quem opera o caixa.
       await limparFalhas(chave);
       return NextResponse.json(
-        { erro: `${usuario.nome} (${cargo?.nome ?? "sem cargo"}) não recebe pagamento.` },
+        {
+          erro: `${usuario.nome} (${cargo?.nome ?? "sem cargo"}) não recebe pagamento nem lança pedido.`,
+        },
         { status: 403 }
       );
     }
