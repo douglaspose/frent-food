@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { db, dbSemRls } from "@/lib/db";
 import { atravessandoRestaurantes, declararTenant } from "@/lib/tenant-atual";
 import { LEVA_MARCA, marcaParaImpressora } from "@/lib/marca-impressa";
-import { paraImpressora } from "@/lib/impressao";
+import { COLUNAS, paraImpressora, remontar } from "@/lib/impressao";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +50,21 @@ export async function GET(request: NextRequest) {
    */
   declararTenant(unidade.tenantId);
 
+  /*
+   * A largura de quem está buscando.
+   *
+   * A térmica de 80mm do balcão faz 48 colunas e é o padrão; a embutida numa
+   * maquininha faz 32. Quem não disser nada recebe 48, como sempre recebeu —
+   * é o que mantém o agente de impressão em Node funcionando sem mudar uma
+   * linha.
+   *
+   * Fora da faixa, ignora: um `?colunas=2` montaria um papel de duas letras
+   * por linha, e um valor absurdo não deve virar papel absurdo.
+   */
+  const pedidas = Number(request.nextUrl.searchParams.get("colunas"));
+  const colunas =
+    Number.isInteger(pedidas) && pedidas >= 24 && pedidas <= 96 ? pedidas : COLUNAS;
+
   const trabalhos = await db.filaImpressao.findMany({
     where: { unidadeId: unidade.id, status: "PENDENTE" },
     orderBy: { criadoEm: "asc" },
@@ -73,13 +88,26 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     unidade: unidade.nome,
     marca,
+    colunas,
     trabalhos: trabalhos.map((t) => ({
       id: t.id,
       tipo: t.tipo,
       titulo: t.titulo,
-      // A fila guarda marcadores no lugar dos comandos de letra dupla (o
-      // Postgres não aceita o byte zero do comando); aqui eles viram ESC/POS.
-      conteudo: paraImpressora(t.conteudo),
+      /*
+       * Na largura pedida, quando dá para remontar.
+       *
+       * O `conteudo` guardado é o que saiu em 48 colunas e continua sendo a
+       * fonte da segunda via. Para outra largura, o papel é montado de novo a
+       * partir dos argumentos — refluir um texto já formatado é como se perde
+       * o valor no fim da linha. Sem `dados` (trabalho antigo, ou DANFE), sai
+       * o texto guardado como sempre saiu.
+       *
+       * A fila guarda marcadores no lugar dos comandos de letra dupla (o
+       * Postgres não aceita o byte zero do comando); aqui eles viram ESC/POS.
+       */
+      conteudo: paraImpressora(
+        (colunas !== COLUNAS ? remontar(t.tipo, t.dados, colunas) : null) ?? t.conteudo
+      ),
       /*
        * Campo novo, e por isso um booleano em vez de mudar o `conteudo`: o
        * agente que não souber de marca nenhuma ignora e continua imprimindo

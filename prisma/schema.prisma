@@ -621,6 +621,11 @@ model FilaImpressao {
   titulo       String
   referenciaId String?
 
+  /// Os argumentos que montaram o `conteudo`, para remontar o papel em outra
+  /// largura — a térmica de uma maquininha faz 32 colunas, não 48. Nulo nos
+  /// trabalhos antigos e nos que ninguém precisa remontar.
+  dados Json?
+
   tentativas Int       @default(0)
   erro       String?
   criadoEm   DateTime  @default(now())

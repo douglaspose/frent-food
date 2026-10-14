@@ -22,6 +22,15 @@ type Enfileirar = {
   titulo: string;
   conteudo: string;
   referenciaId?: string;
+  /**
+   * Os argumentos que montaram o `conteudo`.
+   *
+   * Guardados para remontar o papel na largura de quem for imprimi-lo: a
+   * térmica de uma maquininha faz 32 colunas, e refluir um texto já formatado
+   * em 48 é como se perde o valor no fim da linha. O `conteudo` continua sendo
+   * o que saiu de fato — a segunda via sai idêntica à primeira.
+   */
+  dados?: unknown;
 };
 
 export async function enfileirar(dados: Enfileirar) {
@@ -34,6 +43,7 @@ export async function enfileirar(dados: Enfileirar) {
       titulo: dados.titulo,
       conteudo: dados.conteudo,
       referenciaId: dados.referenciaId ?? null,
+      dados: (dados.dados ?? undefined) as never,
     },
   });
 }
@@ -75,7 +85,9 @@ export async function enfileirarPedidos(pedidoIds: string[]) {
   });
 
   for (const pedido of pedidos) {
-    const conteudo = comandaDeProducao({
+    // Os mesmos argumentos vão para a montagem e para a fila: é o que permite
+    // remontar o papel noutra largura sem refluir texto já formatado.
+    const papel = {
       estacao: pedido.estacao.nome,
       pedidoNumero: pedido.numero,
       mesa: pedido.comanda.mesa?.numero ?? null,
@@ -89,7 +101,7 @@ export async function enfileirarPedidos(pedidoIds: string[]) {
         observacao: i.comandaItem.observacao,
         opcionais: i.comandaItem.opcionais,
       })),
-    });
+    };
 
     await enfileirar({
       tenantId: pedido.tenantId,
@@ -97,7 +109,8 @@ export async function enfileirarPedidos(pedidoIds: string[]) {
       impressoraId: pedido.estacao.impressoraId,
       tipo: "COMANDA_PRODUCAO",
       titulo: `${pedido.estacao.nome} · pedido #${pedido.numero}`,
-      conteudo,
+      conteudo: comandaDeProducao(papel),
+      dados: papel,
       referenciaId: pedido.id,
     });
   }
@@ -154,7 +167,7 @@ export async function enfileirarCancelamento(comandaItemId: string) {
   if (ligado?.valor !== true) return;
 
   for (const { pedido } of item.pedidoItens) {
-    const conteudo = comandaDeCancelamento({
+    const papel = {
       estacao: pedido.estacao.nome,
       pedidoNumero: pedido.numero,
       mesa: item.comanda.mesa?.numero ?? null,
@@ -167,7 +180,7 @@ export async function enfileirarCancelamento(comandaItemId: string) {
         quantidade: Number(item.quantidade),
         pontoCarne: item.pontoCarne,
       },
-    });
+    };
 
     await enfileirar({
       tenantId: pedido.tenantId,
@@ -175,7 +188,8 @@ export async function enfileirarCancelamento(comandaItemId: string) {
       impressoraId: pedido.estacao.impressoraId,
       tipo: "CANCELAMENTO",
       titulo: `CANCELAMENTO · ${pedido.estacao.nome} · pedido #${pedido.numero}`,
-      conteudo,
+      conteudo: comandaDeCancelamento(papel),
+      dados: papel,
       referenciaId: comandaItemId,
     });
   }
@@ -206,7 +220,7 @@ export async function enfileirarTransferencia(
     const vivos = pedido.itens.filter((i) => i.comandaItem.status !== "CANCELADO");
     if (vivos.length === 0) continue;
 
-    const conteudo = avisoDeTransferencia({
+    const papel = {
       estacao: pedido.estacao.nome,
       pedidoNumero: pedido.numero,
       de,
@@ -218,7 +232,7 @@ export async function enfileirarTransferencia(
         titulo: i.comandaItem.produto.titulo,
         quantidade: Number(i.comandaItem.quantidade),
       })),
-    });
+    };
 
     await enfileirar({
       tenantId: pedido.tenantId,
@@ -226,7 +240,8 @@ export async function enfileirarTransferencia(
       impressoraId: pedido.estacao.impressoraId,
       tipo: "TRANSFERENCIA",
       titulo: `MESA ${de} → ${para} · ${pedido.estacao.nome} · pedido #${pedido.numero}`,
-      conteudo,
+      conteudo: avisoDeTransferencia(papel),
+      dados: papel,
       referenciaId: pedido.id,
     });
   }
@@ -269,7 +284,7 @@ export async function enfileirarConferencia(comandaId: string, segundaVia = fals
   );
   const itens = comanda.itens.filter((i) => !omitirZerados || Number(i.precoTotal) > 0);
 
-  const conteudo = conferenciaDeConta({
+  const papel = {
     restaurante: comanda.unidade.nome,
     mesa: comanda.mesa?.numero ?? null,
     comandaNumero: comanda.numero,
@@ -290,14 +305,15 @@ export async function enfileirarConferencia(comandaId: string, segundaVia = fals
       valor: Number(p.valor) - Number(p.troco),
       em: p.criadoEm,
     })),
-  });
+  };
 
   return enfileirar({
     tenantId: comanda.tenantId,
     unidadeId: comanda.unidadeId,
     tipo: "CONFERENCIA",
     titulo: comanda.mesa ? `Conferência mesa ${comanda.mesa.numero}` : `Conferência #${comanda.numero}`,
-    conteudo,
+    conteudo: conferenciaDeConta(papel),
+    dados: papel,
     referenciaId: comanda.id,
   });
 }
@@ -319,7 +335,7 @@ export async function enfileirarCupom(comandaId: string, operador: string) {
     descontoValor: Number(comanda.descontoValor),
   });
 
-  const conteudo = cupomDePagamento({
+  const papel = {
     restaurante: comanda.unidade.nome,
     mesa: comanda.mesa?.numero ?? null,
     comandaNumero: comanda.numero,
@@ -330,14 +346,15 @@ export async function enfileirarCupom(comandaId: string, operador: string) {
       valor: Number(p.valor),
       troco: Number(p.troco),
     })),
-  });
+  };
 
   return enfileirar({
     tenantId: comanda.tenantId,
     unidadeId: comanda.unidadeId,
     tipo: "CUPOM",
     titulo: comanda.mesa ? `Cupom mesa ${comanda.mesa.numero}` : `Cupom #${comanda.numero}`,
-    conteudo,
+    conteudo: cupomDePagamento(papel),
+    dados: papel,
     referenciaId: comanda.id,
   });
 }

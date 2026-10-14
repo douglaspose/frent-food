@@ -10,7 +10,7 @@ dentro do restaurante — a mesma que enxerga as impressoras da rede — e que n
 mora neste repositório.
 
 ```
-server action ──► fila_impressao (conteudo pronto, 48 colunas)
+server action ──► fila_impressao (conteudo pronto + os dados que o montaram)
                         │
                         │  GET /api/impressao   (a cada poucos segundos)
                         ▼
@@ -58,11 +58,32 @@ Devolve até 20 trabalhos pendentes, do mais antigo para o mais novo.
 `conteudo` é texto já quebrado em 48 colunas — a largura da fonte padrão de uma
 térmica de 80mm. O agente escreve como está e corta.
 
+### A largura de quem imprime
+
+Nem toda impressora é de 80mm: a térmica embutida numa maquininha faz 32
+colunas. Quem busca pode dizer a sua largura, e o papel vem montado nela:
+
+```
+GET /api/impressao?colunas=32
+```
+
+A resposta repete a largura usada em `colunas`, para quem chamou saber se foi
+atendido. **Sem o parâmetro, vêm 48**, como sempre vieram — o agente que não
+souber deste campo continua funcionando sem mudar uma linha. Valores fora de
+24–96 são ignorados: um `?colunas=2` montaria um papel de duas letras por
+linha.
+
+O papel é **montado de novo** na largura pedida, a partir dos argumentos que o
+geraram (guardados em `fila_impressao.dados`) — e não refluindo o texto de 48.
+Refluir perde o valor no fim da linha, que é justamente a informação que o
+caixa procura. Trabalho antigo sem esses argumentos, e a DANFE (layout da
+SEFAZ), saem no texto guardado mesmo quando se pede outra largura.
+
 Algumas linhas vêm em **letra dupla** (o dobro de largura e de altura): na
 conferência de conta, a mesa e o total. Elas chegam com o comando ESC/POS de
 tamanho em volta — `GS ! 0x11` (bytes `1D 21 11`) antes, `GS ! 0x00`
 (`1D 21 00`) depois — e o agente não precisa fazer nada: escrevendo os bytes
-como vieram, a impressora obedece. Em letra dupla cabem 24 colunas, e o
+como vieram, a impressora obedece. Em letra dupla cabe metade das colunas, e o
 servidor já monta essas linhas nessa largura.
 
 Na fila, o texto é guardado com marcadores no lugar desses comandos (SO,
