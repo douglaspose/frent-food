@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { declararTenant } from "@/lib/tenant-atual";
 import { adicionarItem, enviarCarrinho } from "@/lib/carrinho";
 import { ErroDeOperacao } from "@/lib/erro-de-operacao";
-import { operadorDaRequisicao, unidadeDoAparelho } from "@/lib/maquininha";
+import { operadorDaRequisicao, unidadeDoAparelho, podeNoAparelho } from "@/lib/maquininha";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const podeLancar =
-    operador.permissoes.includes("*") || operador.permissoes.includes("comanda.lancarItem");
+    podeNoAparelho(operador.permissoes, "comanda.lancarItem");
   if (!podeLancar) {
     return NextResponse.json({ erro: "Seu acesso não permite lançar itens." }, { status: 403 });
   }

@@ -101,3 +101,15 @@ export async function operadorDaRequisicao(
   if (operador.tenantId !== unidade.tenantId || operador.unidadeId !== unidade.id) return null;
   return operador;
 }
+
+/**
+ * O operador pode isto, ou aquilo.
+ *
+ * A mesma conta estava escrita em cada rota do aparelho, e a porta do turno já
+ * deixa entrar quem recebe pagamento **ou** quem lança pedido: é depois de
+ * entrar que cada rota confere a sua permissão. Uma cópia a mais seria a que
+ * esquece o `"*"` do proprietário.
+ */
+export function podeNoAparelho(permissoes: string[], ...chaves: string[]) {
+  return permissoes.includes("*") || chaves.some((chave) => permissoes.includes(chave));
+}

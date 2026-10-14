@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { declararTenant } from "@/lib/tenant-atual";
 import { centavos, TOLERANCIA } from "@/lib/comanda";
 import { contaDaComanda, finalizarConta, receberPagamento } from "@/lib/conta";
-import { operadorDaRequisicao, unidadeDoAparelho } from "@/lib/maquininha";
+import { operadorDaRequisicao, unidadeDoAparelho, podeNoAparelho } from "@/lib/maquininha";
 import { temErro } from "@/lib/erro-de-operacao";
 import { emResultado } from "@/lib/erro-de-operacao";
 
@@ -54,9 +54,7 @@ export async function POST(request: NextRequest) {
    * esta conferência o turno dele passaria a registrar pagamento, que é a
    * permissão que o cargo dele não tem no salão.
    */
-  const podeReceber =
-    operador.permissoes.includes("*") ||
-    operador.permissoes.includes("comanda.receberPagamento");
+  const podeReceber = podeNoAparelho(operador.permissoes, "comanda.receberPagamento");
   if (!podeReceber) {
     return NextResponse.json(
       { erro: "Seu acesso não permite receber pagamento." },
@@ -127,8 +125,7 @@ export async function POST(request: NextRequest) {
      * Quem não pode fechar conta recebe assim mesmo; só não fecha. É o caso
      * de quem só tem `comanda.receberPagamento`.
      */
-    const podeFechar =
-      operador.permissoes.includes("*") || operador.permissoes.includes("comanda.fechar");
+    const podeFechar = podeNoAparelho(operador.permissoes, "comanda.fechar");
     const quitada = falta <= TOLERANCIA;
     const finalizada = quitada && podeFechar && corpo.finalizar !== false
       ? await finalizarConta(operador, comandaId)

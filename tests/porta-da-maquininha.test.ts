@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { POST as entrar } from "@/app/api/maquininha/entrar/route";
 import { GET as salao, POST as abrir } from "@/app/api/maquininha/mesas/route";
 import { POST as pagar } from "@/app/api/maquininha/pagamentos/route";
+import { POST as pedirConta } from "@/app/api/maquininha/comandas/[id]/conferencia/route";
+import { POST as reabrir } from "@/app/api/maquininha/comandas/[id]/reabrir/route";
 import { criarRestaurante, limpar } from "./fixtures";
 
 /**
@@ -67,21 +69,21 @@ beforeAll(async () => {
   unidadeId = r.unidade.id;
   await db.unidade.update({ where: { id: unidadeId }, data: { tokenImpressao: APARELHO } });
 
-  await criarCargo("GARCOM", ["comanda.abrir", "comanda.lancarItem"], "1111");
+  await criarCargo(
+    "GARCOM",
+    ["comanda.abrir", "comanda.lancarItem", "comanda.imprimirParcial", "mesa.transferir"],
+    "1111"
+  );
   // Só recebe: é o cargo para quem a porta foi feita quando ela nasceu.
   await criarCargo("RECEBEDOR", ["comanda.receberPagamento"], "2222");
   // Nem recebe nem lança: a cozinha não opera a maquininha.
   await criarCargo("COZINHEIRO", ["kds.ver"], "3333");
 
-  await db.mesa.create({
-    data: {
-      tenantId,
-      unidadeId,
-      numero: "1",
-      capacidade: 4,
-      qrToken: `qr-${SLUG}-1`,
-    },
-  });
+  for (const numero of ["1", "2", "3", "4", "5", "6"]) {
+    await db.mesa.create({
+      data: { tenantId, unidadeId, numero, capacidade: 4, qrToken: `qr-${SLUG}-${numero}` },
+    });
+  }
 });
 
 afterAll(async () => {
@@ -120,7 +122,7 @@ describe("depois de entrar, cada porta confere a sua permissão", () => {
     const salaoDele = await (await salao(pedido("/api/maquininha/mesas", undefined, turno.token))).json();
     expect(salaoDele.podeAbrir).toBe(true);
     expect(salaoDele.podeReceber).toBe(false);
-    expect(salaoDele.livres).toHaveLength(1);
+    expect(salaoDele.livres.length).toBeGreaterThan(0);
 
     const resposta = await abrir(
       pedido("/api/maquininha/mesas", { mesaId: salaoDele.livres[0].mesaId, pessoas: 2 }, turno.token)
@@ -167,5 +169,78 @@ describe("depois de entrar, cada porta confere a sua permissão", () => {
 
     expect(resposta.status).not.toBe(403);
     expect((await resposta.json()).erro).toContain("Informe a comanda");
+  });
+});
+
+describe("pedir a conta pelo aparelho", () => {
+  /** Abre uma mesa livre e devolve a conta dela. */
+  async function contaAberta(turno: string) {
+    const salaoDele = await (
+      await salao(pedido("/api/maquininha/mesas", undefined, turno))
+    ).json();
+    const livre = salaoDele.livres[0];
+    const aberta = await (
+      await abrir(pedido("/api/maquininha/mesas", { mesaId: livre.mesaId, pessoas: 2 }, turno))
+    ).json();
+    return { comandaId: aberta.comandaId as string, contexto: { params: Promise.resolve({ id: aberta.comandaId as string }) } };
+  }
+
+  it("o garçom pede a conta e reabre, que é o par que o salão exige", async () => {
+    const { corpo: turno } = await entrarCom("1111");
+    const { comandaId } = await contaAberta(turno.token);
+    const contexto = () => ({ params: Promise.resolve({ id: comandaId }) });
+
+    const pedida = await pedirConta(
+      pedido(`/api/maquininha/comandas/${comandaId}/conferencia`, {}, turno.token),
+      contexto()
+    );
+    expect(pedida.status).toBe(200);
+    expect((await db.comanda.findUniqueOrThrow({ where: { id: comandaId } })).status).toBe(
+      "FECHANDO"
+    );
+
+    /*
+     * Reabrir vem junto de propósito: em fechamento a comanda não recebe item,
+     * e "traz mais uma cerveja" depois de pedir a conta é rotina. Sem esta
+     * porta, o garçom ficaria parado na mesa com o aparelho que acabou de
+     * travar a própria mesa.
+     */
+    const reaberta = await reabrir(
+      pedido(`/api/maquininha/comandas/${comandaId}/reabrir`, {}, turno.token),
+      contexto()
+    );
+    expect(reaberta.status).toBe(200);
+    expect((await db.comanda.findUniqueOrThrow({ where: { id: comandaId } })).status).toBe(
+      "ABERTA"
+    );
+  });
+
+  it("quem só recebe também pede a conta — é a folha que ele vai cobrar", async () => {
+    const { corpo: doGarcom } = await entrarCom("1111");
+    const { comandaId } = await contaAberta(doGarcom.token);
+    const { corpo: turno } = await entrarCom("2222");
+
+    const salaoDele = await (
+      await salao(pedido("/api/maquininha/mesas", undefined, turno.token))
+    ).json();
+    expect(salaoDele.podePedirConta).toBe(true);
+
+    const resposta = await pedirConta(
+      pedido(`/api/maquininha/comandas/${comandaId}/conferencia`, {}, turno.token),
+      { params: Promise.resolve({ id: comandaId }) }
+    );
+    expect(resposta.status).toBe(200);
+  });
+
+  it("quem só recebe não reabre: reabrir é para lançar", async () => {
+    const { corpo: doGarcom } = await entrarCom("1111");
+    const { comandaId } = await contaAberta(doGarcom.token);
+    const { corpo: turno } = await entrarCom("2222");
+
+    const resposta = await reabrir(
+      pedido(`/api/maquininha/comandas/${comandaId}/reabrir`, {}, turno.token),
+      { params: Promise.resolve({ id: comandaId }) }
+    );
+    expect(resposta.status).toBe(403);
   });
 });

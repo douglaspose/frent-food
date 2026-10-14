@@ -13,7 +13,7 @@ import type { Sessao } from "./session";
  * querer conferir.
  */
 export async function auditoria(
-  sessao: Sessao,
+  sessao: Pick<Sessao, "usuarioId" | "tenantId" | "unidadeId">,
   registro: Registro
 ): Promise<Prisma.AuditLogUncheckedCreateInput> {
   return {

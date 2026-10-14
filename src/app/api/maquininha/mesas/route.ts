@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { declararTenant } from "@/lib/tenant-atual";
 import { CONSUMO } from "@/lib/itens";
 import { calcularTotais, centavos } from "@/lib/comanda";
-import { operadorDaRequisicao, unidadeDoAparelho } from "@/lib/maquininha";
+import { operadorDaRequisicao, unidadeDoAparelho, podeNoAparelho } from "@/lib/maquininha";
 import { abrirMesa, mesasLivres } from "@/lib/abertura";
 import { ajusteBooleano } from "@/lib/parametros-servidor";
 import { ErroDeOperacao } from "@/lib/erro-de-operacao";
@@ -52,8 +52,7 @@ export async function GET(request: NextRequest) {
    * mandar as mesas livres para quem não pode abrir seria dado inútil
    * trafegando a cada volta ao salão.
    */
-  const podeAbrir =
-    operador.permissoes.includes("*") || operador.permissoes.includes("comanda.abrir");
+  const podeAbrir = podeNoAparelho(operador.permissoes, "comanda.abrir");
   const livres = podeAbrir ? await mesasLivres(unidade.id) : [];
   /*
    * Quem não recebe pagamento não vê onde cobrar.
@@ -62,9 +61,7 @@ export async function GET(request: NextRequest) {
    * cobrança na tela dele seria oferecer um caminho que termina em 403 com o
    * cartão do cliente já na mão.
    */
-  const podeReceber =
-    operador.permissoes.includes("*") ||
-    operador.permissoes.includes("comanda.receberPagamento");
+  const podeReceber = podeNoAparelho(operador.permissoes, "comanda.receberPagamento");
 
   const caixaAberto = await db.caixa.findFirst({
     where: { unidadeId: unidade.id, tipo: "GERAL", status: "ABERTO" },
@@ -89,6 +86,16 @@ export async function GET(request: NextRequest) {
     caixaAberto: Boolean(caixaAberto),
     podeAbrir,
     podeReceber,
+    /*
+     * Pedir a conta é do garçom (`comanda.imprimirParcial`) e de quem vai
+     * cobrar: o cargo CAIXA não tem a chave de impressão parcial, e recusar a
+     * ele a folha que ele mesmo vai receber não faria sentido nenhum.
+     */
+    podePedirConta: podeNoAparelho(
+      operador.permissoes,
+      "comanda.imprimirParcial",
+      "comanda.receberPagamento"
+    ),
     livres,
     // A casa que exige o nome do cliente exige nas duas portas. O aparelho
     // precisa saber antes de perguntar — e não depois, com o erro na mão.
@@ -146,8 +153,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ erro: "Sessão do operador expirada." }, { status: 401 });
   }
 
-  const podeAbrir =
-    operador.permissoes.includes("*") || operador.permissoes.includes("comanda.abrir");
+  const podeAbrir = podeNoAparelho(operador.permissoes, "comanda.abrir");
   if (!podeAbrir) {
     return NextResponse.json({ erro: "Seu acesso não permite abrir mesa." }, { status: 403 });
   }

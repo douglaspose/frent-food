@@ -6,6 +6,7 @@ import { CONSUMO } from "@/lib/itens";
 import { calcularTotais, centavos, TOLERANCIA } from "@/lib/comanda";
 import { exigirPermissao, exigirSessao } from "@/lib/session";
 import { enfileirarConferencia } from "@/lib/fila-impressao";
+import { marcarFechando, reabrirConta } from "@/lib/fechamento";
 import { finalizarConta, receberPagamento } from "@/lib/conta";
 import { publicar } from "@/lib/eventos";
 import { auditoria } from "@/lib/auditoria-servidor";
@@ -307,69 +308,28 @@ export async function imprimirConferencia(comandaId: string, segundaVia = false)
 /**
  * Marca a comanda como em fechamento.
  *
- * É o que acende a mesa em laranja no mapa: o salão inteiro passa a ver que
- * aquela mesa pediu a conta, e o caixa sabe onde vai precisar. Enquanto está
- * assim, ninguém lança item novo sem reabrir.
+ * A regra mora em `@/lib/fechamento`, compartilhada com a maquininha — lá o
+ * garçom pede a conta de pé na mesa, e o que acontece com a comanda é o mesmo.
+ * O que sobra aqui é a sessão e a tela.
  */
 export async function iniciarFechamento(comandaId: string) {
   return emResultado(async () => {
     const sessao = await exigirSessao();
-
-    const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
-    if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
-    // Já fechando ou já paga: nada a fazer, e não é erro.
-    if (comanda.status !== "ABERTA") return;
-
-    await db.$transaction(async (tx) => {
-      await tx.comanda.update({ where: { id: comandaId }, data: { status: "FECHANDO" } });
-      if (comanda.mesaId) {
-        await tx.mesa.update({ where: { id: comanda.mesaId }, data: { status: "FECHANDO" } });
-      }
-    });
+    await marcarFechando(sessao, comandaId);
 
     revalidatePath("/pdv");
     revalidatePath("/kds");
-    // A cozinha marca o ticket dessa mesa: ou apressa o prato, ou cancela.
-    await publicar(sessao.unidadeId, "conta-pedida");
   });
 }
 
-/**
- * Devolve a comanda para aberta.
- *
- * "Traz mais uma cerveja" depois de pedir a conta é a coisa mais comum do
- * mundo num restaurante. Travar isso faria o garçom burlar o sistema —
- * lançar na mesa do lado, anotar no papel. Por isso qualquer garçom reabre;
- * o que já foi pago continua registrado e entra no novo total.
- */
+/** Devolve a comanda para aberta. O porquê está em `@/lib/fechamento`. */
 export async function reabrirComanda(comandaId: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.lancarItem");
-
-    const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
-    if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
-    if (comanda.status === "PAGA") throw new ErroDeOperacao("Comanda já paga. Abra uma nova.");
-    if (comanda.status === "ABERTA") return;
-
-    const registro = await auditoria(sessao, {
-      entidade: "Comanda",
-      entidadeId: comandaId,
-      acao: "CONTA_REABERTA",
-      antes: { status: comanda.status },
-      depois: { status: "ABERTA", comanda: comanda.numero },
-    });
-
-    await db.$transaction(async (tx) => {
-      await tx.comanda.update({ where: { id: comandaId }, data: { status: "ABERTA" } });
-      if (comanda.mesaId) {
-        await tx.mesa.update({ where: { id: comanda.mesaId }, data: { status: "OCUPADA" } });
-      }
-      await tx.auditLog.create({ data: registro });
-    });
+    await reabrirConta(sessao, comandaId);
 
     revalidatePath("/pdv");
     revalidatePath("/kds");
-    await publicar(sessao.unidadeId, "conta-reaberta");
   });
 }
 
