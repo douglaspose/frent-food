@@ -46,12 +46,18 @@ export async function adicionarAoCarrinho(dados: {
   cardapioItemId: string;
   precoUnitario: number;
   exigePontoCarne: boolean;
+  /**
+   * As escolhas do prato (ponto, adicionais). Só os identificadores: título e
+   * preço saem do cadastro, como o resto — o navegador não precifica nada.
+   */
+  opcionais?: { opcionalId: string }[];
 }) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.lancarItem");
     await adicionarItem(sessao, {
       comandaId: dados.comandaId,
       cardapioItemId: dados.cardapioItemId,
+      opcionais: dados.opcionais,
     });
     revalidatePath("/pdv");
   });

@@ -137,6 +137,11 @@ async function main() {
     },
   });
 
+  // Quem já tem o grupo "Ponto da carne" não precisa do campo antigo.
+  const COM_GRUPO_DE_PONTO = new Set(
+    GRUPOS_OPCIONAIS.find((g) => g.titulo === "Ponto da carne")?.produtos ?? []
+  );
+
   let codigo = 1;
   for (const [i, grupo] of CARDAPIO.entries()) {
     const categoria = await db.categoriaProduto.create({
@@ -151,7 +156,17 @@ async function main() {
           titulo,
           categoriaId: categoria.id,
           tipo: "VENDA",
-          exigePontoCarne: CATEGORIAS_COM_PONTO.has(grupo.categoria),
+          /*
+           * Os dois mecanismos de ponto não convivem no mesmo produto.
+           *
+           * `exigePontoCarne` é o campo antigo, que o PDV resolve com três
+           * botões na linha do carrinho; o grupo "Ponto da carne" é o novo, que
+           * pergunta antes de lançar e vale também na maquininha. Marcando os
+           * dois, o garçom escolhe o ponto no diálogo e a tela pergunta de novo
+           * — e as duas respostas vão para lugares diferentes.
+           */
+          exigePontoCarne:
+            CATEGORIAS_COM_PONTO.has(grupo.categoria) && !COM_GRUPO_DE_PONTO.has(titulo),
           maiorDeIdade: ehAlcoolica(titulo),
           estacoes: {
             create: { estacaoId: CATEGORIAS_DO_BAR.has(grupo.categoria) ? bar.id : cozinha.id },

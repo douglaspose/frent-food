@@ -201,7 +201,7 @@ export type OpcionalDoCardapio = {
  * algumas centenas de itens, e uma ida ao banco por item deixaria a abertura
  * do cardápio na maquininha em segundos.
  */
-async function gruposDosProdutos(produtoIds: string[]) {
+export async function gruposDosProdutos(produtoIds: string[]) {
   if (produtoIds.length === 0) return new Map<string, GrupoDeOpcionais[]>()
 
   const vinculos = await db.produtoGrupoOpcional.findMany({

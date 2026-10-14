@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { sessaoDaTela, temPermissao } from "@/lib/session";
 import { lerAjustes } from "@/lib/parametros-servidor";
+import { gruposDosProdutos, type GrupoDeOpcionais } from "@/lib/carrinho";
 import { ComandaScreen } from "./comanda-screen";
 import { AbrirForm } from "./abrir-form";
 
@@ -33,6 +34,9 @@ export default async function MesaPage({ params }: { params: Promise<{ id: strin
         include: {
           produto: { select: { titulo: true, exigePontoCarne: true } },
           lancadoPor: { select: { nome: true } },
+          // As escolhas aparecem na linha: o garçom precisa conferir o que
+          // marcou antes de mandar, e o preço maior sozinho não diz o quê.
+          opcionais: { select: { titulo: true, quantidade: true } },
         },
       },
     },
@@ -54,6 +58,16 @@ export default async function MesaPage({ params }: { params: Promise<{ id: strin
     },
   });
 
+  /*
+   * Os grupos de opcionais vêm numa consulta só para o cardápio inteiro, da
+   * mesma função que a maquininha usa: duas formas de ler os mesmos grupos
+   * seria o caminho mais curto para o tablet oferecer um adicional que o
+   * aparelho recusa.
+   */
+  const grupos = await gruposDosProdutos(
+    (cardapio?.itens ?? []).map((i) => i.produto.id)
+  );
+
   // Agrupa por categoria preservando a ordem definida no cadastro.
   const categorias = new Map<string, { id: string; nome: string; itens: CardapioItemView[] }>();
   for (const item of cardapio?.itens ?? []) {
@@ -68,6 +82,7 @@ export default async function MesaPage({ params }: { params: Promise<{ id: strin
       preco: Number(item.preco),
       esgotado: item.esgotado,
       exigePontoCarne: item.produto.exigePontoCarne,
+      grupos: grupos.get(item.produto.id) ?? [],
     });
   }
 
@@ -111,6 +126,7 @@ export default async function MesaPage({ params }: { params: Promise<{ id: strin
           pontoCarne: i.pontoCarne,
           observacao: i.observacao,
           exigePontoCarne: i.produto.exigePontoCarne,
+          opcionais: i.opcionais,
           lancadoEm: i.lancadoEm.toISOString(),
           lancadoPor: i.lancadoPor.nome,
         })),
@@ -130,6 +146,8 @@ export type CardapioItemView = {
   preco: number;
   esgotado: boolean;
   exigePontoCarne: boolean;
+  /** Ponto, adicionais, acompanhamento — o que o cliente escolhe. */
+  grupos: GrupoDeOpcionais[];
 };
 
 function AberturaDeMesa({

@@ -22,6 +22,8 @@ import { PainelAutorizacao } from "../../painel-autorizacao";
 import { Transferir } from "./transferir";
 import { decorrido, useAgora } from "../../use-agora";
 import type { CardapioItemView } from "./page";
+import type { OpcionalDoCardapio } from "@/lib/carrinho";
+import { EscolhasDoItem } from "./escolhas-do-item";
 
 type ItemComanda = {
   id: string;
@@ -33,6 +35,8 @@ type ItemComanda = {
   pontoCarne: string | null;
   observacao: string | null;
   exigePontoCarne: boolean;
+  /** O que o cliente escolheu: ponto, adicionais, acompanhamento. */
+  opcionais: { titulo: string; quantidade: number }[];
   lancadoEm: string;
   lancadoPor: string;
 };
@@ -123,6 +127,8 @@ export function ComandaScreen({
   const [erro, setErro] = useState<string | null>(null);
   // Qual item está com o campo de motivo aberto. Um de cada vez: cancelar é
   // decisão individual, e abrir vários formulários convida ao erro.
+  // O prato que está com as escolhas abertas. Nulo: nenhum.
+  const [escolhendo, setEscolhendo] = useState<CardapioItemView | null>(null);
   const [cancelando, setCancelando] = useState<string | null>(null);
   const [motivo, setMotivo] = useState("");
   // Item esperando o PIN de quem pode cancelar.
@@ -188,8 +194,23 @@ export function ComandaScreen({
     });
   }
 
-  function adicionar(item: CardapioItemView) {
+  /**
+   * `escolhas` nulo quer dizer "ainda não perguntei"; uma lista, mesmo vazia,
+   * quer dizer "perguntei e ele respondeu". A diferença importa: um grupo
+   * inteiramente opcional volta sem nada marcado, e tratar isso como "não
+   * perguntei" reabriria o diálogo em laço.
+   */
+  function adicionar(item: CardapioItemView, escolhas: OpcionalDoCardapio[] | null = null) {
     if (item.esgotado) return;
+    /*
+     * Prato com grupo pergunta antes; sem grupo, vai direto — perguntar nada
+     * seria um toque a mais em cada cerveja, na tela que mais produz toque
+     * errado do sistema.
+     */
+    if (item.grupos.length > 0 && escolhas === null) {
+      setEscolhendo(item);
+      return;
+    }
     agir(
       () =>
         adicionarAoCarrinho({
@@ -198,8 +219,10 @@ export function ComandaScreen({
           cardapioItemId: item.id,
           precoUnitario: item.preco,
           exigePontoCarne: item.exigePontoCarne,
+          opcionais: (escolhas ?? []).map((e) => ({ opcionalId: e.opcionalId })),
         }),
       () => {
+        setEscolhendo(null);
         // A `vez` remonta a pílula quando o mesmo item é lançado duas vezes
         // seguidas: sem ela o React não veria mudança e a animação não
         // repetiria — e lançar dois espetos iguais é o caso mais comum aqui.
@@ -276,6 +299,15 @@ export function ComandaScreen({
 
   return (
     <div className="flex h-tela flex-col">
+      {escolhendo && (
+        <EscolhasDoItem
+          item={escolhendo}
+          pendente={pendente}
+          aoConfirmar={(escolhas) => adicionar(escolhendo, escolhas)}
+          aoFechar={() => setEscolhendo(null)}
+        />
+      )}
+
       <header className="relative flex shrink-0 items-center gap-4 border-b border-neutral-900 px-4 py-3">
         <BotaoVoltar href="/pdv" />
         <div>
@@ -499,7 +531,25 @@ export function ComandaScreen({
                       {brl.format(item.precoTotal)}
                     </span>
                   </div>
-                  {item.exigePontoCarne && (
+                  {/*
+                    As escolhas do prato, na linha de quem as escolheu.
+                    Sem isto, o garçom vê o preço maior e não vê o quê — e é
+                    antes de mandar que ele confere a rodada.
+                  */}
+                  {item.opcionais.length > 0 && (
+                    <p className="mt-1 text-xs leading-tight text-neutral-400">
+                      {item.opcionais
+                        .map((o) => (o.quantidade > 1 ? `${o.quantidade}x ${o.titulo}` : o.titulo))
+                        .join(" · ")}
+                    </p>
+                  )}
+                  {/*
+                    O ponto pelo campo antigo só quando não veio por grupo: com
+                    um grupo "Ponto da carne" cadastrado, estes botões
+                    perguntariam de novo o que o garçom acabou de escolher, e
+                    gravariam a resposta noutro lugar.
+                  */}
+                  {item.exigePontoCarne && item.opcionais.length === 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
                       {PONTOS.map((p) => (
                         <button
@@ -647,6 +697,17 @@ export function ComandaScreen({
                   <span className="mt-1 inline-block rounded-md bg-red-600/20 px-2 py-0.5 text-[10px] font-bold text-red-400">
                     {item.pontoCarne}
                   </span>
+                )}
+                {/*
+                  Na comanda as escolhas também aparecem: é o papel que o
+                  garçom lê quando o cliente pergunta "o que eu pedi mesmo?".
+                */}
+                {item.opcionais.length > 0 && (
+                  <p className="mt-1 text-[11px] leading-tight text-neutral-400">
+                    {item.opcionais
+                      .map((o) => (o.quantidade > 1 ? `${o.quantidade}x ${o.titulo}` : o.titulo))
+                      .join(" · ")}
+                  </p>
                 )}
 
                 {cancelando !== item.id && (
