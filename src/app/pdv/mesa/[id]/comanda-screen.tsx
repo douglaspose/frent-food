@@ -13,6 +13,7 @@ import {
   adicionarAoCarrinho,
   alterarQuantidade,
   atenderChamado,
+  definirObservacao,
   definirPontoCarne,
   limparCarrinho,
 } from "../../carrinho-actions";
@@ -24,6 +25,7 @@ import { decorrido, useAgora } from "../../use-agora";
 import type { CardapioItemView } from "./page";
 import type { OpcionalDoCardapio } from "@/lib/carrinho";
 import { EscolhasDoItem } from "./escolhas-do-item";
+import { ObservacaoDoItem } from "./observacao-do-item";
 
 type ItemComanda = {
   id: string;
@@ -129,6 +131,8 @@ export function ComandaScreen({
   // decisão individual, e abrir vários formulários convida ao erro.
   // O prato que está com as escolhas abertas. Nulo: nenhum.
   const [escolhendo, setEscolhendo] = useState<CardapioItemView | null>(null);
+  // A linha do carrinho que está com o recado aberto.
+  const [anotando, setAnotando] = useState<ItemComanda | null>(null);
   const [cancelando, setCancelando] = useState<string | null>(null);
   const [motivo, setMotivo] = useState("");
   // Item esperando o PIN de quem pode cancelar.
@@ -262,6 +266,23 @@ export function ComandaScreen({
   // F4 busca, F2 envia, F3 fecha, Esc limpa — o turno inteiro passa por esses.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      /*
+       * Com diálogo aberto, a tela de trás não ouve.
+       *
+       * Os atalhos estão no `window`, então valiam por baixo do diálogo: com
+       * um código na busca, o Enter da observação lançava o primeiro resultado
+       * em vez de pular linha, e o F2 mandava para a cozinha um carrinho que o
+       * garçom ainda estava montando. O Esc passa a fechar o diálogo, que é o
+       * que ele significa quando há um na frente.
+       */
+      if (escolhendo || anotando) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setEscolhendo(null);
+          setAnotando(null);
+        }
+        return;
+      }
       if (e.key === "F4") {
         e.preventDefault();
         buscaRef.current?.focus();
@@ -278,7 +299,17 @@ export function ComandaScreen({
       // "63 Enter" lança o produto. Com a limpeza ligada o campo volta a
       // zero; desligada, o resultado fica na tela e quem lança o mesmo
       // produto várias vezes seguidas só aperta Enter de novo.
-      if (e.key === "Enter" && busca.trim() && resultados.length > 0) {
+      /*
+       * O Enter de dentro de outro campo é digitação, não atalho: no motivo do
+       * cancelamento ele lançava o primeiro resultado da busca, que continuava
+       * preenchida atrás do formulário. Na busca, "63 Enter" segue valendo —
+       * é o atalho que o garçom mais usa.
+       */
+      const alvo = e.target as HTMLElement | null;
+      const emOutroCampo =
+        alvo !== buscaRef.current &&
+        (alvo?.tagName === "INPUT" || alvo?.tagName === "TEXTAREA");
+      if (e.key === "Enter" && !emOutroCampo && busca.trim() && resultados.length > 0) {
         e.preventDefault();
         adicionar(resultados[0]);
         if (ajustes.limparBuscaAposLancar) setBusca("");
@@ -305,6 +336,18 @@ export function ComandaScreen({
           pendente={pendente}
           aoConfirmar={(escolhas) => adicionar(escolhendo, escolhas)}
           aoFechar={() => setEscolhendo(null)}
+        />
+      )}
+
+      {anotando && (
+        <ObservacaoDoItem
+          titulo={anotando.titulo}
+          observacao={anotando.observacao}
+          pendente={pendente}
+          aoSalvar={(texto) =>
+            agir(() => definirObservacao(anotando.id, texto), () => setAnotando(null))
+          }
+          aoFechar={() => setAnotando(null)}
         />
       )}
 
@@ -544,6 +587,27 @@ export function ComandaScreen({
                     </p>
                   )}
                   {/*
+                    O recado da linha, que até agora só a maquininha escrevia: o
+                    PDV recebia o texto do servidor, mostrava nada, e o garçom
+                    de tablet mandava o cliente repetir o pedido para quem
+                    estivesse com o aparelho na mão.
+
+                    Em âmbar, e não no cinza das escolhas: adicional é o que a
+                    casa vende, recado é o que a cozinha tem de fazer diferente
+                    — e é o que o garçom relê antes de apertar "Enviar".
+                  */}
+                  <button
+                    onClick={() => setAnotando(item)}
+                    disabled={pendente || fechando}
+                    className={
+                      item.observacao
+                        ? "realce-ao-toque mt-1 block min-h-8 touch-manipulation text-left text-xs italic leading-tight text-amber-300 disabled:opacity-40"
+                        : "realce-ao-toque mt-1 block min-h-8 touch-manipulation text-left text-xs leading-tight text-neutral-500 disabled:opacity-40 lg:text-[11px]"
+                    }
+                  >
+                    {item.observacao ? '“' + item.observacao + '”' : "+ observação"}
+                  </button>
+                  {/*
                     O ponto pelo campo antigo só quando não veio por grupo: com
                     um grupo "Ponto da carne" cadastrado, estes botões
                     perguntariam de novo o que o garçom acabou de escolher, e
@@ -707,6 +771,13 @@ export function ComandaScreen({
                     {item.opcionais
                       .map((o) => (o.quantidade > 1 ? `${o.quantidade}x ${o.titulo}` : o.titulo))
                       .join(" · ")}
+                  </p>
+                )}
+                {/* O recado segue à vista depois de enviado: é o que o garçom
+                    confere quando o prato chega à mesa. */}
+                {item.observacao && (
+                  <p className="mt-1 text-[11px] italic leading-tight text-amber-300">
+                    {'“' + item.observacao + '”'}
                   </p>
                 )}
 

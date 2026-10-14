@@ -285,6 +285,41 @@ describe("o que separa uma linha de outra", () => {
   });
 });
 
+/**
+ * O recado é o único texto livre que o garçom escreve, e ele sai impresso na
+ * praça. Até agora só a maquininha o escrevia; com o PDV também escrevendo, o
+ * crivo passou a ter duas portas — e é ele que estes dois testes prendem.
+ */
+describe("o recado da linha", () => {
+  it("caractere de controle não chega à térmica", async () => {
+    const { item } = await noCardapio("Fraldinha", 59.9);
+    const comanda = await comandaAberta();
+
+    // O byte zero e o escape não são texto para a impressora: são comando.
+    await adicionarItem(quem, {
+      comandaId: comanda.id,
+      cardapioItemId: item.id,
+      observacao: "sem  cebola",
+    });
+
+    const linhas = await itensDa(comanda.id);
+    expect(linhas[0].observacao).toBe("sem cebola");
+  });
+
+  it("acima de 200 caracteres é recusado", async () => {
+    const { item } = await noCardapio("Costela", 79.9);
+    const comanda = await comandaAberta();
+
+    await expect(
+      adicionarItem(quem, {
+        comandaId: comanda.id,
+        cardapioItemId: item.id,
+        observacao: "a".repeat(201),
+      })
+    ).rejects.toThrow("200 caracteres");
+  });
+});
+
 describe("reenvio", () => {
   it("a mesma referência não lança duas vezes", async () => {
     const { item } = await noCardapio("Torresmo", 44.9);

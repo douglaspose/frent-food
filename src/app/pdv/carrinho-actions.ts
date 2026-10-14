@@ -6,7 +6,7 @@ import { exigirPermissao, exigirSessao } from "@/lib/session";
 import { publicar } from "@/lib/eventos";
 import { ajusteNumerico } from "@/lib/parametros-servidor";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
-import { adicionarItem, comandaAberta } from "@/lib/carrinho";
+import { adicionarItem, comandaAberta, limparObservacao } from "@/lib/carrinho";
 
 /**
  * O carrinho é feito de itens com status PENDENTE.
@@ -118,6 +118,32 @@ export async function definirPontoCarne(itemId: string, pontoCarne: string) {
     await itemPendente(itemId, sessao.tenantId);
 
     await db.comandaItem.update({ where: { id: itemId }, data: { pontoCarne } });
+    revalidatePath("/pdv");
+    await publicar(sessao.unidadeId, "carrinho");
+  });
+}
+
+/**
+ * A observação da linha do carrinho: "sem cebola", "molho à parte".
+ *
+ * Vem depois de a linha existir, e não antes, porque é assim que a mesa fala:
+ * o garçom lança a picanha e só então o cliente lembra do alho. É também o
+ * ponto onde a maquininha já anotava — a linha da rodada, não o cardápio.
+ *
+ * Só em pendente, pela mesma trava dos outros: depois de enviada, o papel já
+ * saiu na cozinha, e mudar o texto aqui deixaria a praça com uma folha que
+ * ninguém avisou que mudou.
+ */
+export async function definirObservacao(itemId: string, texto: string) {
+  return emResultado(async () => {
+    const sessao = await exigirPermissao("comanda.lancarItem");
+    await itemPendente(itemId, sessao.tenantId);
+
+    await db.comandaItem.update({
+      where: { id: itemId },
+      // O mesmo crivo do lançamento da maquininha: o texto vai para a térmica.
+      data: { observacao: limparObservacao(texto) },
+    });
     revalidatePath("/pdv");
     await publicar(sessao.unidadeId, "carrinho");
   });

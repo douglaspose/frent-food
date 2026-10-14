@@ -484,8 +484,12 @@ export async function adicionarItem(
  * A observação vai para o papel da cozinha, então passa pelo mesmo crivo do
  * nome do cliente: caractere de controle fora (o byte zero chega à térmica
  * como comando) e tamanho de observação, não de redação.
+ *
+ * Exportada porque o PDV anota a linha depois de ela existir, por uma action
+ * própria, e o crivo tem de ser este mesmo: duas limpezas diferentes deixariam
+ * o tablet gravar o que a maquininha recusa no lançamento.
  */
-function limparObservacao(texto: string | null | undefined) {
+export function limparObservacao(texto: string | null | undefined) {
   const limpo = texto?.replace(/[\x00-\x1f\x7f]/g, "").trim();
   if (!limpo) return null;
   if (limpo.length > 200) throw new ErroDeOperacao("A observação vai até 200 caracteres.");
