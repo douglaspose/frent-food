@@ -16,6 +16,8 @@ type Trabalho = {
   tentativas: number;
   erro: string | null;
   criadoEm: string;
+  /** Quem levou o papel; nulo enquanto ninguém buscou, ou se não se identificou. */
+  agente: string | null;
 };
 
 type Impressora = {
@@ -199,6 +201,7 @@ export function FilaTela({
               <th className="px-4 py-3 font-semibold">Hora</th>
               <th className="px-4 py-3 font-semibold">Documento</th>
               <th className="px-4 py-3 font-semibold">Impressora</th>
+              <th className="px-4 py-3 font-semibold">Saiu por</th>
               <th className="px-4 py-3 font-semibold">Status</th>
               <th className="px-4 py-3"></th>
             </tr>
@@ -217,6 +220,14 @@ export function FilaTela({
                   {t.erro && <span className="ml-2 text-xs text-red-600">{t.erro}</span>}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-neutral-500">{t.impressora ?? "—"}</td>
+                {/*
+                  O agente que puxou, e não a impressora: são coisas
+                  diferentes quando o salão tem duas maquininhas e o balcão.
+                  O agente antigo não manda apelido, e aparece como "agente".
+                */}
+                <td className="whitespace-nowrap px-4 py-3 text-neutral-500">
+                  {t.status === "PENDENTE" ? "—" : (t.agente ?? "agente")}
+                </td>
                 <td className="px-4 py-3">
                   <span
                     className={`rounded-md px-2 py-1 text-xs font-semibold ${CORES[t.status] ?? ""}`}

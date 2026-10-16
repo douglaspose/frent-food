@@ -7,6 +7,20 @@ import { COLUNAS, paraImpressora, remontar } from "@/lib/impressao";
 export const dynamic = "force-dynamic";
 
 /**
+ * Quanto tempo a entrega segura o trabalho.
+ *
+ * Enquanto a marca for recente, o trabalho não sai para mais ninguém: é o que
+ * impede o agente do balcão e a maquininha de imprimirem a mesma comanda.
+ * Vencida, ele volta à fila — o agente que o levou pode ter perdido a rede ou
+ * morrido no meio, e papel que não saiu merece outra chance.
+ *
+ * Dois minutos: imprimir uma comanda leva segundos, e o agente confirma logo
+ * depois. O risco do prazo curto é a segunda via de um papel que saiu; o do
+ * prazo longo é a cozinha esperando por um papel que não saiu.
+ */
+const ENTREGA_VALE_POR_SEGUNDOS = 120;
+
+/**
  * API do agente de impressão.
  *
  * O agente roda numa máquina dentro do restaurante (a mesma que enxerga as
@@ -65,10 +79,39 @@ export async function GET(request: NextRequest) {
   const colunas =
     Number.isInteger(pedidas) && pedidas >= 24 && pedidas <= 96 ? pedidas : COLUNAS;
 
+  /*
+   * Quem busca leva, e quem levou segura.
+   *
+   * Antes a fila entregava a quem perguntasse: dois agentes buscando ao mesmo
+   * tempo recebiam os mesmos trabalhos, e a cozinha ganhava duas vias de cada
+   * comanda. Era hipótese enquanto só o balcão imprimia; deixou de ser quando
+   * a maquininha virou agente e passou a buscar na mesma fila.
+   *
+   * `FOR UPDATE SKIP LOCKED` é o que faz as duas buscas simultâneas saírem com
+   * listas diferentes em vez de uma esperar a outra: cada uma pula as linhas
+   * que a outra já pegou. A marca de entrega é gravada na mesma instrução que
+   * as escolhe — entre selecionar e marcar não cabe um segundo agente.
+   */
+  const agente = (request.nextUrl.searchParams.get("agente") ?? "").slice(0, 60) || null;
+  const reservados = await db.$queryRaw<{ id: string }[]>`
+    UPDATE fila_impressao
+       SET "entregueEm" = now(), "entregueA" = ${agente}
+     WHERE id IN (
+       SELECT id
+         FROM fila_impressao
+        WHERE "unidadeId" = ${unidade.id}
+          AND status = 'PENDENTE'
+          AND ("entregueEm" IS NULL
+               OR "entregueEm" < now() - (${ENTREGA_VALE_POR_SEGUNDOS} * interval '1 second'))
+        ORDER BY "criadoEm" ASC
+        LIMIT 20
+        FOR UPDATE SKIP LOCKED
+     )
+    RETURNING id`;
+
   const trabalhos = await db.filaImpressao.findMany({
-    where: { unidadeId: unidade.id, status: "PENDENTE" },
+    where: { unidadeId: unidade.id, id: { in: reservados.map((r) => r.id) } },
     orderBy: { criadoEm: "asc" },
-    take: 20,
     include: { impressora: { select: { nome: true, conexao: true, endereco: true } } },
   });
 
@@ -159,6 +202,9 @@ export async function POST(request: NextRequest) {
           status: trabalho.tentativas >= 4 ? "ERRO" : "PENDENTE",
           tentativas: { increment: 1 },
           erro: corpo.erro?.slice(0, 500) ?? "falha desconhecida",
+          // A entrega é devolvida junto: o agente avisou que não saiu, e
+          // esperar os dois minutos da janela seria a cozinha esperando à toa.
+          entregueEm: null,
         },
   });
 

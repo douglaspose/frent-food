@@ -631,8 +631,19 @@ model FilaImpressao {
   criadoEm   DateTime  @default(now())
   impressoEm DateTime?
 
+  /// Quando este trabalho saiu para um agente. Enquanto a marca for recente,
+  /// ele não sai de novo: é o que impede dois agentes de imprimirem a mesma
+  /// comanda. Vencida, o trabalho volta à fila — quem o levou pode ter morrido
+  /// no meio, e papel que não saiu merece outra chance.
+  entregueEm DateTime?
+
+  /// Qual agente levou, quando ele se identifica. Não participa da exclusão;
+  /// serve para a tela de impressão dizer quem está puxando a fila.
+  entregueA String?
+
   @@index([tenantId])
   @@index([unidadeId, status])
+  @@index([unidadeId, status, entregueEm])
   @@map("fila_impressao")
 }
 

@@ -45,6 +45,9 @@ export default async function ImpressaoPage() {
         tentativas: t.tentativas,
         erro: t.erro,
         criadoEm: t.criadoEm.toISOString(),
+        // Qual aparelho levou este papel. Com duas maquininhas e o agente do
+        // balcão puxando a mesma fila, é a resposta para "saiu em qual?".
+        agente: t.entregueA,
       }))}
     />
   );
