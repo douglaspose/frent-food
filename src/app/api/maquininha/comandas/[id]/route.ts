@@ -65,6 +65,8 @@ export async function GET(request: NextRequest, contexto: { params: Promise<{ id
     pessoas: c.pessoas,
     nomeCliente: c.nomeCliente,
     status: c.status,
+    /** Desde quando a mesa está chamando; nulo quando ninguém chamou. */
+    chamadoEm: c.chamadoGarcomEm?.toISOString() ?? null,
     subtotalEmCentavos: emCentavos(conta.subtotal),
     descontoEmCentavos: emCentavos(conta.desconto),
     taxaServicoEmCentavos: emCentavos(conta.taxaServico),

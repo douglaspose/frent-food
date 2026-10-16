@@ -7,6 +7,7 @@ import { GET as salao, POST as abrir } from "@/app/api/maquininha/mesas/route";
 import { POST as pagar } from "@/app/api/maquininha/pagamentos/route";
 import { POST as pedirConta } from "@/app/api/maquininha/comandas/[id]/conferencia/route";
 import { POST as reabrir } from "@/app/api/maquininha/comandas/[id]/reabrir/route";
+import { POST as atender } from "@/app/api/maquininha/comandas/[id]/atender/route";
 import { criarRestaurante, limpar } from "./fixtures";
 
 /**
@@ -79,7 +80,7 @@ beforeAll(async () => {
   // Nem recebe nem lança: a cozinha não opera a maquininha.
   await criarCargo("COZINHEIRO", ["kds.ver"], "3333");
 
-  for (const numero of ["1", "2", "3", "4", "5", "6"]) {
+  for (const numero of ["1", "2", "3", "4", "5", "6", "7", "8"]) {
     await db.mesa.create({
       data: { tenantId, unidadeId, numero, capacidade: 4, qrToken: `qr-${SLUG}-${numero}` },
     });
@@ -242,5 +243,80 @@ describe("pedir a conta pelo aparelho", () => {
       { params: Promise.resolve({ id: comandaId }) }
     );
     expect(resposta.status).toBe(403);
+  });
+});
+
+/**
+ * O cliente levanta a mão pelo QR da mesa e o selo acende no mapa do salão.
+ * Quem vai até a mesa é quem está com o aparelho no bolso — e era o tablet do
+ * balcão que tinha de apagar o selo.
+ */
+describe("o chamado da mesa", () => {
+  async function abrirMesa(turno: string) {
+    const salaoDele = await (
+      await salao(pedido("/api/maquininha/mesas", undefined, turno))
+    ).json();
+    const aberta = await (
+      await abrir(
+        pedido("/api/maquininha/mesas", { mesaId: salaoDele.livres[0].mesaId, pessoas: 2 }, turno)
+      )
+    ).json();
+    return aberta.comandaId as string;
+  }
+
+  it("a mesa que chamou vem na frente, e diz desde quando", async () => {
+    const { corpo: turno } = await entrarCom("1111");
+    const primeira = await abrirMesa(turno.token);
+    const chamando = await abrirMesa(turno.token);
+
+    // Dez minutos de mão levantada: é o que a tela conta até agora.
+    const desde = new Date(Date.now() - 10 * 60_000);
+    await db.comanda.update({
+      where: { id: chamando },
+      data: { chamadoGarcomEm: desde },
+    });
+
+    const salaoDele = await (
+      await salao(pedido("/api/maquininha/mesas", undefined, turno.token))
+    ).json();
+
+    /*
+     * Na frente da mais antiga, que é a ordem normal da lista: a espera de
+     * quem levantou a mão não é a mesma coisa que a de quem está comendo.
+     */
+    expect(salaoDele.mesas[0].comandaId).toBe(chamando);
+    expect(new Date(salaoDele.mesas[0].chamadoEm).getTime()).toBe(desde.getTime());
+    expect(salaoDele.mesas.find((m: { comandaId: string }) => m.comandaId === primeira).chamadoEm).toBe(
+      null
+    );
+  });
+
+  it("atender apaga o selo, e atender de novo não é erro", async () => {
+    const { corpo: turno } = await entrarCom("1111");
+    const comandaId = await abrirMesa(turno.token);
+    await db.comanda.update({
+      where: { id: comandaId },
+      data: { chamadoGarcomEm: new Date() },
+    });
+    const contexto = () => ({ params: Promise.resolve({ id: comandaId }) });
+
+    const primeira = await atender(
+      pedido(`/api/maquininha/comandas/${comandaId}/atender`, {}, turno.token),
+      contexto()
+    );
+    expect(primeira.status).toBe(200);
+    expect((await primeira.json()).atendido).toBe(true);
+    expect(
+      (await db.comanda.findUniqueOrThrow({ where: { id: comandaId } })).chamadoGarcomEm
+    ).toBeNull();
+
+    // Dois garçons indo à mesma mesa: o segundo não precisa de uma mensagem
+    // vermelha para descobrir que alguém chegou antes.
+    const segunda = await atender(
+      pedido(`/api/maquininha/comandas/${comandaId}/atender`, {}, turno.token),
+      contexto()
+    );
+    expect(segunda.status).toBe(200);
+    expect((await segunda.json()).atendido).toBe(false);
   });
 });

@@ -7,6 +7,7 @@ import { publicar } from "@/lib/eventos";
 import { ajusteNumerico } from "@/lib/parametros-servidor";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
 import { adicionarItem, comandaAberta, limparObservacao } from "@/lib/carrinho";
+import { atenderChamado as atender } from "@/lib/chamado";
 
 /**
  * O carrinho é feito de itens com status PENDENTE.
@@ -187,12 +188,10 @@ export async function chamarGarcom(mesaId: string) {
 export async function atenderChamado(comandaId: string) {
   return emResultado(async () => {
     const sessao = await exigirSessao();
+    // A regra mora em `@/lib/chamado`, compartilhada com a maquininha: quem
+    // vai até a mesa costuma ser justamente quem está com o aparelho.
+    await atender(sessao, comandaId);
 
-    const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
-    if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
-
-    await db.comanda.update({ where: { id: comandaId }, data: { chamadoGarcomEm: null } });
     revalidatePath("/pdv");
-    await publicar(sessao.unidadeId, "chamado");
   });
 }

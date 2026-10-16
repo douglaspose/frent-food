@@ -69,11 +69,16 @@ export async function GET(request: NextRequest) {
   });
 
   /*
-   * Quem pediu a conta vem primeiro: é a mesa que está esperando a maquininha.
-   * Depois as demais, da mais antiga para a mais nova, que é a ordem em que
-   * elas vão pedir.
+   * Quem está esperando alguém vem primeiro.
+   *
+   * Chamado na frente de tudo: é um cliente de mão levantada, e o aparelho
+   * está no bolso de quem vai até lá. Depois quem pediu a conta, que espera a
+   * maquininha. Por fim as demais, da mais antiga para a mais nova, que é a
+   * ordem em que elas vão pedir.
    */
   const emOrdem = [...comandas].sort((a, b) => {
+    const chamou = Number(Boolean(b.chamadoGarcomEm)) - Number(Boolean(a.chamadoGarcomEm));
+    if (chamou !== 0) return chamou;
     const pediu = Number(b.status === "FECHANDO") - Number(a.status === "FECHANDO");
     return pediu !== 0 ? pediu : a.abertaEm.getTime() - b.abertaEm.getTime();
   });
@@ -118,6 +123,9 @@ export async function GET(request: NextRequest) {
         nomeCliente: c.nomeCliente,
         pessoas: c.pessoas,
         fechando: c.status === "FECHANDO",
+        // Quando o cliente levantou a mão. A tela conta daí até agora: o que
+        // importa ao garçom não é a hora, é há quanto tempo ele está esperando.
+        chamadoEm: c.chamadoGarcomEm?.toISOString() ?? null,
         abertaEm: c.abertaEm.toISOString(),
         totalEmCentavos: emCentavos(totais.total),
         recebidoEmCentavos: emCentavos(recebido),
