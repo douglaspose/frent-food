@@ -134,6 +134,7 @@ model Unidade {
   emiteNfce      Boolean        @default(false)
 
   parametros    ParametroUnidade[]
+  aparelhos     Aparelho[]
   areas         Area[]
   mesas         Mesa[]
   estacoes      Estacao[]
@@ -596,6 +597,46 @@ enum StatusImpressao {
   PENDENTE
   IMPRESSO
   ERRO
+}
+
+/// Um aparelho da casa que fala com o servidor por token, e não por sessão de
+/// gente: a maquininha no bolso do garçom, o agente de impressão do balcão.
+///
+/// Antes a credencial era uma só, a da unidade, e todos os aparelhos usavam a
+/// mesma. Uma maquininha perdida só se cortava regerando esse token — o que
+/// derrubava o agente do balcão e os outros aparelhos junto.
+model Aparelho {
+  id        String  @id @default(cuid())
+  tenantId  String
+  unidadeId String
+  unidade   Unidade @relation(fields: [unidadeId], references: [id], onDelete: Cascade)
+
+  /// Como a casa chama este aparelho: "Maquininha do salão", "PC do balcão".
+  nome String
+  tipo TipoAparelho @default(MAQUININHA)
+
+  /// A credencial. Sorteada no servidor e digitada no aparelho uma vez.
+  token String  @unique
+  ativo Boolean @default(true)
+
+  /// Quando ele falou com o servidor pela última vez. Gravado no máximo uma
+  /// vez por minuto: a maquininha busca a fila a cada poucos segundos, e um
+  /// UPDATE por busca seria escrita sem nenhuma pergunta nova respondida.
+  ultimoContatoEm DateTime?
+  /// O apelido que ele usa ao puxar a fila de impressão, quando puxa.
+  ultimoApelido   String?
+
+  criadoEm   DateTime  @default(now())
+  revogadoEm DateTime?
+
+  @@index([tenantId])
+  @@index([unidadeId, ativo])
+  @@map("aparelhos")
+}
+
+enum TipoAparelho {
+  MAQUININHA
+  AGENTE_IMPRESSAO
 }
 
 /// Fila de impressão. O navegador não fala com impressora térmica, então o

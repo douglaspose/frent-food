@@ -40,6 +40,13 @@ export const SECOES_DE_CONFIGURACAO: SecaoDeConfiguracao[] = [
     descricao: "As impressoras do salão e da cozinha, e o token do agente que fala com elas.",
   },
   {
+    href: "/gestao/aparelhos",
+    titulo: "Aparelhos",
+    descricao:
+      "As maquininhas e o agente de impressão da casa: a credencial de cada um, quando falaram pela última vez, e o corte de quem sumiu.",
+    permissao: "unidade.configurar",
+  },
+  {
     href: "/gestao/marca",
     titulo: "Logomarca",
     descricao:

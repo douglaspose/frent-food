@@ -1,8 +1,7 @@
 import "server-only";
 import { SignJWT, jwtVerify } from "jose";
 import type { NextRequest } from "next/server";
-import { dbSemRls } from "./db";
-import { atravessandoRestaurantes } from "./tenant-atual";
+import { reconhecerPeloToken } from "./aparelhos";
 import type { QuemRecebe } from "./conta";
 
 /**
@@ -61,26 +60,29 @@ export type UnidadeDoAparelho = {
   nome: string;
   ativo: boolean;
   tenantId: string;
+  /**
+   * Qual aparelho é este, quando ele tem cadastro próprio. Nulo quando veio
+   * com o token da unidade — o agente antigo, que continua valendo.
+   */
+  aparelho: { id: string; nome: string; tipo: string } | null;
 };
 
 /**
  * A unidade do token do aparelho.
  *
- * O token é a credencial e o endereço ao mesmo tempo: é ele que diz de qual
- * restaurante é esta chamada. Como a pergunta vem antes da resposta, ela
- * atravessa o isolamento — e o que vem depois já roda declarado.
+ * Dois tipos de token abrem esta porta: o do aparelho cadastrado, que se corta
+ * sozinho quando ele some, e o da unidade, que todos usavam antes de haver
+ * cadastro. A procura mora em `@/lib/aparelhos`, compartilhada com a porta do
+ * agente de impressão — são a mesma pergunta feita por duas portas.
  */
 export async function unidadeDoAparelho(request: NextRequest): Promise<UnidadeDoAparelho | null> {
   const cabecalho = request.headers.get("authorization") ?? "";
   const token = cabecalho.replace(/^Bearer\s+/i, "").trim();
   if (!token) return null;
 
-  return atravessandoRestaurantes("aparelho da casa: identificar pelo token", () =>
-    dbSemRls.unidade.findUnique({
-      where: { tokenImpressao: token },
-      select: { id: true, nome: true, ativo: true, tenantId: true },
-    })
-  );
+  const reconhecido = await reconhecerPeloToken(token);
+  if (!reconhecido) return null;
+  return { ...reconhecido.unidade, aparelho: reconhecido.aparelho };
 }
 
 /** O operador do cabeçalho, se ele for desta unidade. */

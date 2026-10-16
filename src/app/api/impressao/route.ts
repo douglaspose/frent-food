@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { db, dbSemRls } from "@/lib/db";
-import { atravessandoRestaurantes, declararTenant } from "@/lib/tenant-atual";
+import { db } from "@/lib/db";
+import { declararTenant } from "@/lib/tenant-atual";
+import { reconhecerPeloToken, registrarContato } from "@/lib/aparelhos";
 import { LEVA_MARCA, marcaParaImpressora } from "@/lib/marca-impressa";
 import { COLUNAS, paraImpressora, remontar } from "@/lib/impressao";
 
@@ -21,40 +22,28 @@ export const dynamic = "force-dynamic";
 const ENTREGA_VALE_POR_SEGUNDOS = 120;
 
 /**
- * API do agente de impressão.
+ * Quem está puxando a fila.
  *
- * O agente roda numa máquina dentro do restaurante (a mesma que enxerga as
- * impressoras da rede) e conversa com o servidor por aqui. Autentica com o
- * token da unidade no header, não com sessão de usuário: é um serviço, não
- * uma pessoa.
+ * Dois tipos de token abrem esta porta: o do aparelho cadastrado — que se
+ * corta sozinho quando ele some — e o da unidade, que é o que o agente
+ * instalado nos restaurantes usa desde sempre e continua valendo.
+ *
+ * A procura mora em `@/lib/aparelhos`, compartilhada com a porta da
+ * maquininha: são a mesma pergunta feita por duas portas, e o que ela
+ * atravessa (o token é credencial e endereço ao mesmo tempo) está explicado lá.
  */
-async function unidadeDoToken(request: NextRequest) {
+async function quemEsta(request: NextRequest) {
   const cabecalho = request.headers.get("authorization") ?? "";
-  const token = cabecalho.replace(/^Bearer\s+/i, "").trim();
-  if (!token) return null;
-
-  /**
-   * O token é a credencial e o endereço ao mesmo tempo: é ele que diz de qual
-   * restaurante é esta chamada. Como a pergunta vem antes da resposta, ela
-   * atravessa — e é a segunda e última do sistema que precisa disso.
-   *
-   * O que vem depois já roda declarado: o agente só enxerga a fila do próprio
-   * restaurante mesmo que o `unidadeId` seja adulterado adiante.
-   */
-  return atravessandoRestaurantes("agente de impressão: identificar pelo token", () =>
-    dbSemRls.unidade.findUnique({
-      where: { tokenImpressao: token },
-      select: { id: true, nome: true, ativo: true, tenantId: true },
-    })
-  );
+  return reconhecerPeloToken(cabecalho.replace(/^Bearer /i, "").trim());
 }
 
 /** GET — devolve o que está esperando para ser impresso. */
 export async function GET(request: NextRequest) {
-  const unidade = await unidadeDoToken(request);
-  if (!unidade?.ativo) {
+  const quem = await quemEsta(request);
+  if (!quem?.unidade.ativo) {
     return NextResponse.json({ erro: "Token inválido." }, { status: 401 });
   }
+  const unidade = quem.unidade;
 
   /**
    * A declaração acontece aqui, e não dentro do `unidadeDoToken`, porque
@@ -93,6 +82,9 @@ export async function GET(request: NextRequest) {
    * as escolhe — entre selecionar e marcar não cabe um segundo agente.
    */
   const agente = (request.nextUrl.searchParams.get("agente") ?? "").slice(0, 60) || null;
+  // Marca que este aparelho está vivo. Na busca, e não na confirmação: a busca
+  // é a chamada que ele repete mesmo quando não há nada para imprimir.
+  await registrarContato(quem.aparelho, unidade.tenantId, agente);
   const reservados = await db.$queryRaw<{ id: string }[]>`
     UPDATE fila_impressao
        SET "entregueEm" = now(), "entregueA" = ${agente}
@@ -166,7 +158,8 @@ export async function GET(request: NextRequest) {
 
 /** POST — o agente confirma o que saiu (ou relata a falha). */
 export async function POST(request: NextRequest) {
-  const unidade = await unidadeDoToken(request);
+  const quem = await quemEsta(request);
+  const unidade = quem?.unidade;
   if (!unidade?.ativo) {
     return NextResponse.json({ erro: "Token inválido." }, { status: 401 });
   }
