@@ -9,7 +9,8 @@ type Aparelho = {
   id: string;
   nome: string;
   tipo: string;
-  token: string;
+  /** Nulo para quem não configura aparelho: a credencial não desce para a tela. */
+  token: string | null;
   ativo: boolean;
   /** Como ele se apresenta na fila de impressão, quando puxa papel. */
   apelido: string | null;
@@ -190,7 +191,9 @@ export function AparelhosTela({
                     à mostra numa tela que fica aberta no balcão é o jeito mais
                     fácil de ele acabar numa foto.
                   */}
-                  {mostrando === a.id ? (
+                  {a.token === null ? (
+                    <span className="text-xs text-neutral-400">—</span>
+                  ) : mostrando === a.id ? (
                     <code className="break-all font-mono text-xs text-neutral-700">{a.token}</code>
                   ) : (
                     <button

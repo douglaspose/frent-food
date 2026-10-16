@@ -11,6 +11,7 @@ import { salvarDivisaoDaTaxa } from "@/app/gestao/ajustes/actions";
 import LoginPage from "@/app/login/page";
 import PdvMesasPage from "@/app/pdv/page";
 import GestaoLayout from "@/app/gestao/layout";
+import AparelhosPage from "@/app/gestao/aparelhos/page";
 import MesaPublicaPage from "@/app/mesa/[token]/page";
 import { GET as GETImpressao, POST as POSTImpressao } from "@/app/api/impressao/route";
 import { POST as POSTEntrar } from "@/app/api/maquininha/entrar/route";
@@ -1440,6 +1441,35 @@ describe("maquininha", () => {
       status: resposta.status,
       itens: await admin.comandaItem.count({ where: { comandaId } }),
     }).toEqual({ status: 409, itens: 0 });
+  });
+
+  /**
+   * A credencial do aparelho na tela de quem não mexe em aparelho.
+   *
+   * O token é a credencial inteira: com ele se puxa a fila de impressão da casa
+   * — toda comanda e toda conta — e se dá baixa nela sem papel sair. Cadastrar,
+   * cortar e trocar token exigem `unidade.configurar`, que o gerente não tem;
+   * e o diário de propósito não guarda o token, "porque ele é credencial". Ler
+   * é a mesma pergunta, e a tela precisa responder igual.
+   */
+  it("o token do aparelho não vai para a tela de quem não configura aparelho", async () => {
+    const token = `aparelho-na-tela-${A.unidade.id}`;
+    await admin.aparelho.create({
+      data: {
+        tenantId: A.tenant.id,
+        unidadeId: A.unidade.id,
+        nome: "Maquininha do balcão",
+        token,
+      },
+    });
+
+    const naTela = async (quem: Membro) =>
+      JSON.stringify(await como(quem, () => AparelhosPage())).includes(token);
+
+    expect({
+      gerente: await naTela(A.gerentes[0]!),
+      proprietario: await naTela(A.proprietario),
+    }).toEqual({ gerente: false, proprietario: true });
   });
 });
 
