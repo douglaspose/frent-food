@@ -123,21 +123,36 @@ export async function abrirMesa(
 }
 
 /**
- * As mesas livres da unidade, para quem vai abrir uma.
+ * As mesas livres da unidade: para quem vai abrir uma, e para quem vai mudar
+ * uma conta de lugar.
  *
  * "Livre" é não ter comanda aberta, e não o campo `status` da mesa: o status é
  * cache do mapa do salão, e uma mesa que ficou OCUPADA por um fechamento
- * interrompido sumiria da lista do garçom que está de pé na frente dela.
+ * interrompido sumiria da lista do garçom que está de pé na frente dela. Por
+ * isso a SUJA entra também — mesa por limpar está livre para receber gente, e
+ * esconder metade do salão numa casa sem limpeza automática seria pior do que
+ * mostrar uma mesa que precisa de um pano. O `status` vai junto para a tela
+ * poder dizer isso.
+ *
+ * `exceto` tira a mesa onde a conta já está: ela é o destino que não faz
+ * sentido oferecer a quem está transferindo.
  */
-export async function mesasLivres(unidadeId: string) {
+export async function mesasLivres(unidadeId: string, opcoes: { exceto?: string | null } = {}) {
   const mesas = await db.mesa.findMany({
     where: {
       unidadeId,
       ativo: true,
+      ...(opcoes.exceto ? { id: { not: opcoes.exceto } } : {}),
       comandas: { none: { status: { in: ["ABERTA", "FECHANDO"] } } },
     },
     orderBy: [{ area: { ordem: "asc" } }],
-    select: { id: true, numero: true, capacidade: true, area: { select: { nome: true } } },
+    select: {
+      id: true,
+      numero: true,
+      capacidade: true,
+      status: true,
+      area: { select: { nome: true } },
+    },
   });
 
   /*
@@ -151,6 +166,8 @@ export async function mesasLivres(unidadeId: string) {
       mesaId: m.id,
       numero: m.numero,
       capacidade: m.capacidade,
+      /** LIVRE, SUJA ou RESERVADA — a tela marca a que precisa de um pano. */
+      status: m.status,
       area: m.area?.nome ?? null,
     }));
 }

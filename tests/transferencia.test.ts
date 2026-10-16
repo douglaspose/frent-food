@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { avisoDeTransferencia, COLUNAS } from "@/lib/impressao";
+import { transferirMesa } from "@/lib/transferencia";
 import { criarProduto, criarRestaurante, limpar } from "./fixtures";
 
 /**
@@ -176,6 +177,248 @@ describe("transferência de mesa", () => {
     });
 
     expect((await db.mesa.findUniqueOrThrow({ where: { id: destino.id } })).status).toBe("FECHANDO");
+  });
+});
+
+/**
+ * Os testes acima conferem o que a transferência deixa no banco, montada à
+ * mão. Estes chamam a regra de verdade — a que o PDV e a maquininha dividem
+ * desde que o garçom passou a transferir de pé no salão.
+ */
+describe("a regra de transferir", () => {
+  let tenantId: string;
+  let unidadeId: string;
+  let usuarioId: string;
+  let quem: { usuarioId: string; tenantId: string; unidadeId: string; nome: string };
+  let proxima = 500;
+
+  beforeAll(async () => {
+    const r = await criarRestaurante("regra-transferencia");
+    tenantId = r.tenant.id;
+    unidadeId = r.unidade.id;
+    usuarioId = r.usuario.id;
+    quem = { usuarioId, tenantId, unidadeId, nome: "Maria do teste" };
+  });
+
+  afterAll(async () => {
+    await limpar("regra-transferencia");
+  });
+
+  async function mesa(status = "LIVRE") {
+    return db.mesa.create({
+      data: {
+        tenantId,
+        unidadeId,
+        numero: String(proxima++),
+        capacidade: 4,
+        status: status as "LIVRE" | "OCUPADA" | "FECHANDO" | "SUJA",
+        qrToken: `qr-regra-${proxima}`,
+      },
+    });
+  }
+
+  async function contaNa(mesaId: string, status = "ABERTA") {
+    return db.comanda.create({
+      data: {
+        tenantId,
+        unidadeId,
+        mesaId,
+        numero: proxima++,
+        pessoas: 2,
+        abertaPorId: usuarioId,
+        status: status as "ABERTA" | "FECHANDO",
+      },
+    });
+  }
+
+  it("a conta muda de mesa, e as duas mesas trocam de estado", async () => {
+    const origem = await mesa("OCUPADA");
+    const destino = await mesa();
+    const conta = await contaNa(origem.id);
+
+    const r = await transferirMesa(quem, conta.id, destino.id);
+
+    expect(r.mudou).toBe(true);
+    expect((await db.comanda.findUniqueOrThrow({ where: { id: conta.id } })).mesaId).toBe(
+      destino.id
+    );
+    expect((await db.mesa.findUniqueOrThrow({ where: { id: destino.id } })).status).toBe("OCUPADA");
+    // A de origem some do mapa como ocupada: é o que libera o lugar.
+    expect((await db.mesa.findUniqueOrThrow({ where: { id: origem.id } })).status).toBe("LIVRE");
+  });
+
+  it("fica registrado quem mudou a conta de lugar", async () => {
+    const origem = await mesa("OCUPADA");
+    const destino = await mesa();
+    const conta = await contaNa(origem.id);
+
+    await transferirMesa(quem, conta.id, destino.id);
+
+    const registros = await db.auditLog.findMany({
+      where: { tenantId, entidadeId: conta.id, acao: "MESA_TRANSFERIDA" },
+    });
+    expect(registros).toHaveLength(1);
+    expect(registros[0].usuarioId).toBe(usuarioId);
+  });
+
+  /** Uma rodada já na praça, que é o que faz o aviso valer a pena. */
+  async function pratoEmPreparo(comandaId: string) {
+    const produto = await criarProduto(tenantId, `Espeto ${proxima++}`);
+    const estacao = await db.estacao.findFirstOrThrow({ where: { unidadeId } });
+    const item = await db.comandaItem.create({
+      data: {
+        tenantId,
+        comandaId,
+        produtoId: produto.id,
+        quantidade: 1,
+        precoUnitario: 10,
+        precoTotal: 10,
+        status: "ENVIADO",
+        lancadoPorId: usuarioId,
+      },
+    });
+    return db.pedido.create({
+      data: {
+        tenantId,
+        unidadeId,
+        comandaId,
+        estacaoId: estacao.id,
+        numero: proxima++,
+        itens: { create: { comandaItemId: item.id } },
+      },
+    });
+  }
+
+  it("a cozinha recebe o aviso de que a mesa mudou", async () => {
+    const origem = await mesa("OCUPADA");
+    const destino = await mesa();
+    const conta = await contaNa(origem.id);
+    const pedido = await pratoEmPreparo(conta.id);
+
+    await transferirMesa(quem, conta.id, destino.id);
+
+    // Um papel por ticket na praça — é a folha que vai junto da comanda que
+    // já está lá dentro. Sem ela, o prato sai para a mesa que o grupo deixou.
+    const papeis = await db.filaImpressao.findMany({
+      where: { tenantId, referenciaId: pedido.id, tipo: "TRANSFERENCIA" },
+    });
+    expect(papeis).toHaveLength(1);
+    expect(papeis[0].conteudo).toContain(destino.numero);
+    expect(papeis[0].conteudo).toContain("Maria do teste");
+  });
+
+  it("sem nada na praça, não sai papel nenhum", async () => {
+    const origem = await mesa("OCUPADA");
+    const destino = await mesa();
+    const conta = await contaNa(origem.id);
+    const antes = await db.filaImpressao.count({ where: { tenantId, tipo: "TRANSFERENCIA" } });
+
+    // Mesa aberta e ainda sem pedido: avisar a cozinha de uma mudança que não
+    // muda nada para ela é papel jogado fora a cada engano de abertura.
+    await transferirMesa(quem, conta.id, destino.id);
+
+    expect(await db.filaImpressao.count({ where: { tenantId, tipo: "TRANSFERENCIA" } })).toBe(antes);
+  });
+
+  it("mesa ocupada recusa, com o número da comanda que está lá", async () => {
+    const origem = await mesa("OCUPADA");
+    const destino = await mesa("OCUPADA");
+    const conta = await contaNa(origem.id);
+    const jaLa = await contaNa(destino.id);
+
+    /*
+     * Transferir para uma mesa ocupada juntaria duas contas sem ninguém
+     * decidir de quem é a taxa de serviço — e a mensagem precisa dizer qual
+     * comanda está lá, senão o garçom fica procurando.
+     */
+    await expect(transferirMesa(quem, conta.id, destino.id)).rejects.toThrow(
+      `comanda #${jaLa.numero}`
+    );
+    expect((await db.comanda.findUniqueOrThrow({ where: { id: conta.id } })).mesaId).toBe(origem.id);
+  });
+
+  it("transferir para a mesma mesa não faz nada, e não é erro", async () => {
+    const origem = await mesa("OCUPADA");
+    const conta = await contaNa(origem.id);
+
+    // O toque repetido, ou o reenvio de uma resposta perdida na rede.
+    const r = await transferirMesa(quem, conta.id, origem.id);
+
+    expect(r.mudou).toBe(false);
+    expect(
+      await db.auditLog.count({
+        where: { tenantId, entidadeId: conta.id, acao: "MESA_TRANSFERIDA" },
+      })
+    ).toBe(0);
+  });
+
+  it("conta paga não muda de mesa", async () => {
+    const origem = await mesa("OCUPADA");
+    const destino = await mesa();
+    const conta = await contaNa(origem.id);
+    await db.comanda.update({ where: { id: conta.id }, data: { status: "PAGA" } });
+
+    await expect(transferirMesa(quem, conta.id, destino.id)).rejects.toThrow("já paga");
+  });
+
+  it("duas contas disputando a mesma mesa livre: só uma vai", async () => {
+    const destino = await mesa();
+    const primeira = await contaNa((await mesa("OCUPADA")).id);
+    const segunda = await contaNa((await mesa("OCUPADA")).id);
+
+    /*
+     * A corrida é armada como a da abertura: segurando a trava da unidade por
+     * fora, as duas chegam a ver a mesa livre antes de qualquer uma gravar.
+     * Soltas, elas se enfileiram sozinhas e o teste passaria sem a trava.
+     */
+    const destravar = await new Promise<() => void>((pronto) => {
+      db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM unidades WHERE id = ${unidadeId} FOR NO KEY UPDATE`;
+        await new Promise<void>((solta) => pronto(solta));
+      });
+    });
+
+    const corrida = Promise.allSettled([
+      transferirMesa(quem, primeira.id, destino.id),
+      transferirMesa(quem, segunda.id, destino.id),
+    ]);
+    await new Promise((r) => setTimeout(r, 300));
+    destravar();
+
+    const resultados = await corrida;
+    expect(resultados.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(
+      await db.comanda.count({
+        where: { tenantId, mesaId: destino.id, status: { in: ["ABERTA", "FECHANDO"] } },
+      })
+    ).toBe(1);
+  });
+
+  it("onde a limpeza não é automática, a mesa de origem fica suja", async () => {
+    await db.parametroUnidade.create({
+      data: {
+        tenantId,
+        unidadeId,
+        grupo: "MESAS",
+        chave: "mesa.limparAutomaticamente",
+        valor: false,
+      },
+    });
+
+    try {
+      const origem = await mesa("OCUPADA");
+      const destino = await mesa();
+      const conta = await contaNa(origem.id);
+
+      await transferirMesa(quem, conta.id, destino.id);
+
+      // O grupo que saiu de lá deixou a mesa do mesmo jeito de sempre.
+      expect((await db.mesa.findUniqueOrThrow({ where: { id: origem.id } })).status).toBe("SUJA");
+    } finally {
+      await db.parametroUnidade.deleteMany({
+        where: { unidadeId, chave: "mesa.limparAutomaticamente" },
+      });
+    }
   });
 });
 

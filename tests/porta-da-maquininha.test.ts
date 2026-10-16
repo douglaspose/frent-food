@@ -8,6 +8,7 @@ import { POST as pagar } from "@/app/api/maquininha/pagamentos/route";
 import { POST as pedirConta } from "@/app/api/maquininha/comandas/[id]/conferencia/route";
 import { POST as reabrir } from "@/app/api/maquininha/comandas/[id]/reabrir/route";
 import { POST as atender } from "@/app/api/maquininha/comandas/[id]/atender/route";
+import { POST as transferir } from "@/app/api/maquininha/comandas/[id]/transferir/route";
 import { criarRestaurante, limpar } from "./fixtures";
 
 /**
@@ -80,7 +81,7 @@ beforeAll(async () => {
   // Nem recebe nem lança: a cozinha não opera a maquininha.
   await criarCargo("COZINHEIRO", ["kds.ver"], "3333");
 
-  for (const numero of ["1", "2", "3", "4", "5", "6", "7", "8"]) {
+  for (const numero of ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]) {
     await db.mesa.create({
       data: { tenantId, unidadeId, numero, capacidade: 4, qrToken: `qr-${SLUG}-${numero}` },
     });
@@ -318,5 +319,84 @@ describe("o chamado da mesa", () => {
     );
     expect(segunda.status).toBe(200);
     expect((await segunda.json()).atendido).toBe(false);
+  });
+});
+
+describe("transferir pelo aparelho", () => {
+  async function abrirMesa(turno: string) {
+    const salaoDele = await (
+      await salao(pedido("/api/maquininha/mesas", undefined, turno))
+    ).json();
+    const livre = salaoDele.livres[0];
+    const aberta = await (
+      await abrir(pedido("/api/maquininha/mesas", { mesaId: livre.mesaId, pessoas: 2 }, turno))
+    ).json();
+    return { comandaId: aberta.comandaId as string, mesaId: livre.mesaId as string };
+  }
+
+  it("o garçom muda a conta de mesa pela lista de livres do salão", async () => {
+    const { corpo: turno } = await entrarCom("1111");
+    const { comandaId, mesaId } = await abrirMesa(turno.token);
+
+    const salaoDele = await (
+      await salao(pedido("/api/maquininha/mesas", undefined, turno.token))
+    ).json();
+    expect(salaoDele.podeTransferir).toBe(true);
+    // A mesa onde a conta está não aparece: ela tem comanda aberta.
+    expect(salaoDele.livres.map((m: { mesaId: string }) => m.mesaId)).not.toContain(mesaId);
+
+    const destino = salaoDele.livres[0];
+    const resposta = await transferir(
+      pedido(
+        `/api/maquininha/comandas/${comandaId}/transferir`,
+        { mesaDestinoId: destino.mesaId },
+        turno.token
+      ),
+      { params: Promise.resolve({ id: comandaId }) }
+    );
+
+    expect(resposta.status).toBe(200);
+    expect((await resposta.json()).mesa).toBe(destino.numero);
+    const depois = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    expect(depois.mesaId).toBe(destino.mesaId);
+  });
+
+  it("mesa ocupada volta a frase que o garçom precisa ler", async () => {
+    const { corpo: turno } = await entrarCom("1111");
+    const daqui = await abrirMesa(turno.token);
+    const dali = await abrirMesa(turno.token);
+
+    const resposta = await transferir(
+      pedido(
+        `/api/maquininha/comandas/${daqui.comandaId}/transferir`,
+        { mesaDestinoId: dali.mesaId },
+        turno.token
+      ),
+      { params: Promise.resolve({ id: daqui.comandaId }) }
+    );
+
+    expect(resposta.status).toBe(409);
+    expect((await resposta.json()).erro).toContain("já tem a comanda");
+  });
+
+  it("quem só recebe pagamento não transfere", async () => {
+    const { corpo: doGarcom } = await entrarCom("1111");
+    const { comandaId } = await abrirMesa(doGarcom.token);
+    const { corpo: turno } = await entrarCom("2222");
+
+    const salaoDele = await (
+      await salao(pedido("/api/maquininha/mesas", undefined, turno.token))
+    ).json();
+    expect(salaoDele.podeTransferir).toBe(false);
+
+    const resposta = await transferir(
+      pedido(
+        `/api/maquininha/comandas/${comandaId}/transferir`,
+        { mesaDestinoId: "qualquer-uma" },
+        turno.token
+      ),
+      { params: Promise.resolve({ id: comandaId }) }
+    );
+    expect(resposta.status).toBe(403);
   });
 });

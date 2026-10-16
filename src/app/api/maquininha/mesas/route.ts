@@ -53,7 +53,12 @@ export async function GET(request: NextRequest) {
    * trafegando a cada volta ao salão.
    */
   const podeAbrir = podeNoAparelho(operador.permissoes, "comanda.abrir");
-  const livres = podeAbrir ? await mesasLivres(unidade.id) : [];
+  /*
+   * As livres servem a duas coisas: abrir mesa e escolher o destino de uma
+   * transferência. Quem só transfere — e não abre — também precisa da lista.
+   */
+  const podeTransferir = podeNoAparelho(operador.permissoes, "mesa.transferir");
+  const livres = podeAbrir || podeTransferir ? await mesasLivres(unidade.id) : [];
   /*
    * Quem não recebe pagamento não vê onde cobrar.
    *
@@ -90,6 +95,7 @@ export async function GET(request: NextRequest) {
     // cliente entregar o cartão, em vez de recusar depois de cobrar.
     caixaAberto: Boolean(caixaAberto),
     podeAbrir,
+    podeTransferir,
     podeReceber,
     /*
      * Pedir a conta é do garçom (`comanda.imprimirParcial`) e de quem vai

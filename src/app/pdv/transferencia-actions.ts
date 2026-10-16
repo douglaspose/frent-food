@@ -3,139 +3,25 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { exigirPermissao } from "@/lib/session";
-import { enfileirarTransferencia } from "@/lib/fila-impressao";
-import { publicar } from "@/lib/eventos";
-import { auditoria } from "@/lib/auditoria-servidor";
+import { mesasLivres as livresDaUnidade } from "@/lib/abertura";
+import { transferirMesa as transferir } from "@/lib/transferencia";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
 
 /**
  * Move a comanda inteira para outra mesa.
  *
- * O grupo pediu para trocar de lugar, ou o garçom abriu na mesa errada — as
- * duas coisas acontecem toda noite. Sem isto, a saída era fechar a conta e
- * abrir outra, o que perde o tempo de mesa, quebra os tickets da cozinha e
- * some com a rastreabilidade.
- *
- * Não junta mesas: se a mesa de destino já tem comanda aberta, a ação recusa.
- * Juntar duas contas é outra operação — envolve pagamentos já lançados e
- * decidir de quem é a taxa de serviço — e fazer as duas coisas com o mesmo
- * botão convida a juntar sem querer.
+ * A regra mora em `@/lib/transferencia`, compartilhada com a maquininha — o
+ * garçom que ouve "dá para sentar lá fora?" está de pé no salão, com o
+ * aparelho na mão. O que sobra aqui é a sessão e a tela.
  */
 export async function transferirMesa(comandaId: string, mesaDestinoId: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("mesa.transferir");
-
-    const comanda = await db.comanda.findUniqueOrThrow({
-      where: { id: comandaId },
-      include: { mesa: { select: { id: true, numero: true } } },
-    });
-    if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
-    if (comanda.status === "PAGA") throw new ErroDeOperacao("Comanda já paga. Abra uma nova.");
-    if (comanda.status === "CANCELADA") throw new ErroDeOperacao("Comanda cancelada.");
-    if (comanda.mesaId === mesaDestinoId) return;
-
-    const destino = await db.mesa.findUniqueOrThrow({
-      where: { id: mesaDestinoId },
-      include: {
-        area: { select: { nome: true } },
-        comandas: {
-          where: { status: { in: ["ABERTA", "FECHANDO"] } },
-          select: { numero: true },
-          take: 1,
-        },
-      },
-    });
-
-    // Unidade, não tenant: um restaurante com duas lojas não pode mover uma
-    // mesa do salão de uma para o da outra.
-    if (destino.unidadeId !== comanda.unidadeId) throw new ErroDeOperacao("Mesa de outra unidade.");
-    if (!destino.ativo) throw new ErroDeOperacao("Esta mesa está desativada.");
-
-    if (destino.comandas.length > 0) {
-      throw new ErroDeOperacao(
-        `A mesa ${destino.numero} já tem a comanda #${destino.comandas[0]!.numero} aberta. ` +
-          "Feche-a antes, ou escolha outra mesa."
-      );
-    }
-
-    const limparAuto = await db.parametroUnidade.findUnique({
-      where: {
-        unidadeId_chave: { unidadeId: comanda.unidadeId, chave: "mesa.limparAutomaticamente" },
-      },
-    });
-
-    const origem = comanda.mesa;
-
-    const registro = await auditoria(sessao, {
-      entidade: "Comanda",
-      entidadeId: comandaId,
-      acao: "MESA_TRANSFERIDA",
-      antes: { mesa: origem?.numero ?? null },
-      depois: { mesa: destino.numero, comanda: comanda.numero },
-    });
-
-    await db.$transaction(async (tx) => {
-      /**
-       * A mesma fila das aberturas: a trava da linha da unidade.
-       *
-       * A mesa de destino era conferida solta, antes. Duas transferências
-       * para a mesma mesa livre — ou uma transferência e uma abertura nela —
-       * passavam as duas pela conferência, e a mesa ficava com duas comandas
-       * abertas: o mapa mostra uma, a outra some do salão. Dentro da trava, a
-       * mesa e a conta são conferidas de novo.
-       */
-      await tx.$queryRaw`SELECT id FROM unidades WHERE id = ${comanda.unidadeId} FOR NO KEY UPDATE`;
-      const ocupada = await tx.comanda.findFirst({
-        where: { mesaId: mesaDestinoId, status: { in: ["ABERTA", "FECHANDO"] } },
-        select: { numero: true },
-      });
-      if (ocupada) {
-        throw new ErroDeOperacao(
-          `A mesa ${destino.numero} acabou de receber a comanda #${ocupada.numero}. Escolha outra mesa.`
-        );
-      }
-      const agora = await tx.comanda.findUniqueOrThrow({ where: { id: comandaId }, select: { status: true } });
-      if (agora.status !== "ABERTA" && agora.status !== "FECHANDO") {
-        throw new ErroDeOperacao("Esta comanda acabou de ser fechada.");
-      }
-
-      await tx.comanda.update({ where: { id: comandaId }, data: { mesaId: mesaDestinoId } });
-
-      // A mesa de destino herda o estado da conta: uma mesa que estava pedindo
-      // a conta continua laranja no mapa depois de mudar de lugar.
-      await tx.mesa.update({
-        where: { id: mesaDestinoId },
-        data: { status: comanda.status === "FECHANDO" ? "FECHANDO" : "OCUPADA" },
-      });
-
-      if (origem) {
-        await tx.mesa.update({
-          where: { id: origem.id },
-          // Mesma regra do fechamento: onde a limpeza não é automática, a mesa
-          // fica SUJA até alguém liberar. Um grupo que acabou de sair de lá
-          // deixou a mesa do mesmo jeito.
-          data: { status: limparAuto?.valor === false ? "SUJA" : "LIVRE" },
-        });
-      }
-
-      await tx.auditLog.create({ data: registro });
-    });
-
-    // Fora da transação: impressora fora do ar não desfaz uma transferência que
-    // já vale no salão e no KDS.
-    if (origem) {
-      try {
-        await enfileirarTransferencia(comandaId, origem.numero, destino.numero, sessao.nome);
-      } catch (e) {
-        console.error("Falha ao enfileirar aviso de transferência", e);
-      }
-    }
+    const destino = await transferir(sessao, comandaId, mesaDestinoId);
 
     revalidatePath("/pdv");
     revalidatePath("/kds");
-    await publicar(sessao.unidadeId, "mesa-transferida");
-
-    return { mesaId: mesaDestinoId, numero: destino.numero };
+    return { mesaId: destino.mesaId, numero: destino.numero };
   });
 }
 
@@ -150,29 +36,18 @@ export async function mesasLivres(comandaId: string) {
     });
     if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
 
-    const mesas = await db.mesa.findMany({
-      where: {
-        unidadeId: comanda.unidadeId,
-        ativo: true,
-        ...(comanda.mesaId ? { id: { not: comanda.mesaId } } : {}),
-        // SUJA entra na lista: mesa por limpar está livre para receber gente, e
-        // esconder metade do salão numa casa sem limpeza automática seria pior
-        // que mostrar uma mesa que precisa de um pano.
-        comandas: { none: { status: { in: ["ABERTA", "FECHANDO"] } } },
-      },
-      select: { id: true, numero: true, capacidade: true, status: true, area: { select: { nome: true } } },
-    });
-
-    return mesas
-      // numero é texto (mesas podem se chamar "12A"), então a ordem alfabética
-      // do banco colocaria a 10 antes da 2. Mesma ordenação do mapa.
-      .sort((a, b) => Number(a.numero) - Number(b.numero) || a.numero.localeCompare(b.numero))
-      .map((m) => ({
-      id: m.id,
+    /*
+     * A mesma lista que o aparelho usa para abrir mesa, menos a mesa onde a
+     * conta já está: duas definições de "mesa livre" seria o caminho mais
+     * curto para uma tela oferecer o destino que a outra recusa.
+     */
+    const mesas = await livresDaUnidade(comanda.unidadeId, { exceto: comanda.mesaId });
+    return mesas.map((m) => ({
+      id: m.mesaId,
       numero: m.numero,
       capacidade: m.capacidade,
       status: m.status,
-      area: m.area?.nome ?? null,
+      area: m.area,
     }));
   });
 }
