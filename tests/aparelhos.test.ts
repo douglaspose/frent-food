@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { reconhecerPeloToken, registrarContato, sortearToken } from "@/lib/aparelhos";
+import {
+  aparelhoDaUnidade,
+  reconhecerPeloToken,
+  registrarContato,
+  sortearToken,
+} from "@/lib/aparelhos";
 import { GET as buscarFila } from "@/app/api/impressao/route";
 import { criarRestaurante, limpar } from "./fixtures";
 
@@ -172,5 +177,60 @@ describe("a fila de impressão pela credencial nova", () => {
 
     // O papel da casa não sai mais na mão de quem está com o aparelho.
     expect(resposta.status).toBe(401);
+  });
+});
+
+/**
+ * Quem configura a filial do centro não mexe na maquininha da filial da praia.
+ *
+ * Sem efeito prático hoje, porque `unidade.configurar` costuma ser do
+ * proprietário, que manda nas duas; passa a ter no dia em que existir um
+ * gerente de filial com a chave. É a mesma régua que mesa e comanda usam.
+ */
+describe("o aparelho é da unidade", () => {
+  it("o da filial não se deixa cortar de outra unidade", async () => {
+    const filial = await db.unidade.create({
+      data: { tenantId, codigo: "002", nome: "Filial da praia", taxaServicoPct: 10 },
+    });
+    const daFilial = await db.aparelho.create({
+      data: { tenantId, unidadeId: filial.id, nome: "Maquininha da praia", token: sortearToken() },
+    });
+
+    await expect(
+      aparelhoDaUnidade(daFilial.id, { tenantId, unidadeId })
+    ).rejects.toThrow("outra unidade");
+
+    // E da unidade dele, passa.
+    await expect(
+      aparelhoDaUnidade(daFilial.id, { tenantId, unidadeId: filial.id })
+    ).resolves.toMatchObject({ nome: "Maquininha da praia" });
+  });
+
+  it("o de outro restaurante responde como de outro restaurante", async () => {
+    const vizinho = await criarRestaurante(`${SLUG}-vizinho`);
+    const dele = await db.aparelho.create({
+      data: {
+        tenantId: vizinho.tenant.id,
+        unidadeId: vizinho.unidade.id,
+        nome: "Maquininha do vizinho",
+        token: sortearToken(),
+      },
+    });
+
+    try {
+      // Antes da unidade vem o restaurante: a mensagem não conta ao vizinho
+      // que o id existe em alguma casa.
+      await expect(
+        aparelhoDaUnidade(dele.id, { tenantId, unidadeId })
+      ).rejects.toThrow("outro restaurante");
+    } finally {
+      await limpar(`${SLUG}-vizinho`);
+    }
+  });
+
+  it("id inventado não vaza que não existe", async () => {
+    await expect(
+      aparelhoDaUnidade("nao-existe", { tenantId, unidadeId })
+    ).rejects.toThrow("outro restaurante");
   });
 });

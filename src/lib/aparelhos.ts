@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { db, dbSemRls } from "@/lib/db";
 import { atravessandoRestaurantes } from "@/lib/tenant-atual";
+import { ErroDeOperacao } from "@/lib/erro-de-operacao";
 
 /**
  * Os aparelhos da casa que falam com o servidor por token, e não por sessão de
@@ -104,6 +105,29 @@ export async function registrarContato(
       ...(apelido ? { ultimoApelido: apelido } : {}),
     },
   });
+}
+
+/**
+ * O aparelho, se ele for desta unidade.
+ *
+ * Unidade, e não restaurante: um aparelho mora numa casa só, e quem configura
+ * a filial do centro não corta a maquininha da filial da praia. Não tinha
+ * efeito enquanto `unidade.configurar` era do proprietário, que manda nas
+ * duas; passa a ter no dia em que existir um gerente de filial com a chave —
+ * e é a mesma régua que `abertura` e `conta` usam para mesa e comanda.
+ */
+export async function aparelhoDaUnidade(
+  id: string,
+  quem: { tenantId: string; unidadeId: string }
+) {
+  const aparelho = await db.aparelho.findUnique({ where: { id } });
+  if (!aparelho || aparelho.tenantId !== quem.tenantId) {
+    throw new ErroDeOperacao("Aparelho de outro restaurante.");
+  }
+  if (aparelho.unidadeId !== quem.unidadeId) {
+    throw new ErroDeOperacao("Aparelho de outra unidade.");
+  }
+  return aparelho;
 }
 
 /**

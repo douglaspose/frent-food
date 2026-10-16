@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { exigirPermissao } from "@/lib/session";
 import { auditoria } from "@/lib/auditoria-servidor";
-import { sortearToken } from "@/lib/aparelhos";
+import { aparelhoDaUnidade, sortearToken } from "@/lib/aparelhos";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
 
 /**
@@ -69,10 +69,7 @@ export async function revogarAparelho(id: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("unidade.configurar");
 
-    const aparelho = await db.aparelho.findUniqueOrThrow({ where: { id } });
-    if (aparelho.tenantId !== sessao.tenantId) {
-      throw new ErroDeOperacao("Aparelho de outro restaurante.");
-    }
+    const aparelho = await aparelhoDaUnidade(id, sessao);
     if (!aparelho.ativo) return;
 
     await db.$transaction(async (tx) => {
@@ -106,10 +103,7 @@ export async function trocarToken(id: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("unidade.configurar");
 
-    const aparelho = await db.aparelho.findUniqueOrThrow({ where: { id } });
-    if (aparelho.tenantId !== sessao.tenantId) {
-      throw new ErroDeOperacao("Aparelho de outro restaurante.");
-    }
+    const aparelho = await aparelhoDaUnidade(id, sessao);
 
     await db.$transaction(async (tx) => {
       await tx.aparelho.update({
