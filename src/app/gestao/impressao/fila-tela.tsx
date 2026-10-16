@@ -36,14 +36,18 @@ const CORES: Record<string, string> = {
 
 export function FilaTela({
   unidade,
-  token,
+  temToken,
   trabalhos,
   naFila,
   impressoras,
   podeEditar,
+  podeConfigurar,
 }: {
   unidade: string;
-  token: string | null;
+  /** Se a unidade já tem credencial. O valor dela não vem para a tela. */
+  temToken: boolean;
+  /** Gerar credencial é da mesma régua de cadastrar aparelho. */
+  podeConfigurar: boolean;
   trabalhos: Trabalho[];
   /**
    * Quantos papéis esperam na unidade inteira.
@@ -109,7 +113,7 @@ export function FilaTela({
           busca e imprime. Se a internet cair, a fila espera e nada se perde.
         </p>
 
-        {podeEditar && (
+        {podeConfigurar && (
           <div className="mt-4">
             {tokenNovo ? (
               <div className="rounded-lg bg-neutral-900 p-4">
@@ -122,7 +126,7 @@ export function FilaTela({
               </div>
             ) : (
               <p className="text-sm text-neutral-500">
-                {token ? "Token configurado." : "Nenhum token gerado ainda."}
+                {temToken ? "Token configurado." : "Nenhum token gerado ainda."}
               </p>
             )}
 
@@ -137,9 +141,9 @@ export function FilaTela({
               disabled={pendente}
               className="mt-3 rounded-lg bg-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-300 disabled:opacity-40"
             >
-              {token ? "Gerar novo token" : "Gerar token"}
+              {temToken ? "Gerar novo token" : "Gerar token"}
             </button>
-            {token && (
+            {temToken && (
               <p className="mt-2 text-xs text-neutral-500">
                 Gerar um novo invalida o anterior — o agente para até ser atualizado.
               </p>

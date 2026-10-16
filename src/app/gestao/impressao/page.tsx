@@ -43,8 +43,23 @@ export default async function ImpressaoPage() {
   return (
     <FilaTela
       podeEditar={temPermissao(sessao, "produto.editar")}
+      /*
+       * Gerar a credencial da unidade é da mesma régua que cadastrar ou cortar
+       * um aparelho: ela abre a fila de impressão da casa e a porta da
+       * maquininha, e regerá-la derruba todos os aparelhos de uma vez. Operar
+       * a fila — reimprimir, descartar, testar — continua sendo `produto.editar`.
+       */
+      podeConfigurar={temPermissao(sessao, "unidade.configurar")}
       unidade={unidade.nome}
-      token={unidade.tokenImpressao}
+      /*
+       * Só se existe, não qual é.
+       *
+       * A tela nunca mostrou o valor — ela diz "Token configurado" e só exibe o
+       * que acabou de ser gerado. Mas a credencial inteira descia no payload
+       * para qualquer um que abrisse a retaguarda, que é o mesmo vazamento que
+       * a tela de aparelhos teve. O que a tela precisa saber é se já existe.
+       */
+      temToken={Boolean(unidade.tokenImpressao)}
       impressoras={impressoras}
       naFila={naFila}
       trabalhos={trabalhos.map((t) => ({

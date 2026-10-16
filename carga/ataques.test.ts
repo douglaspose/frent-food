@@ -8,6 +8,7 @@ import { avancarPedido } from "@/app/kds/actions";
 import { transferirMesa } from "@/app/pdv/transferencia-actions";
 import { registrarContagem, registrarEntrada, registrarPerda } from "@/app/gestao/estoque/actions";
 import { salvarDivisaoDaTaxa } from "@/app/gestao/ajustes/actions";
+import { gerarTokenImpressao } from "@/app/gestao/impressao/actions";
 import LoginPage from "@/app/login/page";
 import PdvMesasPage from "@/app/pdv/page";
 import GestaoLayout from "@/app/gestao/layout";
@@ -1497,6 +1498,63 @@ describe("maquininha", () => {
    * e o diário de propósito não guarda o token, "porque ele é credencial". Ler
    * é a mesma pergunta, e a tela precisa responder igual.
    */
+  /**
+   * A credencial da unidade abre as mesmas portas que a do aparelho: a fila de
+   * impressão da casa e o turno da maquininha. Ela tinha régua mais frouxa só
+   * porque mora numa tela mais antiga.
+   */
+  it("a credencial da unidade não vai para a tela de impressão de ninguém", async () => {
+    const token = `unidade-na-tela-${A.unidade.id}`;
+    const antes = await admin.unidade.findUniqueOrThrow({
+      where: { id: A.unidade.id },
+      select: { tokenImpressao: true },
+    });
+    await admin.unidade.update({
+      where: { id: A.unidade.id },
+      data: { tokenImpressao: token },
+    });
+
+    try {
+      const naTela = async (quem: Membro) =>
+        JSON.stringify(await como(quem, () => ImpressaoPage())).includes(token);
+
+      /*
+       * Nem para o proprietário: a tela nunca mostrou o valor — ela diz
+       * "Token configurado" e só exibe o que acabou de ser gerado. O que
+       * descia no payload era credencial viajando sem ninguém pedir.
+       */
+      expect({
+        gerente: await naTela(A.gerentes[0]!),
+        proprietario: await naTela(A.proprietario),
+      }).toEqual({ gerente: false, proprietario: false });
+    } finally {
+      await admin.unidade.update({
+        where: { id: A.unidade.id },
+        data: { tokenImpressao: antes.tokenImpressao },
+      });
+    }
+  });
+
+  it("o gerente não gera credencial nova da unidade", async () => {
+    const antes = await admin.unidade.findUniqueOrThrow({
+      where: { id: A.unidade.id },
+      select: { tokenImpressao: true },
+    });
+
+    // Gerar de novo derruba todos os aparelhos da casa de uma vez, o agente do
+    // balcão inclusive — é a mesma régua de cortar um aparelho.
+    const t = await tentar(A.gerentes[0]!, () => gerarTokenImpressao());
+
+    const depois = await admin.unidade.findUniqueOrThrow({
+      where: { id: A.unidade.id },
+      select: { tokenImpressao: true },
+    });
+    expect({ recusou: recusou(t), mudou: depois.tokenImpressao !== antes.tokenImpressao }).toEqual({
+      recusou: true,
+      mudou: false,
+    });
+  });
+
   it("o token do aparelho não vai para a tela de quem não configura aparelho", async () => {
     const token = `aparelho-na-tela-${A.unidade.id}`;
     await admin.aparelho.create({

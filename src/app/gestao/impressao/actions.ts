@@ -8,9 +8,18 @@ import { enfileirar } from "@/lib/fila-impressao";
 import { centro, linha } from "@/lib/impressao";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
 
+/**
+ * A credencial da unidade, nova.
+ *
+ * Pede `unidade.configurar`, e não `produto.editar` como o resto desta tela:
+ * é a mesma credencial que o cadastro de aparelhos trata com essa régua, e
+ * gerá-la de novo **derruba todos os aparelhos da casa de uma vez** — o agente
+ * do balcão inclusive. Reimprimir e descartar papel continuam sendo de quem
+ * opera a fila.
+ */
 export async function gerarTokenImpressao() {
   return emResultado(async () => {
-    const sessao = await exigirPermissao("produto.editar");
+    const sessao = await exigirPermissao("unidade.configurar");
 
     const token = randomBytes(24).toString("base64url");
     await db.unidade.update({ where: { id: sessao.unidadeId }, data: { tokenImpressao: token } });
