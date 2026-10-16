@@ -1,7 +1,7 @@
 import "server-only";
 import bcrypt from "bcryptjs";
 import { db, type Tx } from "./db";
-import { exigirSessao, temPermissao, type Sessao } from "./session";
+import { temPermissao, type Sessao } from "./session";
 import { registrarFalha, verificar } from "./limite-tentativas";
 import { TIPOS_DE_AUTORIZACAO, VALIDADE_MS, type TipoAutorizacao } from "./autorizacao";
 import { ErroDeOperacao } from "./erro-de-operacao";
@@ -23,16 +23,21 @@ export type Liberacao = {
  * autorização — criada segundos antes com o PIN de alguém que tem, presa a
  * esta ação e a este alvo.
  *
- * Devolve `null` quando falta os dois, em vez de lançar: cabe à action
+ * Devolve `null` quando falta os dois, em vez de lançar: cabe a quem chamou
  * transformar isso no resultado que a tela entende.
+ *
+ * `quem` vem de fora, e não de `exigirSessao()` aqui dentro: no PDV é a sessão
+ * do navegador, na maquininha é o operador do PIN do turno. A liberação é a
+ * mesma — o gerente digita o PIN dele no aparelho que estiver à mão.
  */
 export async function liberar(
+  quem: Sessao,
   chave: string,
   tipo: TipoAutorizacao,
   referenciaId: string,
   autorizacaoId?: string | null
 ): Promise<Liberacao | null> {
-  const sessao = await exigirSessao();
+  const sessao = quem;
 
   if (temPermissao(sessao, chave)) {
     return { sessao, aprovadoPor: null, consumir: async () => {} };
@@ -96,12 +101,13 @@ export type ResultadoDaAprovacao =
  * quem pode aprovar já seria informação demais para quem está pedindo.
  */
 export async function aprovarComPin(
+  quem: Sessao,
   tipo: TipoAutorizacao,
   referenciaId: string,
   pin: string,
   motivo?: string
 ): Promise<ResultadoDaAprovacao> {
-  const sessao = await exigirSessao();
+  const sessao = quem;
   const { permissao } = TIPOS_DE_AUTORIZACAO[tipo];
 
   // O freio é por usuário solicitante, não por PIN: chavear pelo PIN diria a

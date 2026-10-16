@@ -191,7 +191,13 @@ export async function registrarMovimentoCaixa(
   autorizacaoId?: string | null
 ): Promise<{ ok: true } | PrecisaAutorizacao | ComErro> {
   return emResultado(async () => {
-    const liberacao = await liberar("caixa.sangria", "SANGRIA", caixaId, autorizacaoId);
+    const liberacao = await liberar(
+      await exigirSessao(),
+      "caixa.sangria",
+      "SANGRIA",
+      caixaId,
+      autorizacaoId
+    );
     if (!liberacao) return { precisaAutorizacao: "SANGRIA" };
     const { sessao, aprovadoPor } = liberacao;
 
@@ -402,6 +408,7 @@ export async function aplicarDesconto(
 ): Promise<{ ok: true } | PrecisaAutorizacao | ComErro> {
   return emResultado(async () => {
     const liberacao = await liberar(
+      await exigirSessao(),
       "comanda.aplicarDesconto",
       "DESCONTO",
       comandaId,

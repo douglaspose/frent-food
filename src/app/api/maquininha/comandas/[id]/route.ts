@@ -43,7 +43,13 @@ export async function GET(request: NextRequest, contexto: { params: Promise<{ id
     db.comandaItem.findMany({
       where: { comandaId: id, ...CONSUMO },
       orderBy: { lancadoEm: "asc" },
-      select: { quantidade: true, precoTotal: true, produto: { select: { titulo: true } } },
+      select: {
+        id: true,
+        quantidade: true,
+        precoTotal: true,
+        status: true,
+        produto: { select: { titulo: true } },
+      },
     }),
     db.pagamento.findMany({
       where: { comandaId: id },
@@ -75,9 +81,14 @@ export async function GET(request: NextRequest, contexto: { params: Promise<{ id
     faltaEmCentavos: emCentavos(conta.falta),
     porPessoaEmCentavos: c.pessoas > 0 ? Math.round(emCentavos(conta.total) / c.pessoas) : null,
     itens: itens.map((i) => ({
+      // O id vai junto para a linha poder ser cancelada: sem ele, o aparelho
+      // mostra a conta e manda o garçom ao tablet para tirar um item dela.
+      itemId: i.id,
       titulo: i.produto.titulo,
       quantidade: Number(i.quantidade),
       totalEmCentavos: emCentavos(Number(i.precoTotal)),
+      /** PENDENTE ainda é carrinho; o resto já está com a cozinha. */
+      status: i.status,
     })),
     pagamentos: pagamentos.map((p) => ({
       forma: p.formaPagamento.nome,

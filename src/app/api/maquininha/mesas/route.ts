@@ -98,6 +98,16 @@ export async function GET(request: NextRequest) {
     podeTransferir,
     podeReceber,
     /*
+     * Quem lança item pode pedir para cancelar um: a permissão de cancelar não
+     * é exigida aqui porque quem não a tem é mandado pedir o PIN de quem tem,
+     * e não recusado. É a mesma porta da rota do cancelamento.
+     */
+    podeCancelar: podeNoAparelho(
+      operador.permissoes,
+      "comanda.lancarItem",
+      "comanda.cancelarItem"
+    ),
+    /*
      * Pedir a conta é do garçom (`comanda.imprimirParcial`) e de quem vai
      * cobrar: o cargo CAIXA não tem a chave de impressão parcial, e recusar a
      * ele a folha que ele mesmo vai receber não faria sentido nenhum.

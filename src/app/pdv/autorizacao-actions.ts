@@ -1,6 +1,7 @@
 "use server";
 
 import { aprovarComPin, type ResultadoDaAprovacao } from "@/lib/autorizacao-servidor";
+import { exigirSessao } from "@/lib/session";
 import type { TipoAutorizacao } from "@/lib/autorizacao";
 
 /**
@@ -14,5 +15,5 @@ export async function pedirAutorizacao(
   pin: string,
   motivo?: string
 ): Promise<ResultadoDaAprovacao> {
-  return aprovarComPin(tipo, referenciaId, pin, motivo);
+  return aprovarComPin(await exigirSessao(), tipo, referenciaId, pin, motivo);
 }
