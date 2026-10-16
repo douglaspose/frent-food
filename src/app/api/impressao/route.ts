@@ -93,12 +93,24 @@ export async function GET(request: NextRequest) {
    * garçom, deixando a praça sem o papel.
    *
    * Então o agente diz o que consegue imprimir, e a fila respeita: com
-   * `embutida`, só os trabalhos sem impressora endereçada — que são a
-   * conferência e o cupom, justamente os papéis que o garçom quer em mãos.
-   * Numa casa sem impressora cadastrada, nenhum trabalho tem destino e ele
-   * continua levando tudo, que é o único destino possível ali.
+   * `embutida`, só o papel da mão — a conferência e o cupom, que são os que o
+   * garçom quer em mãos.
+   *
+   * "Papel da mão" é o tipo, e não a falta de endereço. O endereço vem da
+   * estação, e a casa que comprou a térmica do bar e deixou a cozinha no agente
+   * do balcão tem a comanda da cozinha **sem** impressora endereçada: pela
+   * falta de endereço ela voltava a caber no bolso do garçom, e com a reserva o
+   * balcão deixava de vê-la — a praça esperando um prato que ninguém mandou
+   * fazer, que é justamente o que esta regra veio impedir.
+   *
+   * Numa casa sem impressora cadastrada, porém, a bobina do bolso é o único
+   * destino que existe, e ali ele continua levando tudo: recusar a comanda da
+   * cozinha seria trocar "o papel saiu no lugar errado" por "o papel não saiu".
    */
   const soEmbutida = request.nextUrl.searchParams.get("embutida") === "1";
+  const soDaMao =
+    soEmbutida &&
+    (await db.impressora.count({ where: { unidadeId: unidade.id, ativo: true } })) > 0;
   const agente = (request.nextUrl.searchParams.get("agente") ?? "").slice(0, 60) || null;
   // Marca que este aparelho está vivo. Na busca, e não na confirmação: a busca
   // é a chamada que ele repete mesmo quando não há nada para imprimir.
@@ -130,6 +142,7 @@ export async function GET(request: NextRequest) {
         WHERE "unidadeId" = ${unidade.id}
           AND status = 'PENDENTE'
           AND (${soEmbutida} = false OR "impressoraId" IS NULL)
+          AND (${soDaMao} = false OR tipo IN ('CONFERENCIA', 'CUPOM'))
           AND ("entregueEm" IS NULL
                OR "entregueEm" <
                   timezone('UTC', now()) - (${ENTREGA_VALE_POR_SEGUNDOS} * interval '1 second'))
