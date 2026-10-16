@@ -147,8 +147,13 @@ export async function sessaoDaTela(): Promise<Sessao> {
  * rebaixado a garçom no meio do turno continuava dando desconto sem PIN até o
  * cookie vencer. Na mesma consulta que confere se a pessoa está ativa, o cargo
  * é relido e substitui o do cookie.
+ *
+ * Exportada porque o cookie não é mais a única credencial de gente: o token do
+ * turno da maquininha dura as mesmas 12 horas e carrega as mesmas permissões
+ * dentro. A pergunta é uma só — "esta pessoa ainda pode, agora?" —, e duas
+ * cópias dela é como uma das portas passa a aceitar o que a outra recusa.
  */
-async function conferirNoBanco(sessao: Sessao): Promise<Sessao | null> {
+export async function conferirNoBanco(sessao: Sessao): Promise<Sessao | null> {
   const usuario = await db.usuario.findUnique({
     where: { id: sessao.usuarioId },
     select: {

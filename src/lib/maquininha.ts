@@ -2,6 +2,7 @@ import "server-only";
 import { SignJWT, jwtVerify } from "jose";
 import type { NextRequest } from "next/server";
 import { reconhecerPeloToken } from "./aparelhos";
+import { conferirNoBanco } from "./session";
 import type { QuemRecebe } from "./conta";
 
 /**
@@ -85,7 +86,7 @@ export async function unidadeDoAparelho(request: NextRequest): Promise<UnidadeDo
   return { ...reconhecido.unidade, aparelho: reconhecido.aparelho };
 }
 
-/** O operador do cabeçalho, se ele for desta unidade. */
+/** O operador do cabeçalho, se ele for desta unidade e ainda puder operar. */
 export async function operadorDaRequisicao(
   request: NextRequest,
   unidade: UnidadeDoAparelho
@@ -93,15 +94,31 @@ export async function operadorDaRequisicao(
   const token = (request.headers.get("x-operador") ?? "").trim();
   if (!token) return null;
 
-  const operador = await lerTokenDeOperador(token);
-  if (!operador) return null;
+  const doToken = await lerTokenDeOperador(token);
+  if (!doToken) return null;
   /*
    * O token diz a que unidade pertence, e a unidade vem do token do aparelho.
    * Sem esta conferência, um operador de uma filial receberia pela maquininha
    * da outra — e o pagamento entraria no caixa errado.
    */
-  if (operador.tenantId !== unidade.tenantId || operador.unidadeId !== unidade.id) return null;
-  return operador;
+  if (doToken.tenantId !== unidade.tenantId || doToken.unidadeId !== unidade.id) return null;
+
+  /**
+   * E o banco confere se ele ainda pode, agora.
+   *
+   * A assinatura do token só prova quem digitou o PIN; ela não sabe o que
+   * aconteceu depois. O token dura um turno inteiro, e nele cabe desligar
+   * alguém e rebaixar alguém: sem esta conferência, quem foi demitido no meio
+   * do sábado continuava abrindo mesa e **recebendo dinheiro** pelo aparelho
+   * até as doze horas vencerem, e o diário registrava a venda no nome dele.
+   *
+   * É a mesma conferência que o cookie do navegador passa em toda requisição,
+   * e é a mesma função: o cargo volta relido do banco, não o do começo do
+   * turno.
+   */
+  const agora = await conferirNoBanco(doToken);
+  if (!agora) return null;
+  return { ...doToken, cargo: agora.cargo, permissoes: agora.permissoes };
 }
 
 /**
