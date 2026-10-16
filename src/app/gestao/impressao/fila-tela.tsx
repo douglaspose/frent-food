@@ -38,12 +38,21 @@ export function FilaTela({
   unidade,
   token,
   trabalhos,
+  naFila,
   impressoras,
   podeEditar,
 }: {
   unidade: string;
   token: string | null;
   trabalhos: Trabalho[];
+  /**
+   * Quantos papéis esperam na unidade inteira.
+   *
+   * Contado no banco, e não nesta lista: a lista traz os 50 últimos, e contar
+   * dentro dela parava em 50 justamente quando o número importa — é esta tela
+   * que alguém abre quando a cozinha reclama que não sai papel.
+   */
+  naFila: number;
   impressoras: Impressora[];
   podeEditar: boolean;
 }) {
@@ -52,8 +61,6 @@ export function FilaTela({
   const [erro, setErro] = useState<string | null>(null);
   const [pendente, iniciar] = useTransition();
   const router = useRouter();
-
-  const naFila = trabalhos.filter((t) => t.status === "PENDENTE").length;
 
   function agir(fn: () => Promise<unknown>) {
     setErro(null);

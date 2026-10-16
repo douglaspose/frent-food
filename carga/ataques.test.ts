@@ -11,11 +11,18 @@ import { salvarDivisaoDaTaxa } from "@/app/gestao/ajustes/actions";
 import LoginPage from "@/app/login/page";
 import PdvMesasPage from "@/app/pdv/page";
 import GestaoLayout from "@/app/gestao/layout";
+import AparelhosPage from "@/app/gestao/aparelhos/page";
+import ImpressaoPage from "@/app/gestao/impressao/page";
 import MesaPublicaPage from "@/app/mesa/[token]/page";
 import { GET as GETImpressao, POST as POSTImpressao } from "@/app/api/impressao/route";
 import { POST as POSTEntrar } from "@/app/api/maquininha/entrar/route";
-import { GET as GETMesas } from "@/app/api/maquininha/mesas/route";
+import { GET as GETMesas, POST as POSTAbrirMesa } from "@/app/api/maquininha/mesas/route";
 import { POST as POSTPagamentos } from "@/app/api/maquininha/pagamentos/route";
+import { POST as POSTItensNoAparelho } from "@/app/api/maquininha/comandas/[id]/itens/route";
+import { POST as POSTReabrirNoAparelho } from "@/app/api/maquininha/comandas/[id]/reabrir/route";
+import { POST as POSTTransferirNoAparelho } from "@/app/api/maquininha/comandas/[id]/transferir/route";
+import { POST as POSTCancelarNoAparelho } from "@/app/api/maquininha/itens/[id]/cancelar/route";
+import { POST as POSTAutorizacoesNoAparelho } from "@/app/api/maquininha/autorizacoes/route";
 import { NextRequest } from "next/server";
 import { chamarGarcomPeloQr } from "@/app/mesa/[token]/actions";
 import {
@@ -816,18 +823,57 @@ describe("maquininha", () => {
     expect([semNada.status, semOperador.status, comLixo.status]).toEqual([401, 401, 401]);
   });
 
-  it("o PIN do garçom não abre a maquininha; o do caixa abre", async () => {
+  /**
+   * O garçom entra, e a porta do dinheiro continua fechada para ele.
+   *
+   * Até o salão entrar no aparelho, a porta do turno só abria para quem recebe
+   * pagamento, e este teste exigia 403 para o garçom. Com a maquininha abrindo
+   * mesa e lançando rodada, o cargo que ela atende é justamente o dele: entrar
+   * passou a valer para quem recebe **ou** lança, e cada rota confere a sua
+   * permissão depois.
+   *
+   * O que importa não mudou, e é o que se afirma aqui: o garçom entra no
+   * aparelho e **não** registra pagamento. A conferência saiu da porta e foi
+   * para a rota, e é lá que ela é cobrada.
+   */
+  it("o garçom entra no aparelho, mas não registra pagamento", async () => {
     const aparelho = await ligarAparelho(A, "pin");
     const garcom = await tokenDoOperador(aparelho, A.garcons[0]!.pin);
     const errado = await tokenDoOperador(aparelho, "9999");
     const caixa = await tokenDoOperador(aparelho, A.caixas[0]!.pin);
+
+    const { comandaId } = await contaNaMesaNova(A.garcons[0]!, 2);
+    const { falta } = await quantoDeve(comandaId);
+    const cobrou = await POSTPagamentos(
+      chamada("/api/maquininha/pagamentos", {
+        aparelho,
+        operador: garcom.corpo.token!,
+        corpo: {
+          comandaId,
+          referencia: "garcom-querendo-cobrar",
+          forma: "DEBITO",
+          valorEmCentavos: Math.round(falta * 100),
+        },
+      })
+    );
+
     expect({
       garcom: garcom.status,
-      garcomSemToken: garcom.corpo.token === undefined,
+      garcomComToken: typeof garcom.corpo.token === "string",
       errado: errado.status,
       caixa: caixa.status,
       caixaComToken: typeof caixa.corpo.token === "string",
-    }).toEqual({ garcom: 403, garcomSemToken: true, errado: 401, caixa: 200, caixaComToken: true });
+      cobrou: cobrou.status,
+      pagamentos: await admin.pagamento.count({ where: { comandaId } }),
+    }).toEqual({
+      garcom: 200,
+      garcomComToken: true,
+      errado: 401,
+      caixa: 200,
+      caixaComToken: true,
+      cobrou: 403,
+      pagamentos: 0,
+    });
   });
 
   it("operador de um restaurante não opera a maquininha do outro", async () => {
@@ -951,6 +997,566 @@ describe("maquininha", () => {
       recebedor: true,
       nsu: "123456",
     });
+  });
+
+  /**
+   * O salão dentro do aparelho — exploração de 16/10.
+   *
+   * Nove rotas novas passaram a abrir mesa, lançar rodada, pedir a conta,
+   * reabrir, transferir, cancelar item e aprovar com PIN sem navegador nenhum.
+   * O que se procura aqui é o que muda **durante** o turno: gente desligada,
+   * cargo rebaixado, aparelho cortado — e as corridas de dois aparelhos na
+   * mesma mesa e na mesma fila de papel.
+   */
+
+  /** Uma mesa só deste teste: as 60 do cenário já têm dono nos de cima. */
+  let proximaMesa = 900;
+  async function mesaNova() {
+    const area = await admin.area.findFirstOrThrow({ where: { unidadeId: A.unidade.id } });
+    proximaMesa += 1;
+    return admin.mesa.create({
+      data: {
+        tenantId: A.tenant.id,
+        unidadeId: A.unidade.id,
+        areaId: area.id,
+        numero: String(proximaMesa),
+        capacidade: 4,
+        qrToken: `qr-aparelho-${proximaMesa}`,
+      },
+    });
+  }
+
+  /** Uma conta honesta numa mesa nova, aberta e lançada pelo PDV. */
+  async function contaNaMesaNova(g: Membro, itens = 2) {
+    const mesa = await mesaNova();
+    const aberta = await como(g, () => abrirComanda(mesa.id, 2));
+    if (!aberta || temErro(aberta)) throw new Error(`não abriu a mesa: ${JSON.stringify(aberta)}`);
+    const naoCarne = A.itens.filter((i) => !i.exigePontoCarne);
+    for (let k = 0; k < itens; k++) {
+      const item = naoCarne[k % naoCarne.length]!;
+      await como(g, () =>
+        adicionarAoCarrinho({
+          comandaId: aberta.comandaId,
+          produtoId: item.produtoId,
+          cardapioItemId: item.cardapioItemId,
+          precoUnitario: item.preco,
+          exigePontoCarne: false,
+        })
+      );
+    }
+    await como(g, () => enviarCarrinho(aberta.comandaId));
+    return { mesa, comandaId: aberta.comandaId };
+  }
+
+  const comId = (id: string) => ({ params: Promise.resolve({ id }) });
+
+  /**
+   * Desligado no meio do turno.
+   *
+   * No navegador isto já é conferido em toda requisição (`conferirNoBanco` em
+   * `src/lib/session.ts`): o cookie vale 12 horas, e sem a conferência quem
+   * fosse desligado continuaria recebendo dinheiro até ele vencer. O token do
+   * turno da maquininha dura as mesmas 12 horas e é a mesma pergunta.
+   */
+  it("o caixa desligado no meio do turno para de receber pelo aparelho", async () => {
+    const aparelho = await ligarAparelho(A, "desligado-no-turno");
+    const caixa = A.caixas[0]!;
+    const operador = (await tokenDoOperador(aparelho, caixa.pin)).corpo.token!;
+    const { comandaId } = await contaNaMesaNova(A.garcons[0]!, 2);
+    const { falta } = await quantoDeve(comandaId);
+
+    await admin.usuario.update({ where: { id: caixa.usuarioId }, data: { ativo: false } });
+    try {
+      const resposta = await POSTPagamentos(
+        chamada("/api/maquininha/pagamentos", {
+          aparelho,
+          operador,
+          corpo: {
+            comandaId,
+            referencia: "turno-de-quem-ja-saiu",
+            forma: "CREDITO",
+            valorEmCentavos: Math.round(falta * 100),
+          },
+        })
+      );
+      expect({
+        status: resposta.status,
+        pagamentos: await admin.pagamento.count({ where: { comandaId } }),
+        conta: (await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } })).status,
+      }).toEqual({ status: 401, pagamentos: 0, conta: "ABERTA" });
+    } finally {
+      await admin.usuario.update({ where: { id: caixa.usuarioId }, data: { ativo: true } });
+    }
+  });
+
+  /**
+   * Rebaixado no meio do turno.
+   *
+   * A outra metade do mesmo cuidado: no navegador o cargo é relido do banco em
+   * toda requisição, justamente porque "o gerente rebaixado a garçom continuava
+   * dando desconto sem PIN até o cookie vencer". No aparelho, as permissões
+   * vão dentro do token do turno.
+   */
+  it("o caixa rebaixado a garçom no meio do turno deixa de receber pelo aparelho", async () => {
+    const aparelho = await ligarAparelho(A, "rebaixado-no-turno");
+    const caixa = A.caixas[0]!;
+    const operador = (await tokenDoOperador(aparelho, caixa.pin)).corpo.token!;
+    const { comandaId } = await contaNaMesaNova(A.garcons[0]!, 2);
+    const { falta } = await quantoDeve(comandaId);
+
+    const vinculo = await admin.usuarioUnidade.findFirstOrThrow({
+      where: { usuarioId: caixa.usuarioId, unidadeId: A.unidade.id },
+    });
+    await admin.usuarioUnidade.update({
+      where: { id: vinculo.id },
+      data: { cargoId: A.cargos.GARCOM! },
+    });
+    try {
+      const resposta = await POSTPagamentos(
+        chamada("/api/maquininha/pagamentos", {
+          aparelho,
+          operador,
+          corpo: {
+            comandaId,
+            referencia: "cargo-de-ontem",
+            forma: "CREDITO",
+            valorEmCentavos: Math.round(falta * 100),
+          },
+        })
+      );
+      expect({
+        recusou: resposta.status === 401 || resposta.status === 403,
+        pagamentos: await admin.pagamento.count({ where: { comandaId } }),
+      }).toEqual({ recusou: true, pagamentos: 0 });
+    } finally {
+      await admin.usuarioUnidade.update({
+        where: { id: vinculo.id },
+        data: { cargoId: vinculo.cargoId },
+      });
+    }
+  });
+
+  /**
+   * O aparelho cortado para de falar na mesma hora — o contraste do caso acima.
+   *
+   * Aqui o cadastro é relido a cada chamada (`reconhecerPeloToken`), e é isso
+   * que faz "cortar a maquininha que sumiu no táxi" significar alguma coisa.
+   */
+  it("a maquininha revogada para de falar, mesmo com o turno aberto", async () => {
+    const token = `aparelho-proprio-${A.unidade.id}`;
+    const aparelho = await admin.aparelho.create({
+      data: { tenantId: A.tenant.id, unidadeId: A.unidade.id, nome: "Maquininha 7", token },
+    });
+    const operador = (await tokenDoOperador(token, A.caixas[0]!.pin)).corpo.token!;
+
+    const antes = await GETMesas(chamada("/api/maquininha/mesas", { aparelho: token, operador }));
+    await admin.aparelho.update({
+      where: { id: aparelho.id },
+      data: { ativo: false, revogadoEm: new Date() },
+    });
+    const depois = await GETMesas(chamada("/api/maquininha/mesas", { aparelho: token, operador }));
+
+    expect({ antes: antes.status, depois: depois.status }).toEqual({ antes: 200, depois: 401 });
+  });
+
+  /**
+   * O token do turno não é cookie de navegador.
+   *
+   * Ele é assinado com a chave da sessão mais um sufixo justamente para isto:
+   * quem copiasse o da maquininha entraria na gestão pelo navegador.
+   */
+  it("o token do turno não vale como cookie de sessão", async () => {
+    const aparelho = await ligarAparelho(A, "chave-separada");
+    const operador = (await tokenDoOperador(aparelho, A.caixas[0]!.pin)).corpo.token!;
+    const { comandaId } = await contaNaMesaNova(A.garcons[0]!, 1);
+
+    const intruso = pessoa("intruso", "0000", "10.2.0.98", "demo.frentfood.test");
+    intruso.cookies.set("sessao", operador);
+    const t = await tentar(intruso as unknown as Membro, () =>
+      registrarPagamento(comandaId, A.formas.pix.id, 1, 0)
+    );
+
+    expect({
+      recusou: recusou(t),
+      pagamentos: await admin.pagamento.count({ where: { comandaId } }),
+    }).toEqual({ recusou: true, pagamentos: 0 });
+  });
+
+  /**
+   * Dois aparelhos puxando a fila ao mesmo tempo.
+   *
+   * Era hipótese enquanto só o balcão imprimia; deixou de ser quando a
+   * maquininha virou agente e passou a buscar na mesma fila. Duas vias da mesma
+   * comanda na cozinha é prato feito duas vezes.
+   */
+  it("dois agentes buscando ao mesmo tempo não levam o mesmo papel", async () => {
+    const daMaquininha = `agente-fila-${A.unidade.id}`;
+    await admin.aparelho.create({
+      data: {
+        tenantId: A.tenant.id,
+        unidadeId: A.unidade.id,
+        nome: "Maquininha da fila",
+        token: daMaquininha,
+      },
+    });
+    const daUnidade = await ligarAparelho(A, "fila-de-dois");
+    for (let i = 0; i < 3; i++) await contaNaMesaNova(A.garcons[0]!, 2);
+
+    const esperando = await admin.filaImpressao.count({
+      where: { unidadeId: A.unidade.id, status: "PENDENTE", entregueEm: null },
+    });
+
+    const buscar = (token: string, agente: string) =>
+      GETImpressao(
+        new NextRequest(`http://demo.frentfood.test/api/impressao?agente=${agente}`, {
+          headers: { authorization: `Bearer ${token}` },
+        })
+      );
+    const [um, dois] = await Promise.all([
+      buscar(daUnidade, "balcao"),
+      buscar(daMaquininha, "maquininha"),
+    ]);
+    const ids = async (r: Response) =>
+      ((await r.json()) as { trabalhos: { id: string }[] }).trabalhos.map((t) => t.id);
+    const doBalcao = await ids(um);
+    const doAparelho = await ids(dois);
+
+    expect({
+      status: [um.status, dois.status],
+      haviaPapel: esperando > 0,
+      nosDois: doBalcao.filter((id) => doAparelho.includes(id)),
+    }).toEqual({ status: [200, 200], haviaPapel: true, nosDois: [] });
+  });
+
+  /**
+   * O papel que o agente levou e não imprimiu.
+   *
+   * A reserva segura o trabalho por dois minutos para o outro agente não tirar
+   * uma segunda via. Mas o agente pode ter perdido a rede ou morrido no meio, e
+   * aí o prazo tem de devolver o papel à fila: o risco do prazo curto é uma
+   * segunda via; o do prazo que não vence é a cozinha esperando para sempre.
+   *
+   * A marca de entrega é escrita aqui pelo Prisma, como qualquer outra data do
+   * banco — é assim que uma rotina de manutenção a escreveria. A fila comparava
+   * com `now()`, que resolve no fuso da sessão do Postgres, e as duas leituras
+   * ficavam três horas apartadas: o papel só voltava à fila depois de o fuso
+   * inteiro passar.
+   */
+  it("o papel reservado não sai duas vezes, e volta à fila quando o prazo vence", async () => {
+    const token = await ligarAparelho(A, "fila-vencida");
+    await contaNaMesaNova(A.garcons[0]!, 2);
+
+    const buscar = () =>
+      GETImpressao(
+        new NextRequest("http://demo.frentfood.test/api/impressao?agente=sumido", {
+          headers: { authorization: `Bearer ${token}` },
+        })
+      );
+    const ids = async (r: Response) =>
+      ((await r.json()) as { trabalhos: { id: string }[] }).trabalhos.map((t) => t.id);
+
+    const levados = await ids(await buscar());
+    const logoDepois = await ids(await buscar());
+
+    // Três minutos sem confirmação: o agente que levou não voltou.
+    await admin.filaImpressao.updateMany({
+      where: { id: { in: levados } },
+      data: { entregueEm: new Date(Date.now() - 3 * 60_000) },
+    });
+    const depoisDoPrazo = await ids(await buscar());
+
+    expect({
+      levouPapel: levados.length > 0,
+      repetiuNaHora: logoDepois.filter((id) => levados.includes(id)),
+      voltaramTodos: levados.every((id) => depoisDoPrazo.includes(id)),
+    }).toEqual({ levouPapel: true, repetiuNaHora: [], voltaramTodos: true });
+  });
+
+  /**
+   * Cancelar item pelo aparelho: o garçom pede o PIN de quem pode.
+   *
+   * O cargo GARCOM não tem `comanda.cancelarItem`, e é ele quem está na mesa.
+   * A liberação fica presa àquele item: a mesma não pode servir para tirar um
+   * segundo prato da conta.
+   */
+  it("cancelar pelo aparelho precisa do PIN, e a liberação não serve duas vezes", async () => {
+    const aparelho = await ligarAparelho(A, "cancelar-no-aparelho");
+    const garcom = A.garcons[0]!;
+    const operador = (await tokenDoOperador(aparelho, garcom.pin)).corpo.token!;
+    const { comandaId } = await contaNaMesaNova(garcom, 2);
+    const itens = await admin.comandaItem.findMany({
+      where: { comandaId },
+      orderBy: { lancadoEm: "asc" },
+    });
+    const alvo = itens[0]!;
+    const outro = itens[1]!;
+
+    const cancelar = (itemId: string, corpo: unknown) =>
+      POSTCancelarNoAparelho(
+        chamada(`/api/maquininha/itens/${itemId}/cancelar`, { aparelho, operador, corpo }),
+        comId(itemId)
+      );
+
+    const semPin = await cancelar(alvo.id, { motivo: "cliente desistiu" });
+    const semPinCorpo = (await semPin.json()) as { precisaAutorizacao?: string };
+
+    const pediu = await POSTAutorizacoesNoAparelho(
+      chamada("/api/maquininha/autorizacoes", {
+        aparelho,
+        operador,
+        corpo: {
+          tipo: "CANCELAMENTO_ITEM",
+          referenciaId: alvo.id,
+          pin: A.gerentes[0]!.pin,
+          motivo: "prato recusado",
+        },
+      })
+    );
+    const { autorizacaoId } = (await pediu.json()) as { autorizacaoId?: string };
+
+    const comPin = await cancelar(alvo.id, { motivo: "cliente desistiu", autorizacaoId });
+    const reuso = await cancelar(outro.id, { motivo: "e esse também", autorizacaoId });
+
+    const depoisAlvo = await admin.comandaItem.findUniqueOrThrow({ where: { id: alvo.id } });
+    const depoisOutro = await admin.comandaItem.findUniqueOrThrow({ where: { id: outro.id } });
+
+    expect({
+      semPin: semPin.status,
+      pediuPin: semPinCorpo.precisaAutorizacao,
+      autorizou: pediu.status,
+      cancelou: comPin.status,
+      alvo: depoisAlvo.status,
+      reuso: reuso.status,
+      outroSegueNaConta: depoisOutro.status !== "CANCELADO",
+    }).toEqual({
+      semPin: 403,
+      pediuPin: "CANCELAMENTO_ITEM",
+      autorizou: 200,
+      cancelou: 200,
+      alvo: "CANCELADO",
+      reuso: 403,
+      outroSegueNaConta: true,
+    });
+  });
+
+  /** Dois garçons chegando juntos na mesma mesa, cada um com o seu aparelho. */
+  it("duas aberturas da mesma mesa pelo aparelho deixam uma conta só", async () => {
+    const aparelho = await ligarAparelho(A, "abrir-junto");
+    const um = (await tokenDoOperador(aparelho, A.garcons[0]!.pin)).corpo.token!;
+    const dois = (await tokenDoOperador(aparelho, A.garcons[1]!.pin)).corpo.token!;
+    const mesa = await mesaNova();
+    const corpo = { mesaId: mesa.id, pessoas: 2 };
+
+    const [a, b] = await Promise.all([
+      POSTAbrirMesa(chamada("/api/maquininha/mesas", { aparelho, operador: um, corpo })),
+      POSTAbrirMesa(chamada("/api/maquininha/mesas", { aparelho, operador: dois, corpo })),
+    ]);
+
+    expect({
+      status: [a.status, b.status],
+      abertas: await admin.comanda.count({
+        where: { mesaId: mesa.id, status: { in: ["ABERTA", "FECHANDO"] } },
+      }),
+    }).toEqual({ status: [200, 200], abertas: 1 });
+  });
+
+  /** Transferir para uma mesa que já tem conta não junta as duas. */
+  it("o aparelho não empilha duas contas na mesma mesa", async () => {
+    const aparelho = await ligarAparelho(A, "transferir-no-aparelho");
+    const garcom = A.garcons[0]!;
+    const operador = (await tokenDoOperador(aparelho, garcom.pin)).corpo.token!;
+    const origem = await contaNaMesaNova(garcom, 1);
+    const ocupada = await contaNaMesaNova(garcom, 1);
+
+    const resposta = await POSTTransferirNoAparelho(
+      chamada(`/api/maquininha/comandas/${origem.comandaId}/transferir`, {
+        aparelho,
+        operador,
+        corpo: { mesaDestinoId: ocupada.mesa.id },
+      }),
+      comId(origem.comandaId)
+    );
+
+    expect({
+      status: resposta.status,
+      noDestino: await admin.comanda.count({
+        where: { mesaId: ocupada.mesa.id, status: { in: ["ABERTA", "FECHANDO"] } },
+      }),
+      origemFicou: (
+        await admin.comanda.findUniqueOrThrow({ where: { id: origem.comandaId } })
+      ).mesaId === origem.mesa.id,
+    }).toEqual({ status: 409, noDestino: 1, origemFicou: true });
+  });
+
+  /** Conta paga não volta a aberta pelo aparelho. */
+  it("conta paga não reabre pelo aparelho", async () => {
+    const aparelho = await ligarAparelho(A, "reabrir-no-aparelho");
+    const operador = (await tokenDoOperador(aparelho, A.caixas[0]!.pin)).corpo.token!;
+    const { comandaId } = await contaNaMesaNova(A.garcons[0]!, 1);
+    await pagarTudo(A.caixas[0]!, comandaId);
+
+    const resposta = await POSTReabrirNoAparelho(
+      chamada(`/api/maquininha/comandas/${comandaId}/reabrir`, { aparelho, operador, corpo: {} }),
+      comId(comandaId)
+    );
+
+    expect({
+      status: resposta.status,
+      conta: (await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } })).status,
+    }).toEqual({ status: 409, conta: "PAGA" });
+  });
+
+  /** A rodada presa na rede, reenviada, não vai duas vezes para a chapa. */
+  it("a rodada reenviada pelo aparelho não lança o item duas vezes", async () => {
+    const aparelho = await ligarAparelho(A, "rodada-reenviada");
+    const garcom = A.garcons[0]!;
+    const operador = (await tokenDoOperador(aparelho, garcom.pin)).corpo.token!;
+    const mesa = await mesaNova();
+    const abriu = await POSTAbrirMesa(
+      chamada("/api/maquininha/mesas", {
+        aparelho,
+        operador,
+        corpo: { mesaId: mesa.id, pessoas: 2 },
+      })
+    );
+    const { comandaId } = (await abriu.json()) as { comandaId: string };
+    const item = A.itens.find((i) => !i.exigePontoCarne)!;
+    const corpo = {
+      itens: [
+        { cardapioItemId: item.cardapioItemId, referencia: "rodada-presa-na-rede", quantidade: 2 },
+      ],
+    };
+
+    const caminho = `/api/maquininha/comandas/${comandaId}/itens`;
+    const uma = await POSTItensNoAparelho(
+      chamada(caminho, { aparelho, operador, corpo }),
+      comId(comandaId)
+    );
+    const outra = await POSTItensNoAparelho(
+      chamada(caminho, { aparelho, operador, corpo }),
+      comId(comandaId)
+    );
+    const soma = await admin.comandaItem.aggregate({
+      where: { comandaId },
+      _sum: { quantidade: true },
+      _count: true,
+    });
+
+    expect({
+      uma: uma.status,
+      outra: outra.status,
+      lancados: ((await outra.json()) as { lancados: number }).lancados,
+      linhas: soma._count,
+      quantidade: Number(soma._sum.quantidade),
+    }).toEqual({ uma: 200, outra: 200, lancados: 0, linhas: 1, quantidade: 2 });
+  });
+
+  /**
+   * O cardápio do vizinho pelo aparelho.
+   *
+   * Chave estrangeira ignora o RLS: um `cardapioItemId` do outro restaurante é
+   * aceito pelo banco e precisa ser recusado no código.
+   */
+  it("o aparelho não lança item do cardápio do vizinho", async () => {
+    const aparelho = await ligarAparelho(A, "cardapio-do-vizinho");
+    const garcom = A.garcons[0]!;
+    const operador = (await tokenDoOperador(aparelho, garcom.pin)).corpo.token!;
+    const mesa = await mesaNova();
+    const abriu = await POSTAbrirMesa(
+      chamada("/api/maquininha/mesas", {
+        aparelho,
+        operador,
+        corpo: { mesaId: mesa.id, pessoas: 2 },
+      })
+    );
+    const { comandaId } = (await abriu.json()) as { comandaId: string };
+
+    const resposta = await POSTItensNoAparelho(
+      chamada(`/api/maquininha/comandas/${comandaId}/itens`, {
+        aparelho,
+        operador,
+        corpo: {
+          itens: [{ cardapioItemId: B.itens[0]!.cardapioItemId, referencia: "do-vizinho" }],
+        },
+      }),
+      comId(comandaId)
+    );
+
+    expect({
+      status: resposta.status,
+      itens: await admin.comandaItem.count({ where: { comandaId } }),
+    }).toEqual({ status: 409, itens: 0 });
+  });
+
+  /**
+   * A credencial do aparelho na tela de quem não mexe em aparelho.
+   *
+   * O token é a credencial inteira: com ele se puxa a fila de impressão da casa
+   * — toda comanda e toda conta — e se dá baixa nela sem papel sair. Cadastrar,
+   * cortar e trocar token exigem `unidade.configurar`, que o gerente não tem;
+   * e o diário de propósito não guarda o token, "porque ele é credencial". Ler
+   * é a mesma pergunta, e a tela precisa responder igual.
+   */
+  it("o token do aparelho não vai para a tela de quem não configura aparelho", async () => {
+    const token = `aparelho-na-tela-${A.unidade.id}`;
+    await admin.aparelho.create({
+      data: {
+        tenantId: A.tenant.id,
+        unidadeId: A.unidade.id,
+        nome: "Maquininha do balcão",
+        token,
+      },
+    });
+
+    const naTela = async (quem: Membro) =>
+      JSON.stringify(await como(quem, () => AparelhosPage())).includes(token);
+
+    expect({
+      gerente: await naTela(A.gerentes[0]!),
+      proprietario: await naTela(A.proprietario),
+    }).toEqual({ gerente: false, proprietario: true });
+  });
+});
+
+/**
+ * Os números que a tela mostra.
+ *
+ * Um número errado numa tela de diagnóstico é pior que número nenhum: ele
+ * responde a pergunta e encerra a investigação.
+ */
+describe("números na tela", () => {
+  it("a fila de impressão mostra tudo o que espera, e não só a primeira página", async () => {
+    // Um sábado com a impressora fora do ar: muito mais papel do que a lista
+    // da tela carrega de uma vez.
+    const impressora = await admin.impressora.create({
+      data: {
+        tenantId: A.tenant.id,
+        unidadeId: A.unidade.id,
+        nome: "Térmica do balcão",
+        conexao: "REDE",
+        endereco: "10.0.0.9",
+      },
+    });
+    await admin.filaImpressao.createMany({
+      data: Array.from({ length: 120 }, (_, i) => ({
+        tenantId: A.tenant.id,
+        unidadeId: A.unidade.id,
+        impressoraId: impressora.id,
+        tipo: "COMANDA_PRODUCAO" as const,
+        titulo: `Papel parado ${i + 1}`,
+        conteudo: "papel que não saiu",
+      })),
+    });
+
+    const esperando = await admin.filaImpressao.count({
+      where: { unidadeId: A.unidade.id, status: "PENDENTE" },
+    });
+    const tela = JSON.stringify(await como(A.proprietario, () => ImpressaoPage()));
+
+    expect({
+      haviaMuitoPapel: esperando > 50,
+      mostraOTotal: tela.includes(`"naFila":${esperando}`),
+    }).toEqual({ haviaMuitoPapel: true, mostraOTotal: true });
   });
 });
 

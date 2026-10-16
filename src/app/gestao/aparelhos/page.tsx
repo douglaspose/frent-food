@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AparelhosPage() {
   const sessao = await sessaoDaTela();
+  const podeEditar = temPermissao(sessao, "unidade.configurar");
 
   const [aparelhos, unidade] = await Promise.all([
     db.aparelho.findMany({
@@ -24,7 +25,7 @@ export default async function AparelhosPage() {
 
   return (
     <AparelhosTela
-      podeEditar={temPermissao(sessao, "unidade.configurar")}
+      podeEditar={podeEditar}
       unidade={unidade.nome}
       /*
        * A unidade ainda tem token, e ele ainda abre as duas portas: é o que o
@@ -36,7 +37,16 @@ export default async function AparelhosPage() {
         id: a.id,
         nome: a.nome,
         tipo: a.tipo,
-        token: a.token,
+        /*
+         * O token só desce para quem configura aparelho.
+         *
+         * Ele é a credencial inteira: com ele se puxa a fila de impressão da
+         * casa e se dá baixa nela sem papel sair. A tela esconde atrás de um
+         * "mostrar", mas escondido na tela é diferente de ausente da página —
+         * quem não pode cortar nem trocar um aparelho também não precisa ler a
+         * credencial dele. É o mesmo motivo que mantém o token fora do diário.
+         */
+        token: podeEditar ? a.token : null,
         ativo: a.ativo,
         apelido: a.ultimoApelido,
         ultimoContatoEm: a.ultimoContatoEm?.toISOString() ?? null,
