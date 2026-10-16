@@ -102,7 +102,26 @@ export async function editarForma(id: string, dados: DadosDaForma) {
     const limpo = limpar(dados);
     await nomeLivre(sessao.tenantId, limpo.nome, id);
 
-    await db.formaPagamento.update({ where: { id }, data: limpo });
+    /**
+     * A marca da maquininha não acompanha a troca de tipo.
+     *
+     * "Uma por tipo" é conferido na hora de marcar, e só ali. Mudar o tipo de
+     * uma forma marcada a levaria para um tipo que já tem a sua: duas marcadas,
+     * a escolha de volta à ordem alfabética — com a taxa errada congelada em
+     * cada venda — e o aviso da tela calado, porque ele só pergunta se existe
+     * alguma marcada.
+     *
+     * A marca cai, e o aviso volta a aparecer dizendo que a maquininha está
+     * escolhendo sozinha. Quem trocou o tipo é quem sabe qual das duas é a do
+     * aparelho agora; adivinhar por ele seria mudar, sem avisar, a forma em que
+     * cai o dinheiro do outro tipo.
+     */
+    const trocouDeTipo = antes.tipo !== limpo.tipo;
+
+    await db.formaPagamento.update({
+      where: { id },
+      data: trocouDeTipo ? { ...limpo, naMaquininha: false } : limpo,
+    });
 
     /**
      * O diário guarda o antes e o depois.
