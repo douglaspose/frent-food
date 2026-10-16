@@ -5,8 +5,12 @@ import { jwtVerify } from "jose";
  * Porteiro das rotas de operação. Só confere se o cookie é válido — a checagem
  * de permissão por cargo fica nas server actions, onde a ação realmente
  * acontece e não dá para burlar pela URL.
+ *
+ * Chama-se `proxy` porque é o nome que o Next 16 deu ao que antes era
+ * `middleware`: mesma função, no mesmo lugar, rodando antes da rota. O nome
+ * velho ainda funciona, mas avisa em toda compilação.
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const token = request.cookies.get("sessao")?.value;
   let valido = false;
 
