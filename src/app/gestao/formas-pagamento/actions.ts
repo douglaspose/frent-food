@@ -210,6 +210,27 @@ export async function alternarNaMaquininha(id: string) {
     const marcando = !forma.naMaquininha;
 
     await db.$transaction(async (tx) => {
+      /*
+       * As irmãs do tipo ficam trancadas até o fim desta transação.
+       *
+       * Sem isto, dois toques no mesmo instante — duas abas da retaguarda, dois
+       * sócios resolvendo a mesma pendência — passam um pelo outro: cada
+       * transação desmarca as marcadas que **enxerga**, e nenhuma enxerga a
+       * marca que a outra ainda não entregou. As duas gravam, o tipo fica com
+       * duas marcadas, e a ambiguidade que esta marca veio resolver volta pela
+       * porta que ninguém vigia — com a taxa errada congelada em cada venda.
+       *
+       * Trancando antes de ler, a segunda espera a primeira terminar e vale o
+       * último toque, que é o que quem clicou duas vezes espera ver.
+       */
+      await tx.$queryRaw`
+        SELECT id
+          FROM formas_pagamento
+         WHERE "tenantId" = ${sessao.tenantId}
+           AND tipo = (SELECT tipo FROM formas_pagamento WHERE id = ${id})
+         ORDER BY id
+           FOR UPDATE`;
+
       if (marcando) {
         await tx.formaPagamento.updateMany({
           where: { tenantId: sessao.tenantId, tipo: forma.tipo, naMaquininha: true },
