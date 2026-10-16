@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function ImpressaoPage() {
   const sessao = await sessaoDaTela();
 
-  const [unidade, trabalhos, impressoras] = await Promise.all([
+  const [unidade, trabalhos, naFila, impressoras] = await Promise.all([
     db.unidade.findUniqueOrThrow({
       where: { id: sessao.unidadeId },
       select: { nome: true, tokenImpressao: true },
@@ -20,6 +20,18 @@ export default async function ImpressaoPage() {
       orderBy: { criadoEm: "desc" },
       take: 50,
       include: { impressora: { select: { nome: true } } },
+    }),
+    /*
+     * O que espera na unidade inteira, contado no banco.
+     *
+     * A tela contava os PENDENTE dentro da lista acima, que traz 50: com a
+     * impressora fora do ar e centenas de papéis parados, ela dizia "50 na
+     * fila" e ficava nesse número para sempre. É o oposto do que esta tela
+     * serve para responder — alguém só a abre quando a cozinha reclama que não
+     * está saindo papel, e o tamanho do atraso é a primeira coisa a saber.
+     */
+    db.filaImpressao.count({
+      where: { unidadeId: sessao.unidadeId, status: "PENDENTE" },
     }),
     db.impressora.findMany({
       where: { unidadeId: sessao.unidadeId },
@@ -34,6 +46,7 @@ export default async function ImpressaoPage() {
       unidade={unidade.nome}
       token={unidade.tokenImpressao}
       impressoras={impressoras}
+      naFila={naFila}
       trabalhos={trabalhos.map((t) => ({
         id: t.id,
         tipo: t.tipo,

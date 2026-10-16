@@ -12,6 +12,7 @@ import LoginPage from "@/app/login/page";
 import PdvMesasPage from "@/app/pdv/page";
 import GestaoLayout from "@/app/gestao/layout";
 import AparelhosPage from "@/app/gestao/aparelhos/page";
+import ImpressaoPage from "@/app/gestao/impressao/page";
 import MesaPublicaPage from "@/app/mesa/[token]/page";
 import { GET as GETImpressao, POST as POSTImpressao } from "@/app/api/impressao/route";
 import { POST as POSTEntrar } from "@/app/api/maquininha/entrar/route";
@@ -1514,6 +1515,48 @@ describe("maquininha", () => {
       gerente: await naTela(A.gerentes[0]!),
       proprietario: await naTela(A.proprietario),
     }).toEqual({ gerente: false, proprietario: true });
+  });
+});
+
+/**
+ * Os números que a tela mostra.
+ *
+ * Um número errado numa tela de diagnóstico é pior que número nenhum: ele
+ * responde a pergunta e encerra a investigação.
+ */
+describe("números na tela", () => {
+  it("a fila de impressão mostra tudo o que espera, e não só a primeira página", async () => {
+    // Um sábado com a impressora fora do ar: muito mais papel do que a lista
+    // da tela carrega de uma vez.
+    const impressora = await admin.impressora.create({
+      data: {
+        tenantId: A.tenant.id,
+        unidadeId: A.unidade.id,
+        nome: "Térmica do balcão",
+        conexao: "REDE",
+        endereco: "10.0.0.9",
+      },
+    });
+    await admin.filaImpressao.createMany({
+      data: Array.from({ length: 120 }, (_, i) => ({
+        tenantId: A.tenant.id,
+        unidadeId: A.unidade.id,
+        impressoraId: impressora.id,
+        tipo: "COMANDA_PRODUCAO" as const,
+        titulo: `Papel parado ${i + 1}`,
+        conteudo: "papel que não saiu",
+      })),
+    });
+
+    const esperando = await admin.filaImpressao.count({
+      where: { unidadeId: A.unidade.id, status: "PENDENTE" },
+    });
+    const tela = JSON.stringify(await como(A.proprietario, () => ImpressaoPage()));
+
+    expect({
+      haviaMuitoPapel: esperando > 50,
+      mostraOTotal: tela.includes(`"naFila":${esperando}`),
+    }).toEqual({ haviaMuitoPapel: true, mostraOTotal: true });
   });
 });
 
