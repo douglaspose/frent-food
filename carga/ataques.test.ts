@@ -1228,6 +1228,50 @@ describe("maquininha", () => {
   });
 
   /**
+   * O papel que o agente levou e não imprimiu.
+   *
+   * A reserva segura o trabalho por dois minutos para o outro agente não tirar
+   * uma segunda via. Mas o agente pode ter perdido a rede ou morrido no meio, e
+   * aí o prazo tem de devolver o papel à fila: o risco do prazo curto é uma
+   * segunda via; o do prazo que não vence é a cozinha esperando para sempre.
+   *
+   * A marca de entrega é escrita aqui pelo Prisma, como qualquer outra data do
+   * banco — é assim que uma rotina de manutenção a escreveria. A fila comparava
+   * com `now()`, que resolve no fuso da sessão do Postgres, e as duas leituras
+   * ficavam três horas apartadas: o papel só voltava à fila depois de o fuso
+   * inteiro passar.
+   */
+  it("o papel reservado não sai duas vezes, e volta à fila quando o prazo vence", async () => {
+    const token = await ligarAparelho(A, "fila-vencida");
+    await contaNaMesaNova(A.garcons[0]!, 2);
+
+    const buscar = () =>
+      GETImpressao(
+        new NextRequest("http://demo.frentfood.test/api/impressao?agente=sumido", {
+          headers: { authorization: `Bearer ${token}` },
+        })
+      );
+    const ids = async (r: Response) =>
+      ((await r.json()) as { trabalhos: { id: string }[] }).trabalhos.map((t) => t.id);
+
+    const levados = await ids(await buscar());
+    const logoDepois = await ids(await buscar());
+
+    // Três minutos sem confirmação: o agente que levou não voltou.
+    await admin.filaImpressao.updateMany({
+      where: { id: { in: levados } },
+      data: { entregueEm: new Date(Date.now() - 3 * 60_000) },
+    });
+    const depoisDoPrazo = await ids(await buscar());
+
+    expect({
+      levouPapel: levados.length > 0,
+      repetiuNaHora: logoDepois.filter((id) => levados.includes(id)),
+      voltaramTodos: levados.every((id) => depoisDoPrazo.includes(id)),
+    }).toEqual({ levouPapel: true, repetiuNaHora: [], voltaramTodos: true });
+  });
+
+  /**
    * Cancelar item pelo aparelho: o garçom pede o PIN de quem pode.
    *
    * O cargo GARCOM não tem `comanda.cancelarItem`, e é ele quem está na mesa.

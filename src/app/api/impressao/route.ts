@@ -85,16 +85,35 @@ export async function GET(request: NextRequest) {
   // Marca que este aparelho está vivo. Na busca, e não na confirmação: a busca
   // é a chamada que ele repete mesmo quando não há nada para imprimir.
   await registrarContato(quem.aparelho, unidade.tenantId, agente);
+  /*
+   * `timezone('UTC', now())`, e não `now()`.
+   *
+   * As colunas de data do banco são `timestamp without time zone` e guardam
+   * UTC — é o que o Prisma grava e relê em todo o resto do sistema. Mas `now()`
+   * é `timestamptz`, e atribuí-lo a uma coluna sem fuso o converte para o fuso
+   * da sessão do Postgres: a marca de entrega nascia no relógio de parede
+   * (três horas atrás, aqui) enquanto toda data vizinha estava em UTC.
+   *
+   * Enquanto só esta consulta escreve e lê a coluna, a janela de dois minutos
+   * fecha certo pelos dois lados errados. Basta uma rotina gravar a marca pelo
+   * Prisma — ou o banco mudar de fuso entre dois servidores — para o prazo
+   * virar o fuso inteiro: o papel que o agente levou e não imprimiu some da
+   * fila por três horas, com a cozinha esperando. Em fuso a leste de Greenwich,
+   * ao contrário: todo trabalho entregue volta elegível na busca seguinte, e os
+   * dois agentes imprimem a mesma comanda — que é o que esta reserva existe
+   * para impedir.
+   */
   const reservados = await db.$queryRaw<{ id: string }[]>`
     UPDATE fila_impressao
-       SET "entregueEm" = now(), "entregueA" = ${agente}
+       SET "entregueEm" = timezone('UTC', now()), "entregueA" = ${agente}
      WHERE id IN (
        SELECT id
          FROM fila_impressao
         WHERE "unidadeId" = ${unidade.id}
           AND status = 'PENDENTE'
           AND ("entregueEm" IS NULL
-               OR "entregueEm" < now() - (${ENTREGA_VALE_POR_SEGUNDOS} * interval '1 second'))
+               OR "entregueEm" <
+                  timezone('UTC', now()) - (${ENTREGA_VALE_POR_SEGUNDOS} * interval '1 second'))
         ORDER BY "criadoEm" ASC
         LIMIT 20
         FOR UPDATE SKIP LOCKED
