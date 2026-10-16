@@ -2,6 +2,7 @@ import "server-only";
 import { SignJWT, jwtVerify } from "jose";
 import type { NextRequest } from "next/server";
 import { reconhecerPeloToken } from "./aparelhos";
+import { vinculoAtual } from "./session";
 import type { QuemRecebe } from "./conta";
 
 /**
@@ -85,7 +86,18 @@ export async function unidadeDoAparelho(request: NextRequest): Promise<UnidadeDo
   return { ...reconhecido.unidade, aparelho: reconhecido.aparelho };
 }
 
-/** O operador do cabeçalho, se ele for desta unidade. */
+/**
+ * O operador do cabeçalho, se ele for desta unidade **e ainda valer**.
+ *
+ * O crachá é um JWT de doze horas, e o que vem dentro dele é o que era verdade
+ * quando o PIN foi digitado. Sem reler o banco, quem fosse desligado às vinte
+ * horas continuaria abrindo mesa, cancelando com PIN de gerente e recebendo
+ * pagamento até a meia-noite — o PDV barra no clique seguinte, porque relê a
+ * cada ação (`vinculoAtual`), e a maquininha não pode ser a porta frouxa.
+ *
+ * O cargo e as permissões devolvidos são os de agora, não os do token: tirar
+ * uma permissão de alguém passa a valer no aparelho sem esperar o turno virar.
+ */
 export async function operadorDaRequisicao(
   request: NextRequest,
   unidade: UnidadeDoAparelho
@@ -101,7 +113,10 @@ export async function operadorDaRequisicao(
    * da outra — e o pagamento entraria no caixa errado.
    */
   if (operador.tenantId !== unidade.tenantId || operador.unidadeId !== unidade.id) return null;
-  return operador;
+
+  const vinculo = await vinculoAtual(operador.usuarioId, unidade.tenantId, unidade.id);
+  if (!vinculo) return null;
+  return { ...operador, cargo: vinculo.cargo, permissoes: vinculo.permissoes };
 }
 
 /**

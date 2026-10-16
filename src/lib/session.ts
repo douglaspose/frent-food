@@ -148,14 +148,29 @@ export async function sessaoDaTela(): Promise<Sessao> {
  * cookie vencer. Na mesma consulta que confere se a pessoa está ativa, o cargo
  * é relido e substitui o do cookie.
  */
-async function conferirNoBanco(sessao: Sessao): Promise<Sessao | null> {
+/**
+ * O cargo e as permissões de agora, lidos do banco.
+ *
+ * Devolve nulo quando a pessoa foi desligada, mudou de restaurante ou perdeu o
+ * vínculo com esta unidade. É o que faz um desligamento no meio do turno valer
+ * no clique seguinte, em vez de esperar o cookie vencer.
+ *
+ * Exportada porque a maquininha precisa da mesma conferência: lá o crachá é um
+ * JWT de doze horas, e sem reler o banco ele continuaria valendo por doze horas
+ * depois do desligamento — com permissão de receber pagamento junto.
+ */
+export async function vinculoAtual(
+  usuarioId: string,
+  tenantId: string,
+  unidadeId: string
+): Promise<{ cargo: string; permissoes: string[] } | null> {
   const usuario = await db.usuario.findUnique({
-    where: { id: sessao.usuarioId },
+    where: { id: usuarioId },
     select: {
       ativo: true,
       tenantId: true,
       unidades: {
-        where: { unidadeId: sessao.unidadeId },
+        where: { unidadeId },
         select: {
           cargo: { select: { nome: true, permissoes: { where: { permitido: true }, select: { chave: true } } } },
         },
@@ -163,12 +178,16 @@ async function conferirNoBanco(sessao: Sessao): Promise<Sessao | null> {
     },
   });
   const vinculo = usuario?.unidades[0];
-  if (!usuario?.ativo || usuario.tenantId !== sessao.tenantId || !vinculo) return null;
+  if (!usuario?.ativo || usuario.tenantId !== tenantId || !vinculo) return null;
   return {
-    ...sessao,
     cargo: vinculo.cargo.nome,
     permissoes: vinculo.cargo.permissoes.map((p) => p.chave),
   };
+}
+
+async function conferirNoBanco(sessao: Sessao): Promise<Sessao | null> {
+  const vinculo = await vinculoAtual(sessao.usuarioId, sessao.tenantId, sessao.unidadeId);
+  return vinculo ? { ...sessao, ...vinculo } : null;
 }
 
 export function temPermissao(sessao: Sessao, chave: string) {

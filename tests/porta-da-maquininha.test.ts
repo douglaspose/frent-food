@@ -598,3 +598,59 @@ describe("cancelar item pelo aparelho", () => {
     );
   });
 });
+
+/**
+ * O crachá do aparelho é um JWT de doze horas, e o que vem dentro dele é o que
+ * era verdade quando o PIN foi digitado. O PDV relê o banco a cada ação; a
+ * maquininha não pode ser a porta frouxa — senão quem é desligado às vinte
+ * horas segue recebendo pagamento até a meia-noite.
+ */
+describe("o turno acompanha o que muda na equipe", () => {
+  it("desligado no meio do turno, o aparelho para na chamada seguinte", async () => {
+    const { corpo: turno } = await entrarCom("1111");
+    // O turno vale: ele acabou de entrar.
+    expect((await salao(pedido("/api/maquininha/mesas", undefined, turno.token))).status).toBe(200);
+
+    await db.usuario.updateMany({
+      where: { tenantId, nome: "GARCOM do teste" },
+      data: { ativo: false },
+    });
+
+    try {
+      const resposta = await salao(pedido("/api/maquininha/mesas", undefined, turno.token));
+      expect(resposta.status).toBe(401);
+    } finally {
+      await db.usuario.updateMany({
+        where: { tenantId, nome: "GARCOM do teste" },
+        data: { ativo: true },
+      });
+    }
+  });
+
+  it("permissão tirada vale na hora, sem esperar o turno virar", async () => {
+    const { corpo: turno } = await entrarCom("1111");
+    const cargo = await db.cargo.findFirstOrThrow({ where: { tenantId, nome: "GARCOM" } });
+    const permissao = await db.permissao.findFirstOrThrow({
+      where: { cargoId: cargo.id, chave: "comanda.abrir" },
+    });
+
+    const salaoDele = await (
+      await salao(pedido("/api/maquininha/mesas", undefined, turno.token))
+    ).json();
+    const livre = salaoDele.livres[0];
+
+    await db.permissao.delete({ where: { id: permissao.id } });
+
+    try {
+      const resposta = await abrir(
+        pedido("/api/maquininha/mesas", { mesaId: livre.mesaId, pessoas: 2 }, turno.token)
+      );
+      // As permissões que valem são as de agora, não as que viajaram no token.
+      expect(resposta.status).toBe(403);
+    } finally {
+      await db.permissao.create({
+        data: { cargoId: cargo.id, chave: "comanda.abrir" },
+      });
+    }
+  });
+});
