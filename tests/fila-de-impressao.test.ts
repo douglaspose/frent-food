@@ -147,3 +147,69 @@ describe("quem busca leva", () => {
     );
   });
 });
+
+/**
+ * A maquininha imprime na própria bobina o que quer que a fila entregue a ela.
+ * Enquanto a fila entregava tudo a todos, isso só gastava papel. Com a reserva,
+ * quem leva é um só — e a comanda da cozinha passou a poder sair apenas no
+ * bolso do garçom, deixando a praça sem o papel.
+ */
+describe("quem só tem a bobina da mão", () => {
+  async function comDestino(nome: string) {
+    const impressora = await db.impressora.create({
+      data: {
+        tenantId,
+        unidadeId,
+        nome,
+        conexao: "rede",
+        endereco: "192.168.0.70:9100",
+      },
+    });
+    const trabalho = await db.filaImpressao.create({
+      data: {
+        tenantId,
+        unidadeId,
+        impressoraId: impressora.id,
+        tipo: "COMANDA_PRODUCAO",
+        titulo: "Comanda da cozinha",
+        conteudo: "papel da praça",
+      },
+    });
+    return trabalho.id;
+  }
+
+  async function pegarEmbutida(agente: string) {
+    const resposta = await buscarFila(
+      new NextRequest(`http://localhost/api/impressao?agente=${agente}&embutida=1`, {
+        headers: { authorization: `Bearer ${APARELHO}` },
+      })
+    );
+    const corpo = await resposta.json();
+    return (corpo.trabalhos ?? []).map((t: { id: string }) => t.id) as string[];
+  }
+
+  it("não leva o papel endereçado à impressora da cozinha", async () => {
+    const daCozinha = await comDestino("Térmica da cozinha");
+
+    // Sem isto, a comanda sai na mão do garçom e a praça fica sem ela.
+    expect(await pegarEmbutida("maquininha")).toEqual([]);
+    // E o agente do balcão, que fala com a térmica da cozinha, leva.
+    expect(await pegar("balcao")).toEqual([daCozinha]);
+  });
+
+  it("leva o que não tem destino: a conferência e o cupom", async () => {
+    await enfileirar(1);
+
+    // São os papéis que o garçom quer em mãos, e os únicos que a bobina dele
+    // consegue entregar a quem deve recebê-los.
+    expect(await pegarEmbutida("maquininha")).toHaveLength(1);
+  });
+
+  it("casa sem impressora cadastrada: ele continua levando tudo", async () => {
+    await enfileirar(3);
+
+    // Nenhum trabalho tem destino, e a bobina da mão é o único destino que
+    // existe ali.
+    expect(await pegarEmbutida("maquininha")).toHaveLength(3);
+  });
+});

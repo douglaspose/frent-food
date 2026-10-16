@@ -81,6 +81,24 @@ export async function GET(request: NextRequest) {
    * que a outra já pegou. A marca de entrega é gravada na mesma instrução que
    * as escolhe — entre selecionar e marcar não cabe um segundo agente.
    */
+  /*
+   * O agente que só tem a bobina da mão não leva papel endereçado a outra
+   * impressora.
+   *
+   * A maquininha imprime na própria bobina o que quer que a fila entregue a
+   * ela. Enquanto a fila entregava tudo a todos, isso só gastava papel: a
+   * comanda da cozinha saía na térmica da cozinha pelo agente do balcão, e uma
+   * segunda via inútil saía no bolso do garçom. Com a reserva, quem leva é um
+   * só — e a comanda da cozinha passou a poder sair **apenas** no bolso do
+   * garçom, deixando a praça sem o papel.
+   *
+   * Então o agente diz o que consegue imprimir, e a fila respeita: com
+   * `embutida`, só os trabalhos sem impressora endereçada — que são a
+   * conferência e o cupom, justamente os papéis que o garçom quer em mãos.
+   * Numa casa sem impressora cadastrada, nenhum trabalho tem destino e ele
+   * continua levando tudo, que é o único destino possível ali.
+   */
+  const soEmbutida = request.nextUrl.searchParams.get("embutida") === "1";
   const agente = (request.nextUrl.searchParams.get("agente") ?? "").slice(0, 60) || null;
   // Marca que este aparelho está vivo. Na busca, e não na confirmação: a busca
   // é a chamada que ele repete mesmo quando não há nada para imprimir.
@@ -93,6 +111,7 @@ export async function GET(request: NextRequest) {
          FROM fila_impressao
         WHERE "unidadeId" = ${unidade.id}
           AND status = 'PENDENTE'
+          AND (${soEmbutida} = false OR "impressoraId" IS NULL)
           AND ("entregueEm" IS NULL
                OR "entregueEm" < now() - (${ENTREGA_VALE_POR_SEGUNDOS} * interval '1 second'))
         ORDER BY "criadoEm" ASC
