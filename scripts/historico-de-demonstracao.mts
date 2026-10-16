@@ -22,7 +22,7 @@ const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.
 const aleatorio = (min: number, max: number) => min + Math.random() * (max - min);
 const inteiro = (min: number, max: number) => Math.floor(aleatorio(min, max + 1));
 const centavos = (v: number) => Math.round(v * 100) / 100;
-const escolher = <T>(lista: T[]): T => lista[inteiro(0, lista.length - 1)]!;
+const escolher = <T,>(lista: T[]): T => lista[inteiro(0, lista.length - 1)]!;
 
 async function principal() {
   const unidade = await db.unidade.findFirstOrThrow({ select: { id: true, tenantId: true } });
