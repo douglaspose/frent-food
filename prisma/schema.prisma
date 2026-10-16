@@ -1019,6 +1019,14 @@ model FormaPagamento {
   prazoDias    Int           @default(0)
   ativo        Boolean       @default(true)
 
+  /// Esta é a forma que a maquininha usa para este tipo.
+  ///
+  /// O aparelho escolhe a forma pelo **tipo** — é o que a credenciadora
+  /// precisa saber para passar o cartão —, e com duas formas de crédito a casa
+  /// ficava com a taxa da errada congelada no pagamento. Uma por tipo: marcar
+  /// uma desmarca a irmã.
+  naMaquininha Boolean       @default(false)
+
   pagamentos Pagamento[]
 
   @@index([tenantId])

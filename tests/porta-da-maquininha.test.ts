@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
@@ -652,5 +652,137 @@ describe("o turno acompanha o que muda na equipe", () => {
         data: { cargoId: cargo.id, chave: "comanda.abrir" },
       });
     }
+  });
+});
+
+/**
+ * O aparelho manda o **tipo** — é o que a credenciadora precisa para passar o
+ * cartão. A forma é a escrituração: nome, taxa e prazo. Com duas formas de
+ * crédito, a casa tinha a taxa da errada congelada em cada venda do aparelho,
+ * e o custo do mês saía torto sem conserto possível.
+ */
+describe("qual forma de pagamento a maquininha usa", () => {
+  async function contaDeDezReais(turno: string) {
+    const salaoDele = await (
+      await salao(pedido("/api/maquininha/mesas", undefined, turno))
+    ).json();
+    const aberta = await (
+      await abrir(
+        pedido("/api/maquininha/mesas", { mesaId: salaoDele.livres[0].mesaId, pessoas: 1 }, turno)
+      )
+    ).json();
+
+    // Já enviado à cozinha: item parado no carrinho não entra na conta, e a
+    // cobrança sobre uma conta de zero volta "já está quitada".
+    const produto = await criarProduto(tenantId, `Prato ${Math.random()}`);
+    await db.comandaItem.create({
+      data: {
+        tenantId,
+        comandaId: aberta.comandaId,
+        produtoId: produto.id,
+        quantidade: 1,
+        precoUnitario: 10,
+        precoTotal: 10,
+        status: "ENVIADO",
+        lancadoPorId: (await db.usuario.findFirstOrThrow({ where: { tenantId } })).id,
+      },
+    });
+    return aberta.comandaId as string;
+  }
+  async function duasFormasDeCredito() {
+    // Como numa casa de verdade: a do balcão e a da maquininha, com taxas
+    // diferentes — é a taxa que torna a escolha cara.
+    const balcao = await db.formaPagamento.create({
+      data: { tenantId, nome: "Cartão de Crédito", tipo: "CREDITO", taxaPct: 3.2 },
+    });
+    const maquininha = await db.formaPagamento.create({
+      data: { tenantId, nome: "Crédito Stone", tipo: "CREDITO", taxaPct: 1.9 },
+    });
+    return { balcao, maquininha };
+  }
+
+  async function cobrar(
+    turno: string,
+    comandaId: string,
+    referencia: string,
+    forma = "CREDITO"
+  ) {
+    return pagar(
+      pedido(
+        "/api/maquininha/pagamentos",
+        { comandaId, valorEmCentavos: 1000, forma, referencia },
+        turno
+      )
+    );
+  }
+
+  beforeEach(async () => {
+    // Receber exige caixa aberto — é a regra do salão, e vale igual aqui.
+    const aberto = await db.caixa.findFirst({
+      where: { unidadeId, tipo: "GERAL", status: "ABERTO" },
+    });
+    if (!aberto) {
+      await db.caixa.create({
+        data: {
+          tenantId,
+          unidadeId,
+          tipo: "GERAL",
+          data: new Date(),
+          status: "ABERTO",
+          fundoCaixa: 0,
+          abertoPorId: (await db.usuario.findFirstOrThrow({ where: { tenantId } })).id,
+        },
+      });
+    }
+  });
+
+  it("com duas do mesmo tipo, usa a marcada — e não a primeira do alfabeto", async () => {
+    const { balcao, maquininha } = await duasFormasDeCredito();
+    await db.formaPagamento.update({
+      where: { id: maquininha.id },
+      data: { naMaquininha: true },
+    });
+    const { corpo: turno } = await entrarCom("2222");
+    const { corpo: doGarcom } = await entrarCom("1111");
+    const comandaId = await contaDeDezReais(doGarcom.token);
+
+    const resposta = await cobrar(turno.token, comandaId, "forma-marcada");
+    expect(resposta.status).toBe(200);
+
+    const pagamento = await db.pagamento.findFirstOrThrow({
+      where: { tenantId, comandaId },
+      include: { formaPagamento: true },
+    });
+    // "Cartão de Crédito" vem antes no alfabeto e tem a taxa quase o dobro.
+    expect(pagamento.formaPagamentoId).toBe(maquininha.id);
+    expect(pagamento.formaPagamentoId).not.toBe(balcao.id);
+    expect(Number(pagamento.taxaPct)).toBe(1.9);
+  });
+
+  it("com uma só do tipo, não precisa marcar nada", async () => {
+    const unica = await db.formaPagamento.create({
+      data: { tenantId, nome: "Débito da casa", tipo: "DEBITO", taxaPct: 2.5 },
+    });
+    const { corpo: turno } = await entrarCom("2222");
+    const { corpo: doGarcom } = await entrarCom("1111");
+    const comandaId = await contaDeDezReais(doGarcom.token);
+
+    const resposta = await cobrar(turno.token, comandaId, "forma-unica", "DEBITO");
+
+    expect(resposta.status).toBe(200);
+    const pagamento = await db.pagamento.findFirstOrThrow({ where: { tenantId, comandaId } });
+    expect(pagamento.formaPagamentoId).toBe(unica.id);
+  });
+
+  it("sem forma nenhuma do tipo, recusa com a frase pronta", async () => {
+    // VOUCHER não existe nesta casa: é o tipo que ninguém cadastrou.
+    const { corpo: turno } = await entrarCom("2222");
+    const { corpo: doGarcom } = await entrarCom("1111");
+    const comandaId = await contaDeDezReais(doGarcom.token);
+
+    const resposta = await cobrar(turno.token, comandaId, "sem-forma", "VOUCHER");
+
+    expect(resposta.status).toBe(409);
+    expect((await resposta.json()).erro).toContain("Nenhuma forma de pagamento do tipo");
   });
 });

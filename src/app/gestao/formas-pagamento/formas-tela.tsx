@@ -3,7 +3,13 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { temErro } from "@/lib/erro-de-operacao";
-import { alternarAtiva, criarForma, editarForma, excluirForma } from "./actions";
+import {
+  alternarAtiva,
+  alternarNaMaquininha,
+  criarForma,
+  editarForma,
+  excluirForma,
+} from "./actions";
 import {
   ROTULO_DO_TIPO,
   TIPOS,
@@ -19,6 +25,8 @@ export type FormaView = {
   prazoDias: number;
   codigoFiscal: string;
   ativo: boolean;
+  /** É esta que a maquininha usa para o tipo dela. */
+  naMaquininha: boolean;
   /** Quantos pagamentos já entraram por ela. Zero libera o excluir. */
   usos: number;
 };
@@ -71,8 +79,33 @@ export function FormasTela({
 
   const taxaMedia = formas.filter((f) => f.ativo && f.taxaPct > 0);
 
+  /*
+   * Os tipos em que a maquininha está escolhendo sozinha.
+   *
+   * Ela manda o tipo e o servidor acha a forma. Com duas ativas do mesmo tipo
+   * e nenhuma marcada, ele fica com a primeira em ordem alfabética — e a taxa
+   * dela vai **congelada** no pagamento. Quem abre esta tela é quem pode
+   * resolver em dois cliques; quem olha o custo do mês descobre tarde.
+   */
+  const tiposEmDuvida = [...new Set(formas.filter((f) => f.ativo).map((f) => f.tipo))].filter(
+    (tipo) => {
+      const ativas = formas.filter((f) => f.ativo && f.tipo === tipo);
+      return ativas.length > 1 && !ativas.some((f) => f.naMaquininha);
+    }
+  );
+
   return (
     <>
+      {tiposEmDuvida.length > 0 && (
+        <p className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <strong className="font-semibold">A maquininha está escolhendo sozinha.</strong>{" "}
+          {tiposEmDuvida.map((t) => ROTULO_DO_TIPO[t]).join(" e ")}{" "}
+          {tiposEmDuvida.length > 1 ? "têm" : "tem"} mais de uma forma ativa e nenhuma marcada —
+          ela usa a primeira em ordem alfabética, e a taxa dessa vai congelada em cada venda do
+          aparelho. Marque qual é a dele em &quot;usar na maquininha&quot;.
+        </p>
+      )}
+
       <header className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -157,6 +190,17 @@ export function FormasTela({
                 >
                   <td className="whitespace-nowrap px-4 py-3">
                     {f.nome}
+                    {/*
+                      O selo fica no nome, e não numa coluna só dele: é
+                      informação de uma linha ou duas na casa inteira, e uma
+                      coluna vazia em todas as outras pesaria mais do que
+                      informa.
+                    */}
+                    {f.naMaquininha && (
+                      <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">
+                        maquininha
+                      </span>
+                    )}
                     {!f.ativo && (
                       <span className="ml-2 rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-500">
                         inativa
@@ -191,6 +235,22 @@ export function FormasTela({
                       >
                         editar
                       </button>
+
+                      {/*
+                        Só nas ativas: a maquininha não cobra por forma
+                        desligada, e oferecer a marca ali seria ensinar a
+                        marcar o que não vai ser usado.
+                      */}
+                      {f.ativo && (
+                        <button
+                          onClick={() => rodar(() => alternarNaMaquininha(f.id))}
+                          disabled={pendente}
+                          title="Qual forma a maquininha usa quando passa um cartão deste tipo"
+                          className="ml-3 text-neutral-500 underline-offset-2 hover:text-neutral-900 hover:underline disabled:opacity-40"
+                        >
+                          {f.naMaquininha ? "tirar da maquininha" : "usar na maquininha"}
+                        </button>
+                      )}
 
                       <button
                         onClick={() => rodar(() => alternarAtiva(f.id))}

@@ -34,6 +34,7 @@ export default async function FormasDePagamentoPage() {
     prazoDias: f.prazoDias,
     codigoFiscal: f.codigoFiscal,
     ativo: f.ativo,
+    naMaquininha: f.naMaquininha,
     usos: f._count.pagamentos,
   }));
 

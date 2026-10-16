@@ -94,11 +94,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ erro: "Conta não encontrada." }, { status: 404 });
   }
 
-  const forma = await db.formaPagamento.findFirst({
+  /*
+   * Qual forma é esta, quando a casa tem mais de uma do mesmo tipo.
+   *
+   * O aparelho manda o tipo, que é o que a credenciadora precisa saber para
+   * passar o cartão; a forma é a escrituração — nome, taxa e prazo. Uma casa
+   * com "Cartão de Crédito" a 3,2% no balcão e "Crédito Stone" a 1,9% na
+   * maquininha tinha todas as vendas do aparelho caindo na primeira por ordem
+   * alfabética, com a taxa errada **congelada** no pagamento: o custo do mês
+   * sai torto e não há como corrigir depois.
+   *
+   * A marcada ganha; sem marcação, a única do tipo; e só então a ordem
+   * alfabética, que ao menos é estável. A tela de formas avisa quando há mais
+   * de uma ativa sem ninguém marcado.
+   */
+  const candidatas = await db.formaPagamento.findMany({
     where: { tenantId: unidade.tenantId, tipo: tipo as never, ativo: true },
     orderBy: { nome: "asc" },
-    select: { id: true, nome: true },
+    select: { id: true, nome: true, naMaquininha: true },
   });
+  const forma = candidatas.find((f) => f.naMaquininha) ?? candidatas[0];
   if (!forma) {
     return NextResponse.json(
       { erro: `Nenhuma forma de pagamento do tipo ${tipo} cadastrada no restaurante.` },

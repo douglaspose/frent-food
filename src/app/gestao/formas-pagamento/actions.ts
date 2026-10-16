@@ -174,6 +174,45 @@ export async function alternarAtiva(id: string) {
   });
 }
 
+/**
+ * Marca qual forma a maquininha usa para este tipo.
+ *
+ * Uma por tipo: marcar o "Crédito Stone" desmarca o "Cartão de Crédito" na
+ * mesma tacada, porque o aparelho escolhe pelo tipo e duas marcadas devolvem a
+ * ambiguidade que isto veio resolver.
+ *
+ * Desmarcar é permitido e não quebra nada: sem marcação, o aparelho usa a
+ * única ativa do tipo, e só cai na ordem alfabética quando há mais de uma.
+ */
+export async function alternarNaMaquininha(id: string) {
+  return emResultado(async () => {
+    const sessao = await exigirPermissao(PERMISSAO);
+    const forma = await daCasa(id, sessao.tenantId);
+    const marcando = !forma.naMaquininha;
+
+    await db.$transaction(async (tx) => {
+      if (marcando) {
+        await tx.formaPagamento.updateMany({
+          where: { tenantId: sessao.tenantId, tipo: forma.tipo, naMaquininha: true },
+          data: { naMaquininha: false },
+        });
+      }
+      await tx.formaPagamento.update({ where: { id }, data: { naMaquininha: marcando } });
+      await tx.auditLog.create({
+        data: await auditoria(sessao, {
+          entidade: "FormaPagamento",
+          entidadeId: id,
+          acao: "FORMA_PAGAMENTO_EDITADA",
+          antes: { nome: forma.nome, naMaquininha: forma.naMaquininha },
+          depois: { nome: forma.nome, naMaquininha: marcando },
+        }),
+      });
+    });
+
+    revalidar();
+  });
+}
+
 export async function excluirForma(id: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao(PERMISSAO);
