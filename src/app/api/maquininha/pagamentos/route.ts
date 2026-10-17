@@ -13,6 +13,20 @@ export const dynamic = "force-dynamic";
 const emCentavos = (v: number) => Math.round(centavos(v) * 100);
 
 /**
+ * O teto de uma venda, que é o da coluna: `Decimal(10,2)` guarda até
+ * R$ 99.999.999,99.
+ *
+ * Na conta de mesa um valor absurdo já morria numa recusa legível, porque
+ * ninguém recebe mais do que a conta deve ("falta receber só R$ 12,30"). A
+ * venda de balcão **é** o valor que recebe, e sem teto ela levava o número
+ * direto para a coluna: o Postgres estourava o campo, o Prisma lançava, e o
+ * que chegava ao aparelho era erro de sistema. A fila do aparelho trata erro
+ * de sistema como rede ruim — então ela reenviava a mesma venda a noite
+ * inteira, e parava atrás dela todas as outras que esperavam para sair.
+ */
+const TETO_EM_CENTAVOS = 9_999_999_999;
+
+/**
  * O que a maquininha cobrou e a forma cadastrada no restaurante.
  *
  * A maquininha fala em crédito, débito, Pix e voucher; o restaurante cadastra
@@ -90,6 +104,9 @@ export async function POST(request: NextRequest) {
   if (!tipo) return NextResponse.json({ erro: "Forma de pagamento desconhecida." }, { status: 400 });
   if (!Number.isSafeInteger(valorEmCentavos) || (valorEmCentavos as number) <= 0) {
     return NextResponse.json({ erro: "Valor inválido." }, { status: 400 });
+  }
+  if ((valorEmCentavos as number) > TETO_EM_CENTAVOS) {
+    return NextResponse.json({ erro: "Valor alto demais para uma venda." }, { status: 400 });
   }
 
   /*
