@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { declararTenant } from "@/lib/tenant-atual";
 import { adicionarItem, enviarCarrinho } from "@/lib/carrinho";
 import { ErroDeOperacao } from "@/lib/erro-de-operacao";
-import { operadorDaRequisicao, unidadeDoAparelho, podeNoAparelho } from "@/lib/maquininha";
+import { operadorDaRequisicao, unidadeDoAparelho, podeNoAparelho, referenciaCabe } from "@/lib/maquininha";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +80,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     )
   ) {
     return NextResponse.json({ erro: "Opção sem identificação." }, { status: 400 });
+  }
+  // A referência da linha entra num índice único, e o índice tem limite de
+  // tamanho: comprida demais, ela derruba a rodada inteira com erro de
+  // sistema em vez de ser recusada.
+  if (itens.some((i) => typeof i?.referencia === "string" && !referenciaCabe(i.referencia))) {
+    return NextResponse.json({ erro: "Referência comprida demais." }, { status: 400 });
   }
 
   // A comanda é conferida aqui também, antes de qualquer escrita: 404 de conta

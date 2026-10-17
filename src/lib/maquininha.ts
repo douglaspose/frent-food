@@ -130,3 +130,24 @@ export async function operadorDaRequisicao(
 export function podeNoAparelho(permissoes: string[], ...chaves: string[]) {
   return permissoes.includes("*") || chaves.some((chave) => permissoes.includes(chave));
 }
+
+/**
+ * O tamanho máximo de uma referência vinda do aparelho.
+ *
+ * A referência da cobrança e a da linha do carrinho são o que faz o reenvio
+ * não duplicar venda, e as duas moram num índice único
+ * (`@@unique([tenantId, referenciaExterna])`). O btree do Postgres recusa
+ * chave acima de 2704 bytes com `54000`, e nada conferia o tamanho em lugar
+ * nenhum do caminho: uma referência comprida derrubava o pagamento da mesa, a
+ * venda de balcão e o lançamento da rodada do mesmo jeito — erro de sistema
+ * em vez de recusa, que a fila do aparelho trata como rede ruim e reenvia a
+ * noite inteira.
+ *
+ * O aplicativo manda um UUID (36 caracteres). 120 cabe qualquer formato que
+ * uma credenciadora use e está longe do limite do índice.
+ */
+export const LIMITE_DA_REFERENCIA = 120;
+
+/** A referência cabe no índice que a guarda. */
+export const referenciaCabe = (referencia: string) =>
+  referencia.length <= LIMITE_DA_REFERENCIA;
