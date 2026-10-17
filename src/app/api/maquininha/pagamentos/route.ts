@@ -207,8 +207,16 @@ export async function POST(request: NextRequest) {
      * esperando alguém entender o que é aquilo.
      */
     const podeFechar = ehDeBalcao || podeNoAparelho(operador.permissoes, "comanda.fechar");
+    /*
+     * `finalizar: false` é da conta de mesa: o caixa recebe uma parte e a
+     * conta continua aberta para o resto da noite. A venda de balcão não tem
+     * essa escolha — pelo mesmo motivo que não pede `comanda.fechar`. Aberta,
+     * ela é uma comanda sem mesa, tudo pago, que nenhuma tela mostra e que
+     * tranca o fechamento do caixa no fim da noite.
+     */
+    const deixarAberta = !ehDeBalcao && corpo.finalizar === false;
     const quitada = falta <= TOLERANCIA;
-    const finalizada = quitada && podeFechar && corpo.finalizar !== false
+    const finalizada = quitada && podeFechar && !deixarAberta
       ? await finalizarConta(operador, comandaId)
       : false;
 
