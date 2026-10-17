@@ -4,7 +4,12 @@ import { declararTenant } from "@/lib/tenant-atual";
 import { centavos, TOLERANCIA } from "@/lib/comanda";
 import { contaDaComanda, finalizarConta, receberPagamento } from "@/lib/conta";
 import { comandaDeBalcao } from "@/lib/balcao";
-import { operadorDaRequisicao, unidadeDoAparelho, podeNoAparelho } from "@/lib/maquininha";
+import {
+  operadorDaRequisicao,
+  unidadeDoAparelho,
+  podeNoAparelho,
+  referenciaCabe,
+} from "@/lib/maquininha";
 import { temErro } from "@/lib/erro-de-operacao";
 import { emResultado } from "@/lib/erro-de-operacao";
 
@@ -101,6 +106,9 @@ export async function POST(request: NextRequest) {
   const valorEmCentavos = corpo.valorEmCentavos;
 
   if (!referencia) return NextResponse.json({ erro: "Informe a referência." }, { status: 400 });
+  if (!referenciaCabe(referencia)) {
+    return NextResponse.json({ erro: "Referência comprida demais." }, { status: 400 });
+  }
   if (!tipo) return NextResponse.json({ erro: "Forma de pagamento desconhecida." }, { status: 400 });
   if (!Number.isSafeInteger(valorEmCentavos) || (valorEmCentavos as number) <= 0) {
     return NextResponse.json({ erro: "Valor inválido." }, { status: 400 });
