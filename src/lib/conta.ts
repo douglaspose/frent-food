@@ -92,6 +92,38 @@ export async function receberPagamento(
   const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
   if (comanda.tenantId !== quem.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
   if (comanda.unidadeId !== quem.unidadeId) throw new ErroDeOperacao("Comanda de outra unidade.");
+
+  /**
+   * O reenvio é reconhecido antes de qualquer recusa.
+   *
+   * Conferido só lá embaixo, dentro da transação, ele não alcançava o caso
+   * mais comum: o pagamento que **quitou** a conta. A maquininha manda, o
+   * servidor registra e fecha, a resposta se perde na rede — e o reenvio da
+   * fila batia em "Comanda já está paga". Como não é erro de rede, a fila não
+   * desistia nem concluía: o pagamento ficava lá, reenviado a cada volta ao
+   * salão, com o aparelho mostrando "1 por enviar" a noite inteira por um
+   * dinheiro que já estava dentro.
+   */
+  const reenvio = dados.referenciaExterna
+    ? await db.pagamento.findFirst({
+        where: { tenantId: quem.tenantId, referenciaExterna: dados.referenciaExterna },
+        select: { comandaId: true },
+      })
+    : null;
+  if (reenvio) {
+    /*
+     * Mesma referência em outra conta não é reenvio: é o aparelho mandando
+     * duas vendas com o mesmo número. Recusar com texto claro é melhor do que
+     * deixar o índice único estourar como erro de sistema — ou, pior, dar o
+     * segundo pagamento como registrado e sumir com ele.
+     */
+    if (reenvio.comandaId !== comandaId) {
+      throw new ErroDeOperacao("Esta referência de cobrança já entrou em outra conta.");
+    }
+    const conta = await contaDaComanda(comandaId);
+    return { falta: conta?.falta ?? 0, jaRegistrado: true };
+  }
+
   if (comanda.status === "PAGA") throw new ErroDeOperacao("Comanda já está paga.");
 
   const caixa = await db.caixa.findFirst({
@@ -145,9 +177,14 @@ export async function receberPagamento(
     if (dados.referenciaExterna) {
       const mesmo = await tx.pagamento.findFirst({
         where: { tenantId: quem.tenantId, referenciaExterna: dados.referenciaExterna },
-        select: { id: true },
+        select: { comandaId: true },
       });
-      if (mesmo) return { jaRegistrado: true };
+      if (mesmo) {
+        if (mesmo.comandaId !== comandaId) {
+          throw new ErroDeOperacao("Esta referência de cobrança já entrou em outra conta.");
+        }
+        return { jaRegistrado: true };
+      }
     }
 
     const atual = await tx.comanda.findUniqueOrThrow({

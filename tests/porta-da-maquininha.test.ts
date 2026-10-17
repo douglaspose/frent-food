@@ -80,6 +80,9 @@ beforeAll(async () => {
   );
   // Só recebe: é o cargo para quem a porta foi feita quando ela nasceu.
   await criarCargo("RECEBEDOR", ["comanda.receberPagamento"], "2222");
+  // Recebe e fecha, como o caixa da casa: é o único que faz a conta chegar a
+  // PAGA, que é o estado em que o reenvio da fila batia.
+  await criarCargo("CAIXA", ["comanda.receberPagamento", "comanda.fechar"], "5555");
   // Nem recebe nem lança: a cozinha não opera a maquininha.
   await criarCargo("COZINHEIRO", ["kds.ver"], "3333");
   // Quem libera o cancelamento — e, por ter a permissão, cancela sem pedir
@@ -176,11 +179,12 @@ describe("depois de entrar, cada porta confere a sua permissão", () => {
     const { corpo: turno } = await entrarCom("2222");
 
     // O corpo vazio é recusado pela validação, e não pela permissão: é a
-    // diferença entre "você não pode" e "faltou dizer qual conta".
+    // diferença entre "você não pode" e "faltou dizer o que foi cobrado".
+    // Comanda não entra mais nessa lista — sem ela é venda de balcão.
     const resposta = await pagar(pedido("/api/maquininha/pagamentos", {}, turno.token));
 
     expect(resposta.status).not.toBe(403);
-    expect((await resposta.json()).erro).toContain("Informe a comanda");
+    expect((await resposta.json()).erro).toContain("Informe a referência");
   });
 });
 
@@ -705,12 +709,15 @@ describe("qual forma de pagamento a maquininha usa", () => {
     turno: string,
     comandaId: string,
     referencia: string,
-    forma = "CREDITO"
+    forma = "CREDITO",
+    // A conta de dez reais fecha em onze: a unidade do teste cobra 10% de
+    // serviço, como a casa de verdade.
+    valorEmCentavos = 1000
   ) {
     return pagar(
       pedido(
         "/api/maquininha/pagamentos",
-        { comandaId, valorEmCentavos: 1000, forma, referencia },
+        { comandaId, valorEmCentavos, forma, referencia },
         turno
       )
     );
@@ -734,6 +741,53 @@ describe("qual forma de pagamento a maquininha usa", () => {
         },
       });
     }
+  });
+
+  /**
+   * O reenvio que a fila da maquininha faz quando a resposta se perde na rede.
+   *
+   * O pagamento que quita a conta a fecha na mesma chamada, então o reenvio
+   * chegava numa comanda PAGA e era recusado. Recusa não é erro de rede: a
+   * fila não desistia nem concluía, e o aparelho mostrava "1 por enviar" a
+   * noite inteira por um dinheiro que já estava dentro.
+   */
+  it("o reenvio de um pagamento que já fechou a conta sai em paz", async () => {
+    const { corpo: turno } = await entrarCom("5555");
+    const { corpo: doGarcom } = await entrarCom("1111");
+    await duasFormasDeCredito();
+    const comandaId = await contaDeDezReais(doGarcom.token);
+
+    const primeira = await cobrar(turno.token, comandaId, "reenvio-da-fila", "CREDITO", 1100);
+    expect(primeira.status).toBe(200);
+    expect((await primeira.json()).quitada).toBe(true);
+    expect(
+      (await db.comanda.findUniqueOrThrow({ where: { id: comandaId } })).status
+    ).toBe("PAGA");
+
+    const segunda = await cobrar(turno.token, comandaId, "reenvio-da-fila", "CREDITO", 1100);
+
+    expect(segunda.status).toBe(200);
+    expect((await segunda.json()).jaRegistrado).toBe(true);
+    expect(await db.pagamento.count({ where: { tenantId, comandaId } })).toBe(1);
+  });
+
+  /**
+   * Mesma referência em outra conta não é reenvio: é o aparelho mandando duas
+   * vendas com o mesmo número. Dar a segunda como registrada sumiria com ela.
+   */
+  it("a mesma referência em outra conta é recusada, e não engolida", async () => {
+    const { corpo: turno } = await entrarCom("2222");
+    const { corpo: doGarcom } = await entrarCom("1111");
+    await duasFormasDeCredito();
+    const primeira = await contaDeDezReais(doGarcom.token);
+    const outra = await contaDeDezReais(doGarcom.token);
+
+    expect((await cobrar(turno.token, primeira, "numero-repetido")).status).toBe(200);
+    const resposta = await cobrar(turno.token, outra, "numero-repetido");
+
+    expect(resposta.status).toBe(409);
+    expect((await resposta.json()).erro).toContain("já entrou em outra conta");
+    expect(await db.pagamento.count({ where: { tenantId, comandaId: outra } })).toBe(0);
   });
 
   it("com duas do mesmo tipo, usa a marcada — e não a primeira do alfabeto", async () => {

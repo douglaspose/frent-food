@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { declararTenant } from "@/lib/tenant-atual";
 import { centavos, TOLERANCIA } from "@/lib/comanda";
 import { contaDaComanda, finalizarConta, receberPagamento } from "@/lib/conta";
+import { comandaDeBalcao } from "@/lib/balcao";
 import { operadorDaRequisicao, unidadeDoAparelho, podeNoAparelho } from "@/lib/maquininha";
 import { temErro } from "@/lib/erro-de-operacao";
 import { emResultado } from "@/lib/erro-de-operacao";
@@ -33,6 +34,9 @@ const TIPO_DA_FORMA: Record<string, string> = {
  * conta o que aconteceu. Por isso a `referencia` é obrigatória — a maquininha
  * reenvia este mesmo corpo quando a rede cai, e o servidor precisa reconhecer
  * o reenvio em vez de registrar um segundo pagamento.
+ *
+ * Sem comanda é venda de balcão: o cliente em pé que não abriu conta. Ela abre
+ * a própria comanda e segue por este mesmo caminho — ver `lib/balcao`.
  */
 export async function POST(request: NextRequest) {
   const unidade = await unidadeDoAparelho(request);
@@ -77,16 +81,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ erro: "Corpo inválido: envie JSON." }, { status: 400 });
   }
 
-  const comandaId = typeof corpo.comandaId === "string" ? corpo.comandaId : "";
+  const daMesa = typeof corpo.comandaId === "string" ? corpo.comandaId : "";
   const referencia = typeof corpo.referencia === "string" ? corpo.referencia.trim() : "";
   const tipo = TIPO_DA_FORMA[String(corpo.forma ?? "")];
   const valorEmCentavos = corpo.valorEmCentavos;
 
-  if (!comandaId) return NextResponse.json({ erro: "Informe a comanda." }, { status: 400 });
   if (!referencia) return NextResponse.json({ erro: "Informe a referência." }, { status: 400 });
   if (!tipo) return NextResponse.json({ erro: "Forma de pagamento desconhecida." }, { status: 400 });
   if (!Number.isSafeInteger(valorEmCentavos) || (valorEmCentavos as number) <= 0) {
     return NextResponse.json({ erro: "Valor inválido." }, { status: 400 });
+  }
+
+  /*
+   * Sem comanda, a venda abre a dela antes de qualquer outra coisa.
+   *
+   * Antes do pagamento de propósito: se a rede cair entre as duas, fica uma
+   * comanda de balcão aberta — visível, com valor, para alguém resolver. Na
+   * ordem inversa ficaria um pagamento sem onde morar, que é o buraco que
+   * esta rota veio tapar.
+   */
+  const ehDeBalcao = !daMesa;
+  let comandaId = daMesa;
+  if (ehDeBalcao) {
+    const aberta = await emResultado(() =>
+      comandaDeBalcao(operador, {
+        referencia,
+        valorEmCentavos: valorEmCentavos as number,
+      })
+    );
+    if (temErro(aberta)) return NextResponse.json({ erro: aberta.erro }, { status: 409 });
+    comandaId = aberta.comandaId;
   }
 
   const conta = await contaDaComanda(comandaId);
@@ -140,7 +164,16 @@ export async function POST(request: NextRequest) {
      * Quem não pode fechar conta recebe assim mesmo; só não fecha. É o caso
      * de quem só tem `comanda.receberPagamento`.
      */
-    const podeFechar = podeNoAparelho(operador.permissoes, "comanda.fechar");
+    /*
+     * A venda de balcão fecha sempre, sem pedir `comanda.fechar`.
+     *
+     * Fechar a conta de uma mesa é decidir que o cliente terminou, e por isso
+     * é permissão de quem decide. A venda de balcão já nasceu terminada: o
+     * cliente pagou e foi embora. Deixá-la aberta porque o cargo não fecha
+     * mesa poria uma comanda sem mesa no mapa do salão, com tudo já pago,
+     * esperando alguém entender o que é aquilo.
+     */
+    const podeFechar = ehDeBalcao || podeNoAparelho(operador.permissoes, "comanda.fechar");
     const quitada = falta <= TOLERANCIA;
     const finalizada = quitada && podeFechar && corpo.finalizar !== false
       ? await finalizarConta(operador, comandaId)
@@ -149,6 +182,7 @@ export async function POST(request: NextRequest) {
     return {
       ok: true as const,
       jaRegistrado,
+      deBalcao: ehDeBalcao,
       forma: forma.nome,
       faltaEmCentavos: emCentavos(falta),
       quitada,
