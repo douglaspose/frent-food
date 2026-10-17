@@ -1722,6 +1722,249 @@ describe("maquininha", () => {
       proprietario: await naTela(A.proprietario),
     }).toEqual({ gerente: false, proprietario: true });
   });
+
+  /**
+   * A venda de balcão, pelo avesso.
+   *
+   * O caminho feliz já está preso em `tests/balcao.test.ts`. O que se ataca
+   * aqui é o que a venda deixa para trás quando **não** dá certo: a comanda
+   * nasce antes do pagamento, de propósito, e comanda de balcão não tem mesa.
+   * O mapa do salão só monta as comandas que têm mesa
+   * (`src/app/pdv/page.tsx`), então uma comanda de balcão aberta não aparece
+   * em tela nenhuma — e `fecharCaixa` recusa enquanto houver comanda aberta
+   * na unidade. Uma venda recusada vira, assim, uma noite que não fecha, por
+   * causa de uma comanda que ninguém consegue ver nem fechar.
+   */
+  async function caixaAbertoDoVizinho() {
+    const existe = await admin.caixa.findFirst({
+      where: { unidadeId: B.unidade.id, tipo: "GERAL", status: "ABERTO" },
+    });
+    if (!existe) await como(B.caixas[0]!, () => abrirCaixa("NOITE", 200));
+    return admin.caixa.findFirstOrThrow({
+      where: { unidadeId: B.unidade.id, tipo: "GERAL", status: "ABERTO" },
+    });
+  }
+
+  /** Comandas abertas sem mesa: as que nenhuma tela mostra. */
+  const invisiveisDoVizinho = () =>
+    admin.comanda.count({
+      where: { unidadeId: B.unidade.id, mesaId: null, status: { in: ["ABERTA", "FECHANDO"] } },
+    });
+
+  /** O ataque não pode deixar sujeira para o vizinho de baixo. */
+  async function varrerOBalcao() {
+    await admin.comanda.deleteMany({ where: { unidadeId: B.unidade.id, origem: "BALCAO" } });
+  }
+
+  /**
+   * A casa que nunca cadastrou "vale-refeição" e recebe um no aparelho.
+   *
+   * A rota abre a comanda de balcão **antes** de procurar a forma, então a
+   * recusa por falta de forma deixa a comanda para trás. Ela não tem mesa,
+   * não aparece no mapa, e tranca o fechamento do caixa com uma mensagem que
+   * manda fechar uma comanda que não está em lugar nenhum. E a fila do
+   * aparelho não desiste de uma recusa: a mesma venda volta a cada escoamento
+   * e para a fila inteira atrás dela.
+   */
+  it("venda de balcão sem forma cadastrada não deixa comanda trancando o caixa", async () => {
+    const aparelho = await ligarAparelho(B, "balcao-sem-forma");
+    const operador = (await tokenDoOperador(aparelho, B.caixas[0]!.pin)).corpo.token!;
+    const caixa = await caixaAbertoDoVizinho();
+
+    const r = await POSTPagamentos(
+      chamada("/api/maquininha/pagamentos", {
+        aparelho,
+        operador,
+        corpo: { referencia: "vale-refeicao-1", forma: "VOUCHER", valorEmCentavos: 4_500 },
+      })
+    );
+
+    const invisiveis = await invisiveisDoVizinho();
+    const fechou = await tentar(B.caixas[0]!, () => fecharCaixa(caixa.id, 200));
+    await varrerOBalcao();
+
+    expect({
+      recusou: r.status === 409,
+      comandasInvisiveis: invisiveis,
+      aNoiteFecha: !recusou(fechou),
+    }).toEqual({ recusou: true, comandasInvisiveis: 0, aNoiteFecha: true });
+  });
+
+  /**
+   * Valor fora do que a coluna guarda.
+   *
+   * `valorEmCentavos` só precisa ser inteiro e positivo para passar pela
+   * porta. Na conta de mesa isso morre numa recusa limpa — "falta receber só
+   * R$ 12,30" —, porque ninguém paga mais do que a conta. A venda de balcão
+   * **é** o valor que ela recebe: `Decimal(10,2)` estoura, o Prisma lança, e
+   * o que chega ao aparelho é erro de sistema, que a fila trata como rede
+   * ruim e reenvia para sempre.
+   */
+  it("venda de balcão com valor fora da conta é recusa legível, não erro de sistema", async () => {
+    const aparelho = await ligarAparelho(B, "balcao-valor");
+    const operador = (await tokenDoOperador(aparelho, B.caixas[0]!.pin)).corpo.token!;
+    await caixaAbertoDoVizinho();
+
+    const t = await tentar(B.caixas[0]!, async () =>
+      POSTPagamentos(
+        chamada("/api/maquininha/pagamentos", {
+          aparelho,
+          operador,
+          // R$ 10 bilhões: a coluna guarda até R$ 99.999.999,99.
+          corpo: { referencia: "valor-absurdo-1", forma: "CREDITO", valorEmCentavos: 1_000_000_000_000 },
+        })
+      )
+    );
+    const status = t.resposta ? (t.resposta as Response).status : 0;
+    await varrerOBalcao();
+
+    expect({ lancou: t.lancou, status }).toEqual({ lancou: null, status: 400 });
+  });
+
+  /**
+   * Referência comprida demais.
+   *
+   * A referência do aparelho entra num índice único, e o btree do Postgres
+   * recusa chave acima de 2704 bytes com `54000`. Nada confere o tamanho em
+   * lugar nenhum do caminho: nem no pagamento da mesa, nem na venda de
+   * balcão, nem no lançamento da rodada. O que chega ao aparelho é erro de
+   * sistema — e a fila, que trata recusa como rede ruim, reenvia a noite
+   * inteira a mesma venda que nunca vai entrar.
+   */
+  it("referência comprida demais é recusa legível, e não derruba a rota", async () => {
+    const aparelho = await ligarAparelho(A, "referencia-comprida");
+    const operador = (await tokenDoOperador(aparelho, A.caixas[0]!.pin)).corpo.token!;
+    const comprida = "R".repeat(3000);
+
+    const { comandaId } = await contaNaMesaNova(A.garcons[0]!, 1);
+    const naMesa = await tentar(A.caixas[0]!, async () =>
+      POSTPagamentos(
+        chamada("/api/maquininha/pagamentos", {
+          aparelho,
+          operador,
+          corpo: { comandaId, referencia: comprida, forma: "DEBITO", valorEmCentavos: 100 },
+        })
+      )
+    );
+
+    const noBalcao = await tentar(A.caixas[0]!, async () =>
+      POSTPagamentos(
+        chamada("/api/maquininha/pagamentos", {
+          aparelho,
+          operador,
+          corpo: { referencia: comprida + "-balcao", forma: "DEBITO", valorEmCentavos: 100 },
+        })
+      )
+    );
+
+    const doGarcom = (await tokenDoOperador(aparelho, A.garcons[0]!.pin)).corpo.token!;
+    const item = A.itens.find((i) => !i.exigePontoCarne)!;
+    const naRodada = await tentar(A.garcons[0]!, async () =>
+      POSTItensNoAparelho(
+        chamada(`/api/maquininha/comandas/${comandaId}/itens`, {
+          aparelho,
+          operador: doGarcom,
+          corpo: {
+            itens: [
+              {
+                cardapioItemId: item.cardapioItemId,
+                quantidade: 1,
+                referencia: comprida + "-item",
+              },
+            ],
+          },
+        }),
+        comId(comandaId)
+      )
+    );
+
+    const estado = (t: { resposta: unknown; lancou: string | null }) =>
+      t.lancou !== null ? `estourou: ${t.lancou.slice(0, 60)}` : (t.resposta as Response).status;
+
+    expect({
+      naMesa: estado(naMesa),
+      noBalcao: estado(noBalcao),
+      naRodada: estado(naRodada),
+    }).toEqual({ naMesa: 400, noBalcao: 400, naRodada: 400 });
+  });
+
+  /**
+   * O aparelho pedindo para não finalizar uma venda de balcão.
+   *
+   * A regra escrita na própria rota é que a venda de balcão fecha sempre, sem
+   * pedir `comanda.fechar`: ela nasce terminada e deixá-la aberta poria no
+   * mapa do salão uma comanda sem mesa, tudo pago, esperando alguém entender
+   * o que é aquilo. O `finalizar` do corpo, porém, vale para as duas — e com
+   * ele a venda fica paga e aberta, que é exatamente o estado que a regra
+   * proíbe, com a agravante de trancar o fechamento do caixa.
+   */
+  it("o aparelho não deixa a venda de balcão paga e aberta pedindo para não finalizar", async () => {
+    const aparelho = await ligarAparelho(B, "balcao-sem-finalizar");
+    const operador = (await tokenDoOperador(aparelho, B.caixas[0]!.pin)).corpo.token!;
+    await caixaAbertoDoVizinho();
+
+    const r = await POSTPagamentos(
+      chamada("/api/maquininha/pagamentos", {
+        aparelho,
+        operador,
+        corpo: {
+          referencia: "balcao-sem-finalizar-1",
+          forma: "CREDITO",
+          valorEmCentavos: 1_200,
+          finalizar: false,
+        },
+      })
+    );
+    const corpo = (await r.json()) as { quitada?: boolean };
+    const comanda = await admin.comanda.findFirstOrThrow({
+      where: { unidadeId: B.unidade.id, origem: "BALCAO" },
+    });
+    const invisiveis = await invisiveisDoVizinho();
+    await varrerOBalcao();
+
+    expect({
+      recebeu: r.status === 200 && corpo.quitada === true,
+      status: comanda.status,
+      comandasInvisiveis: invisiveis,
+    }).toEqual({ recebeu: true, status: "PAGA", comandasInvisiveis: 0 });
+  });
+
+  /**
+   * Dois reenvios da mesma venda de balcão, no mesmo instante: o aplicativo
+   * reaberto enquanto o escoamento já corria. Duas comandas de balcão com o
+   * mesmo dinheiro dobrariam o faturamento do dia.
+   */
+  it("dois reenvios simultâneos da mesma venda de balcão não viram duas vendas", async () => {
+    const aparelho = await ligarAparelho(B, "balcao-reenvio");
+    const operador = (await tokenDoOperador(aparelho, B.caixas[0]!.pin)).corpo.token!;
+    await caixaAbertoDoVizinho();
+
+    const venda = {
+      referencia: "reenvio-simultaneo-1",
+      forma: "CREDITO",
+      valorEmCentavos: 2_500,
+    };
+    const [um, dois] = await Promise.all([
+      POSTPagamentos(chamada("/api/maquininha/pagamentos", { aparelho, operador, corpo: venda })),
+      POSTPagamentos(chamada("/api/maquininha/pagamentos", { aparelho, operador, corpo: venda })),
+    ]);
+
+    const comandas = await admin.comanda.count({
+      where: { unidadeId: B.unidade.id, origem: "BALCAO" },
+    });
+    const pagamentos = await admin.pagamento.count({
+      where: { tenantId: B.tenant.id, referenciaExterna: venda.referencia },
+    });
+    await varrerOBalcao();
+
+    expect({ um: um.status, dois: dois.status, comandas, pagamentos }).toEqual({
+      um: 200,
+      dois: 200,
+      comandas: 1,
+      pagamentos: 1,
+    });
+  });
+
 });
 
 /**
