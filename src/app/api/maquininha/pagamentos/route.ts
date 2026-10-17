@@ -93,32 +93,6 @@ export async function POST(request: NextRequest) {
   }
 
   /*
-   * Sem comanda, a venda abre a dela antes de qualquer outra coisa.
-   *
-   * Antes do pagamento de propósito: se a rede cair entre as duas, fica uma
-   * comanda de balcão aberta — visível, com valor, para alguém resolver. Na
-   * ordem inversa ficaria um pagamento sem onde morar, que é o buraco que
-   * esta rota veio tapar.
-   */
-  const ehDeBalcao = !daMesa;
-  let comandaId = daMesa;
-  if (ehDeBalcao) {
-    const aberta = await emResultado(() =>
-      comandaDeBalcao(operador, {
-        referencia,
-        valorEmCentavos: valorEmCentavos as number,
-      })
-    );
-    if (temErro(aberta)) return NextResponse.json({ erro: aberta.erro }, { status: 409 });
-    comandaId = aberta.comandaId;
-  }
-
-  const conta = await contaDaComanda(comandaId);
-  if (!conta || conta.comanda.unidadeId !== unidade.id) {
-    return NextResponse.json({ erro: "Conta não encontrada." }, { status: 404 });
-  }
-
-  /*
    * Qual forma é esta, quando a casa tem mais de uma do mesmo tipo.
    *
    * O aparelho manda o tipo, que é o que a credenciadora precisa saber para
@@ -143,6 +117,40 @@ export async function POST(request: NextRequest) {
       { erro: `Nenhuma forma de pagamento do tipo ${tipo} cadastrada no restaurante.` },
       { status: 409 }
     );
+  }
+
+  /*
+   * Sem comanda, a venda abre a dela — depois de a forma estar resolvida.
+   *
+   * A comanda vem antes do pagamento de propósito: se a rede cair entre as
+   * duas, fica uma comanda de balcão aberta, com valor, que o reenvio da fila
+   * completa quando o caixa abrir. Na ordem inversa ficaria um pagamento sem
+   * onde morar, que é o buraco que esta rota veio tapar.
+   *
+   * Mas só depois da forma. A casa que nunca cadastrou vale-refeição e recebe
+   * um no aparelho é recusada aqui, e a recusa não espera nada: abrindo a
+   * comanda antes, ela ficaria para trás **aberta** — e comanda de balcão não
+   * tem mesa, então nenhuma tela a mostra (o mapa do salão só monta as que
+   * têm mesa) e ninguém consegue fechá-la. Como `fecharCaixa` recusa
+   * enquanto houver comanda aberta na unidade, a noite acabava sem fechar por
+   * causa de uma comanda invisível.
+   */
+  const ehDeBalcao = !daMesa;
+  let comandaId = daMesa;
+  if (ehDeBalcao) {
+    const aberta = await emResultado(() =>
+      comandaDeBalcao(operador, {
+        referencia,
+        valorEmCentavos: valorEmCentavos as number,
+      })
+    );
+    if (temErro(aberta)) return NextResponse.json({ erro: aberta.erro }, { status: 409 });
+    comandaId = aberta.comandaId;
+  }
+
+  const conta = await contaDaComanda(comandaId);
+  if (!conta || conta.comanda.unidadeId !== unidade.id) {
+    return NextResponse.json({ erro: "Conta não encontrada." }, { status: 404 });
   }
 
   const resposta = await emResultado(async () => {
