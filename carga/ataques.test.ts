@@ -1735,14 +1735,33 @@ describe("maquininha", () => {
    * na unidade. Uma venda recusada vira, assim, uma noite que não fecha, por
    * causa de uma comanda que ninguém consegue ver nem fechar.
    */
+  /**
+   * O caixa do vizinho, aberto, sem herdar nem deixar herança.
+   *
+   * Os testes de baixo abrem e fecham o caixa de B contando os valores que
+   * eles mesmos puseram; um caixa meu esquecido aberto os faria medir a
+   * gaveta errada. Por isso o que eu abrir, eu apago em `varrerOBalcao`.
+   */
+  const meusCaixas: string[] = [];
   async function caixaAbertoDoVizinho() {
     const existe = await admin.caixa.findFirst({
       where: { unidadeId: B.unidade.id, tipo: "GERAL", status: "ABERTO" },
     });
-    if (!existe) await como(B.caixas[0]!, () => abrirCaixa("NOITE", 200));
-    return admin.caixa.findFirstOrThrow({
-      where: { unidadeId: B.unidade.id, tipo: "GERAL", status: "ABERTO" },
+    if (existe) return existe;
+    const meu = await admin.caixa.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: B.unidade.id,
+        data: new Date(),
+        tipo: "GERAL",
+        turno: "NOITE",
+        status: "ABERTO",
+        fundoCaixa: 200,
+        abertoPorId: B.caixas[0]!.usuarioId,
+      },
     });
+    meusCaixas.push(meu.id);
+    return meu;
   }
 
   /** Comandas abertas sem mesa: as que nenhuma tela mostra. */
@@ -1754,6 +1773,9 @@ describe("maquininha", () => {
   /** O ataque não pode deixar sujeira para o vizinho de baixo. */
   async function varrerOBalcao() {
     await admin.comanda.deleteMany({ where: { unidadeId: B.unidade.id, origem: "BALCAO" } });
+    if (meusCaixas.length > 0) {
+      await admin.caixa.deleteMany({ where: { id: { in: meusCaixas.splice(0) } } });
+    }
   }
 
   /**
