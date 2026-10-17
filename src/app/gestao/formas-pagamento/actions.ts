@@ -102,7 +102,26 @@ export async function editarForma(id: string, dados: DadosDaForma) {
     const limpo = limpar(dados);
     await nomeLivre(sessao.tenantId, limpo.nome, id);
 
-    await db.formaPagamento.update({ where: { id }, data: limpo });
+    /**
+     * A marca da maquininha não acompanha a troca de tipo.
+     *
+     * "Uma por tipo" é conferido na hora de marcar, e só ali. Mudar o tipo de
+     * uma forma marcada a levaria para um tipo que já tem a sua: duas marcadas,
+     * a escolha de volta à ordem alfabética — com a taxa errada congelada em
+     * cada venda — e o aviso da tela calado, porque ele só pergunta se existe
+     * alguma marcada.
+     *
+     * A marca cai, e o aviso volta a aparecer dizendo que a maquininha está
+     * escolhendo sozinha. Quem trocou o tipo é quem sabe qual das duas é a do
+     * aparelho agora; adivinhar por ele seria mudar, sem avisar, a forma em que
+     * cai o dinheiro do outro tipo.
+     */
+    const trocouDeTipo = antes.tipo !== limpo.tipo;
+
+    await db.formaPagamento.update({
+      where: { id },
+      data: trocouDeTipo ? { ...limpo, naMaquininha: false } : limpo,
+    });
 
     /**
      * O diário guarda o antes e o depois.
@@ -191,6 +210,27 @@ export async function alternarNaMaquininha(id: string) {
     const marcando = !forma.naMaquininha;
 
     await db.$transaction(async (tx) => {
+      /*
+       * As irmãs do tipo ficam trancadas até o fim desta transação.
+       *
+       * Sem isto, dois toques no mesmo instante — duas abas da retaguarda, dois
+       * sócios resolvendo a mesma pendência — passam um pelo outro: cada
+       * transação desmarca as marcadas que **enxerga**, e nenhuma enxerga a
+       * marca que a outra ainda não entregou. As duas gravam, o tipo fica com
+       * duas marcadas, e a ambiguidade que esta marca veio resolver volta pela
+       * porta que ninguém vigia — com a taxa errada congelada em cada venda.
+       *
+       * Trancando antes de ler, a segunda espera a primeira terminar e vale o
+       * último toque, que é o que quem clicou duas vezes espera ver.
+       */
+      await tx.$queryRaw`
+        SELECT id
+          FROM formas_pagamento
+         WHERE "tenantId" = ${sessao.tenantId}
+           AND tipo = (SELECT tipo FROM formas_pagamento WHERE id = ${id})
+         ORDER BY id
+           FOR UPDATE`;
+
       if (marcando) {
         await tx.formaPagamento.updateMany({
           where: { tenantId: sessao.tenantId, tipo: forma.tipo, naMaquininha: true },

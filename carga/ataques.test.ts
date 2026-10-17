@@ -9,6 +9,11 @@ import { transferirMesa } from "@/app/pdv/transferencia-actions";
 import { registrarContagem, registrarEntrada, registrarPerda } from "@/app/gestao/estoque/actions";
 import { salvarDivisaoDaTaxa } from "@/app/gestao/ajustes/actions";
 import { gerarTokenImpressao } from "@/app/gestao/impressao/actions";
+import {
+  alternarNaMaquininha,
+  criarForma,
+  editarForma,
+} from "@/app/gestao/formas-pagamento/actions";
 import LoginPage from "@/app/login/page";
 import PdvMesasPage from "@/app/pdv/page";
 import GestaoLayout from "@/app/gestao/layout";
@@ -1274,6 +1279,149 @@ describe("maquininha", () => {
   });
 
   /**
+   * A praça que não tem impressora própria.
+   *
+   * A fila passou a entregar ao agente de bobina embutida — a maquininha no
+   * bolso do garçom — só os trabalhos **sem impressora endereçada**, para que a
+   * comanda da cozinha não saísse no bolso dele deixando a praça sem o papel.
+   * A conta foi feita pelo endereço, e o endereço vem da estação: numa casa que
+   * comprou a térmica do bar e deixou a cozinha no agente do balcão, a comanda
+   * da cozinha **não tem** impressora endereçada — e volta a caber no bolso do
+   * garçom, que é exatamente o que a regra veio impedir. Com a reserva, quem
+   * leva é um só: o balcão não vê mais aquele papel, e a cozinha espera um
+   * prato que ninguém mandou fazer.
+   *
+   * O que o aparelho de bobina leva é o papel da mão — conferência e cupom. A
+   * casa sem impressora nenhuma é o caso de contraste: ali ele é o único
+   * destino possível, e continua levando tudo.
+   */
+  it("a comanda da praça sem impressora própria não sai no bolso do garçom", async () => {
+    // No vizinho, cuja fila ninguém encheu: os vinte do lote são os daqui.
+    const token = await ligarAparelho(B, "bobina-embutida");
+    const impressora = await admin.impressora.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: B.unidade.id,
+        nome: "Térmica do bar",
+        conexao: "rede",
+      },
+    });
+    const papel = (tipo: "COMANDA_PRODUCAO" | "CONFERENCIA", titulo: string, impressoraId: string | null) =>
+      admin.filaImpressao.create({
+        data: {
+          tenantId: B.tenant.id,
+          unidadeId: B.unidade.id,
+          impressoraId,
+          tipo,
+          titulo,
+          conteudo: titulo,
+        },
+      });
+    const doBar = await papel("COMANDA_PRODUCAO", "BAR · pedido #1", impressora.id);
+    const daCozinha = await papel("COMANDA_PRODUCAO", "COZINHA · pedido #1", null);
+    const daMao = await papel("CONFERENCIA", "Conferência da mesa 1", null);
+
+    const resposta = await GETImpressao(
+      new NextRequest(
+        "http://demo.frentfood.test/api/impressao?embutida=1&colunas=32&agente=maquininha",
+        { headers: { authorization: `Bearer ${token}` } }
+      )
+    );
+    const levados = ((await resposta.json()) as { trabalhos: { id: string }[] }).trabalhos.map(
+      (t) => t.id
+    );
+
+    expect({
+      conferencia: levados.includes(daMao.id),
+      comandaDoBar: levados.includes(doBar.id),
+      comandaDaCozinha: levados.includes(daCozinha.id),
+    }).toEqual({ conferencia: true, comandaDoBar: false, comandaDaCozinha: false });
+  });
+
+  /**
+   * A casa que só tem a maquininha — o contraste do caso acima.
+   *
+   * Sem impressora cadastrada, nenhum trabalho tem destino e a bobina do bolso
+   * é o único papel que existe na casa. Recusar a comanda da cozinha ali seria
+   * trocar "o papel saiu no lugar errado" por "o papel não saiu".
+   */
+  it("na casa sem impressora nenhuma, a bobina do bolso continua levando tudo", async () => {
+    const token = await ligarAparelho(B, "bobina-sozinha");
+    await admin.impressora.deleteMany({ where: { unidadeId: B.unidade.id } });
+    const daCozinha = await admin.filaImpressao.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: B.unidade.id,
+        tipo: "COMANDA_PRODUCAO",
+        titulo: "COZINHA · pedido #2",
+        conteudo: "COZINHA · pedido #2",
+      },
+    });
+
+    const resposta = await GETImpressao(
+      new NextRequest(
+        "http://demo.frentfood.test/api/impressao?embutida=1&colunas=32&agente=maquininha-sozinha",
+        { headers: { authorization: `Bearer ${token}` } }
+      )
+    );
+    const levados = ((await resposta.json()) as { trabalhos: { id: string }[] }).trabalhos.map(
+      (t) => t.id
+    );
+
+    expect(levados.includes(daCozinha.id)).toBe(true);
+  });
+
+  /**
+   * Tirado da unidade no meio do turno.
+   *
+   * O terceiro jeito de perder o vínculo, depois do desligamento e do
+   * rebaixamento: a pessoa continua ativa e no mesmo restaurante, mas deixou de
+   * trabalhar nesta casa — transferida para a filial, ou tirada da escala. É o
+   * caso que `vinculoAtual` resolve pela ausência do vínculo, e não pelo
+   * `ativo` nem pelo cargo, e nenhum teste o prendia.
+   */
+  it("o caixa tirado da unidade no meio do turno para de receber pelo aparelho", async () => {
+    const aparelho = await ligarAparelho(A, "tirado-da-unidade");
+    const caixa = A.caixas[0]!;
+    const operador = (await tokenDoOperador(aparelho, caixa.pin)).corpo.token!;
+    const { comandaId } = await contaNaMesaNova(A.garcons[0]!, 2);
+    const { falta } = await quantoDeve(comandaId);
+
+    const vinculo = await admin.usuarioUnidade.findFirstOrThrow({
+      where: { usuarioId: caixa.usuarioId, unidadeId: A.unidade.id },
+    });
+    await admin.usuarioUnidade.delete({ where: { id: vinculo.id } });
+    try {
+      const resposta = await POSTPagamentos(
+        chamada("/api/maquininha/pagamentos", {
+          aparelho,
+          operador,
+          corpo: {
+            comandaId,
+            referencia: "turno-de-quem-mudou-de-casa",
+            forma: "CREDITO",
+            valorEmCentavos: Math.round(falta * 100),
+          },
+        })
+      );
+      expect({
+        status: resposta.status,
+        pagamentos: await admin.pagamento.count({ where: { comandaId } }),
+        conta: (await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } })).status,
+      }).toEqual({ status: 401, pagamentos: 0, conta: "ABERTA" });
+    } finally {
+      await admin.usuarioUnidade.create({
+        data: {
+          id: vinculo.id,
+          usuarioId: vinculo.usuarioId,
+          unidadeId: vinculo.unidadeId,
+          cargoId: vinculo.cargoId,
+        },
+      });
+    }
+  });
+
+  /**
    * Cancelar item pelo aparelho: o garçom pede o PIN de quem pode.
    *
    * O cargo GARCOM não tem `comanda.cancelarItem`, e é ele quem está na mesa.
@@ -2118,5 +2266,105 @@ describe("papel da impressora", () => {
     const papel = trabalhos.find((t) => t.id === fila.id)!.conteudo;
     const semOsDoServidor = papel.split("\x1d\x21\x11").join("").split("\x1d\x21\x00").join("");
     expect(semOsDoServidor).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
+  });
+});
+
+/**
+ * A marca de qual forma a maquininha usa.
+ *
+ * O aparelho manda o **tipo** — crédito, débito, Pix —, que é o que a
+ * credenciadora precisa para passar o cartão; a forma é a escrituração: nome,
+ * taxa e prazo. Numa casa com "Cartão de Crédito" a 3,2% no balcão e "Crédito
+ * Stone" a 1,9% na maquininha, o servidor escolhia pela ordem alfabética e a
+ * taxa da errada ia **congelada** no pagamento — o custo do mês sai torto e não
+ * há como corrigir depois. A marca veio para acabar com isso, e a regra dela é
+ * uma só por tipo: enquanto ela valer, não há o que adivinhar.
+ */
+describe("qual forma a maquininha usa", () => {
+  const dados = (nome: string, tipo: "CREDITO" | "DEBITO", taxaPct: number) => ({
+    nome,
+    tipo: tipo as never,
+    taxaPct,
+    prazoDias: 30,
+  });
+
+  async function marcadas(tipo: string) {
+    return admin.formaPagamento.findMany({
+      where: { tenantId: A.tenant.id, tipo: tipo as never, naMaquininha: true },
+      select: { nome: true },
+      orderBy: { nome: "asc" },
+    });
+  }
+
+  /** Cria a forma e devolve o id — a action não o devolve. */
+  async function criar(nome: string, tipo: "CREDITO" | "DEBITO", taxaPct: number) {
+    const r = await como(A.proprietario, () => criarForma(dados(nome, tipo, taxaPct)));
+    if (temErro(r)) throw new Error(`não criou ${nome}: ${JSON.stringify(r)}`);
+    return (await admin.formaPagamento.findFirstOrThrow({ where: { tenantId: A.tenant.id, nome } })).id;
+  }
+
+  it("marcar a segunda do mesmo tipo desmarca a primeira", async () => {
+    const balcao = await criar("Crédito do balcão", "CREDITO", 3.2);
+    const stone = await criar("Crédito Stone", "CREDITO", 1.9);
+
+    await como(A.proprietario, () => alternarNaMaquininha(balcao));
+    const depoisDaPrimeira = await marcadas("CREDITO");
+    await como(A.proprietario, () => alternarNaMaquininha(stone));
+    const depoisDaSegunda = await marcadas("CREDITO");
+
+    expect({
+      primeira: depoisDaPrimeira.map((f) => f.nome),
+      segunda: depoisDaSegunda.map((f) => f.nome),
+    }).toEqual({ primeira: ["Crédito do balcão"], segunda: ["Crédito Stone"] });
+  });
+
+  /**
+   * Trocar o tipo de uma forma marcada.
+   *
+   * A regra "uma por tipo" é conferida na hora de marcar, e só ali. O tipo,
+   * porém, é campo do formulário: quem cadastrou a "Stone" como crédito e
+   * depois percebe que a maquininha dela passa débito corrige o tipo — e a
+   * marca vai junto, para um tipo que já tem a sua. Ficam duas marcadas no
+   * mesmo tipo, a escolha volta a ser a ordem alfabética, e o aviso da tela
+   * ("a maquininha está escolhendo sozinha") **cala**, porque ele só pergunta
+   * se existe alguma marcada. É o único caminho pelo qual a ambiguidade volta
+   * sem ninguém ver.
+   */
+  it("trocar o tipo de uma forma marcada não deixa duas marcadas no mesmo tipo", async () => {
+    const debitoDaCasa = await criar("Débito Stone", "DEBITO", 1.5);
+    const credito = await criar("Crédito Stone 2", "CREDITO", 1.9);
+    await como(A.proprietario, () => alternarNaMaquininha(debitoDaCasa));
+    await como(A.proprietario, () => alternarNaMaquininha(credito));
+
+    // "Na verdade essa maquininha passa débito": o tipo é campo do formulário.
+    const r = await como(A.proprietario, () =>
+      editarForma(credito, dados("Crédito Stone 2", "DEBITO", 1.9))
+    );
+    expect(temErro(r)).toBe(false);
+
+    expect({
+      debito: (await marcadas("DEBITO")).map((f) => f.nome),
+      credito: (await marcadas("CREDITO")).map((f) => f.nome),
+    }).toEqual({ debito: ["Débito Stone"], credito: [] });
+  });
+
+  /**
+   * Dois toques em "usar na maquininha", no mesmo instante.
+   *
+   * Duas abas da retaguarda, ou dois sócios resolvendo a mesma pendência: cada
+   * transação desmarca as irmãs antes de marcar a sua, e nenhuma enxerga a
+   * marca que a outra ainda não entregou. Se as duas passarem, o tipo fica com
+   * duas marcadas e a ambiguidade volta pela porta que ninguém vigia.
+   */
+  it("dois toques em 'usar na maquininha' ao mesmo tempo deixam uma marcada só", async () => {
+    const uma = await criar("Crédito Alfa", "CREDITO", 2.1);
+    const outra = await criar("Crédito Beta", "CREDITO", 2.9);
+
+    await Promise.all([
+      como(A.proprietario, () => alternarNaMaquininha(uma)),
+      como(A.proprietario, () => alternarNaMaquininha(outra)),
+    ]);
+
+    expect((await marcadas("CREDITO")).map((f) => f.nome).length).toBe(1);
   });
 });

@@ -178,6 +178,14 @@ describe("quem só tem a bobina da mão", () => {
     return trabalho.id;
   }
 
+  /** Um papel sem destino dos que o garçom entrega em mãos. */
+  async function papelDaMao(tipo: "CONFERENCIA" | "CUPOM", titulo: string) {
+    const trabalho = await db.filaImpressao.create({
+      data: { tenantId, unidadeId, tipo, titulo, conteudo: titulo },
+    });
+    return trabalho.id;
+  }
+
   async function pegarEmbutida(agente: string) {
     const resposta = await buscarFila(
       new NextRequest(`http://localhost/api/impressao?agente=${agente}&embutida=1`, {
@@ -198,18 +206,48 @@ describe("quem só tem a bobina da mão", () => {
   });
 
   it("leva o que não tem destino: a conferência e o cupom", async () => {
-    await enfileirar(1);
+    // O papel da mão, pelo nome: antes este teste enfileirava uma comanda de
+    // produção sem endereço como substituta, e a substituta era justamente o
+    // caso em que "sem endereço" e "papel da mão" deixam de ser a mesma coisa.
+    await papelDaMao("CONFERENCIA", "Conferência da mesa 4");
+    await papelDaMao("CUPOM", "Cupom da mesa 4");
 
     // São os papéis que o garçom quer em mãos, e os únicos que a bobina dele
     // consegue entregar a quem deve recebê-los.
-    expect(await pegarEmbutida("maquininha")).toHaveLength(1);
+    expect(await pegarEmbutida("maquininha")).toHaveLength(2);
+  });
+
+  /**
+   * A praça sem impressora própria.
+   *
+   * A casa comprou a térmica do bar e deixou a cozinha no agente do balcão: a
+   * comanda da cozinha não tem impressora endereçada, e pela falta de endereço
+   * voltava a caber no bolso do garçom. Com a reserva, o balcão deixava de
+   * vê-la — a praça esperando um prato que ninguém mandou fazer, que é o que
+   * esta regra veio impedir.
+   */
+  it("não leva a comanda da praça que não tem impressora própria", async () => {
+    const doBar = await comDestino("Térmica do bar");
+    const daCozinha = await db.filaImpressao.create({
+      data: { tenantId, unidadeId, tipo: "COMANDA_PRODUCAO", titulo: "Cozinha", conteudo: "praça" },
+    });
+
+    expect(await pegarEmbutida("maquininha")).toEqual([]);
+    // E o agente do balcão, que é quem imprime pela cozinha nesta casa, leva as
+    // duas: a endereçada à térmica do bar e a que não tem destino nenhum.
+    expect((await pegar("balcao")).sort()).toEqual([doBar, daCozinha.id].sort());
   });
 
   it("casa sem impressora cadastrada: ele continua levando tudo", async () => {
+    // A casa é sem impressora de verdade: a térmica que os testes acima
+    // cadastram sobrevive ao `beforeEach`, que só limpa a fila, e sem isto o
+    // caso de contraste estaria sendo medido numa casa que tem impressora.
+    await db.impressora.deleteMany({ where: { tenantId } });
     await enfileirar(3);
 
     // Nenhum trabalho tem destino, e a bobina da mão é o único destino que
-    // existe ali.
+    // existe ali: recusar a comanda da cozinha seria trocar "o papel saiu no
+    // lugar errado" por "o papel não saiu".
     expect(await pegarEmbutida("maquininha")).toHaveLength(3);
   });
 });
