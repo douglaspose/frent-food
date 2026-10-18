@@ -36,11 +36,20 @@ export function ReceberBalcao({
   const [pedindoPin, setPedindoPin] = useState(false);
   const [pendente, iniciar] = useTransition();
 
+  /*
+   * A forma só é decisão quando entra dinheiro.
+   *
+   * Ela diz onde o dinheiro caiu e qual taxa a casa pagou — e na venda que já
+   * recebeu tudo e só ficou aberta nada cai em lugar nenhum. Pedir a escolha
+   * ali seria pedir uma resposta que o sistema vai jogar fora.
+   */
+  const precisaDaForma = comanda.falta > 0;
+
   function receber(autorizacaoId?: string) {
-    if (!forma) return;
+    if (precisaDaForma && !forma) return;
     setErro(null);
     iniciar(async () => {
-      const r = await receberBalcao(comanda.id, forma, autorizacaoId);
+      const r = await receberBalcao(comanda.id, forma ?? "", autorizacaoId);
       if (precisaAutorizacao(r)) {
         setPedindoPin(true);
         return;
@@ -95,28 +104,30 @@ export function ReceberBalcao({
         )}
       </p>
 
-      <div className="mt-2 flex flex-wrap gap-2">
-        {formas.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setForma(f.id)}
-            className={`rounded-lg px-3 py-2 text-xs font-medium transition ${
-              forma === f.id
-                ? "bg-amber-700 text-white"
-                : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
-            }`}
-          >
-            {f.nome}
-          </button>
-        ))}
-      </div>
+      {precisaDaForma && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {formas.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setForma(f.id)}
+              className={`rounded-lg px-3 py-2 text-xs font-medium transition ${
+                forma === f.id
+                  ? "bg-amber-700 text-white"
+                  : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
+              }`}
+            >
+              {f.nome}
+            </button>
+          ))}
+        </div>
+      )}
 
       {erro && <p className="mt-2 text-xs text-red-400">{erro}</p>}
 
       <div className="mt-3 flex gap-2">
         <button
           onClick={() => receber()}
-          disabled={!forma || pendente}
+          disabled={(precisaDaForma && !forma) || pendente}
           className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
         >
           {pendente
