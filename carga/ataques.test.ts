@@ -3,6 +3,8 @@ import { temErro } from "@/lib/erro-de-operacao";
 import { abrirComanda, enviarCarrinho } from "@/app/pdv/actions";
 import { adicionarAoCarrinho, alterarQuantidade, definirPontoCarne } from "@/app/pdv/carrinho-actions";
 import { cancelarItem } from "@/app/pdv/cancelamento-actions";
+import { receberBalcao } from "@/app/pdv/balcao-actions";
+import { comandaDeBalcao } from "@/lib/balcao";
 import { pedirAutorizacao } from "@/app/pdv/autorizacao-actions";
 import { avancarPedido } from "@/app/kds/actions";
 import { transferirMesa } from "@/app/pdv/transferencia-actions";
@@ -2631,5 +2633,265 @@ describe("qual forma a maquininha usa", () => {
     ]);
 
     expect((await marcadas("CREDITO")).map((f) => f.nome).length).toBe(1);
+  });
+});
+
+/**
+ * A saída da venda de balcão presa — a porta nova de 18/10.
+ *
+ * `receberBalcaoPelaRetaguarda` é dinheiro entrando pela palavra de quem
+ * opera, com a prova em papel: a venda existe na adquirente, o cartão já foi
+ * debitado, e a comanda ficou aberta sem mesa — fora do mapa do salão e
+ * trancando o fechamento do caixa.
+ *
+ * O que se ataca aqui não é a autorização (`tests/balcao-retaguarda.test.ts`
+ * já a prende de seis lados), é **o valor**: quanto a porta decide receber, e
+ * o que acontece com a comanda quando esse valor não é o que a conta vale.
+ * Uma porta de recebimento que erra o valor para cima deixa a comanda aberta
+ * para sempre — e o caixa, que recusa enquanto houver comanda aberta, não
+ * fecha mais a noite.
+ */
+describe("a venda de balcão recebida pela retaguarda", () => {
+  /**
+   * O caixa aberto do vizinho, meu e só meu.
+   *
+   * Um ataque mais acima fecha o caixa de B de propósito (é o que ele prova:
+   * que a noite volta a fechar). Sem abrir um aqui, todo pagamento destes
+   * testes seria recusado por \"nenhum caixa aberto\" — e eu leria isso como
+   * brecha onde era defeito do meu teste.
+   */
+  let meuCaixa: string | null = null;
+  async function caixaAberto() {
+    const existe = await admin.caixa.findFirst({
+      where: { unidadeId: B.unidade.id, tipo: "GERAL", status: "ABERTO" },
+    });
+    if (existe) return existe.id;
+    const meu = await admin.caixa.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: B.unidade.id,
+        data: new Date(),
+        tipo: "GERAL",
+        turno: "NOITE",
+        status: "ABERTO",
+        fundoCaixa: 200,
+        abertoPorId: B.caixas[0]!.usuarioId,
+      },
+    });
+    meuCaixa = meu.id;
+    return meu.id;
+  }
+
+  /** A venda que a maquininha cobrou e não conseguiu registrar: aberta, sem mesa, sem pagamento. */
+  const vendaPresa = (quem: Membro, referencia: string, valorEmCentavos: number) =>
+    como(quem, () =>
+      comandaDeBalcao(
+        { usuarioId: quem.usuarioId, tenantId: B.tenant.id, unidadeId: B.unidade.id },
+        { referencia, valorEmCentavos }
+      )
+    );
+
+  const comandaComPagamentos = (comandaId: string) =>
+    admin.comanda.findUniqueOrThrow({ where: { id: comandaId }, include: { pagamentos: true } });
+
+  /** O que ficou na unidade sem mesa e aberto: o que tranca a noite. */
+  const trancandoANoite = () =>
+    admin.comanda.count({
+      where: { unidadeId: B.unidade.id, mesaId: null, status: { in: ["ABERTA", "FECHANDO"] } },
+    });
+
+  /** Nada do que eu abrir pode sobrar para o vizinho de baixo. */
+  async function varrer() {
+    const minhas = await admin.comanda.findMany({
+      where: { unidadeId: B.unidade.id, origem: "BALCAO" },
+      select: { id: true },
+    });
+    const ids = minhas.map((c) => c.id);
+    await admin.pagamento.deleteMany({ where: { comandaId: { in: ids } } });
+    await admin.comanda.deleteMany({ where: { id: { in: ids } } });
+    if (meuCaixa) {
+      await admin.caixa.deleteMany({ where: { id: meuCaixa } });
+      meuCaixa = null;
+    }
+  }
+
+  /**
+   * O desconto na venda de balcão.
+   *
+   * O gerente da demonstração tem `comanda.aplicarDesconto` **e**
+   * `caixa.sangria`: a mesma pessoa que abate a venda é a que a recebe pela
+   * retaguarda. É o caso honesto — o cliente reclamou, a casa abateu R$ 5 de
+   * uma venda de R$ 20 cobrada no aparelho.
+   *
+   * A retaguarda soma os itens e ignora o desconto, então ela tenta receber
+   * R$ 20 de uma conta que vale R$ 15. `receberPagamento` recusa com razão —
+   * ninguém paga mais do que a conta —, e a venda fica **sem saída nenhuma**:
+   * cada tentativa recusa igual, a comanda não tem mesa para ser recebida por
+   * outra tela, e o caixa não fecha mais a noite.
+   */
+  it("desconto na venda de balcão: recebe o que a conta vale e a noite fecha", async () => {
+    await caixaAberto();
+    const { comandaId } = await vendaPresa(B.gerentes[0]!, "balcao-com-desconto", 2_000);
+    const desconto = await tentar(B.gerentes[0]!, () =>
+      aplicarDesconto(comandaId, 5, "cliente reclamou do atendimento")
+    );
+
+    const r = await tentar(B.gerentes[0]!, () => receberBalcao(comandaId, B.formas.credito.id));
+    const comanda = await comandaComPagamentos(comandaId);
+    const presas = await trancandoANoite();
+    await varrer();
+
+    expect({
+      descontoEntrou: !recusou(desconto),
+      recebeu: !recusou(r),
+      recusa: r.lancou ?? (temErro(r.resposta) ? r.resposta.erro : null),
+      status: comanda.status,
+      pago: comanda.pagamentos.reduce((s, p) => s + Number(p.valor) - Number(p.troco), 0),
+      trancandoANoite: presas,
+    }).toEqual({
+      descontoEntrou: true,
+      recebeu: true,
+      recusa: null,
+      status: "PAGA",
+      pago: 15,
+      trancandoANoite: 0,
+    });
+  });
+
+  /**
+   * A venda de balcão que recebeu parte do dinheiro e ficou.
+   *
+   * O caminho é o do próprio aparelho: a venda de R$ 20 é cobrada em duas
+   * passadas de cartão — a primeira aprova R$ 8, a segunda cai na rede. A
+   * comanda fica aberta com R$ 8 dentro. A retaguarda soma os itens e ignora
+   * o que já entrou, então tenta receber R$ 20 numa conta que deve R$ 12 —
+   * recusa, e a comanda fica presa do mesmo jeito. (A faixa do mapa, que só
+   * oferece a porta quando `recebido === 0`, nem mostra o botão: esta venda
+   * não tem saída em tela nenhuma.)
+   */
+  it("venda de balcão com parte recebida: recebe o que falta e a noite fecha", async () => {
+    await caixaAberto();
+    const { comandaId } = await vendaPresa(B.gerentes[0]!, "balcao-pela-metade", 2_000);
+    const parcial = await tentar(B.caixas[0]!, () =>
+      registrarPagamento(comandaId, B.formas.debito.id, 8, 0)
+    );
+
+    const r = await tentar(B.gerentes[0]!, () => receberBalcao(comandaId, B.formas.credito.id));
+    const comanda = await comandaComPagamentos(comandaId);
+    const presas = await trancandoANoite();
+    await varrer();
+
+    expect({
+      parcialEntrou: !recusou(parcial),
+      recebeu: !recusou(r),
+      recusa: r.lancou ?? (temErro(r.resposta) ? r.resposta.erro : null),
+      status: comanda.status,
+      pago: comanda.pagamentos.reduce((s, p) => s + Number(p.valor) - Number(p.troco), 0),
+      trancandoANoite: presas,
+    }).toEqual({
+      parcialEntrou: true,
+      recebeu: true,
+      recusa: null,
+      status: "PAGA",
+      pago: 20,
+      trancandoANoite: 0,
+    });
+  });
+
+
+  /**
+   * A venda de balcão que recebeu tudo e ficou aberta.
+   *
+   * O dinheiro entrou e o fechamento não: a aba do caixa fechou no meio, ou
+   * `finalizarConta` falhou depois de o pagamento já estar gravado. A comanda
+   * fica paga por dentro e aberta por fora — e é a pior das três, porque não há
+   * o que receber: pedindo o total cheio, esta porta batia em "esta conta já
+   * está quitada" e a noite não fechava nunca mais.
+   */
+  it("venda de balcão paga e aberta: a retaguarda a fecha, e a noite fecha", async () => {
+    await caixaAberto();
+    const { comandaId } = await vendaPresa(B.gerentes[0]!, "balcao-paga-e-aberta", 2_000);
+    const pago = await tentar(B.caixas[0]!, () =>
+      registrarPagamento(comandaId, B.formas.debito.id, 20, 0)
+    );
+
+    const r = await tentar(B.gerentes[0]!, () => receberBalcao(comandaId, B.formas.credito.id));
+    const comanda = await comandaComPagamentos(comandaId);
+    const presas = await trancandoANoite();
+    await varrer();
+
+    expect({
+      pagamentoEntrou: !recusou(pago),
+      fechou: !recusou(r),
+      status: comanda.status,
+      // Nada entra duas vezes: a venda já tinha o dinheiro dentro.
+      pagamentos: comanda.pagamentos.length,
+      pago: comanda.pagamentos.reduce((s, p) => s + Number(p.valor) - Number(p.troco), 0),
+      trancandoANoite: presas,
+    }).toEqual({
+      pagamentoEntrou: true,
+      fechou: true,
+      status: "PAGA",
+      pagamentos: 1,
+      pago: 20,
+      trancandoANoite: 0,
+    });
+  });
+
+  /**
+   * Dois toques em "receber pela retaguarda", no mesmo instante.
+   *
+   * Duas abas do caixa, ou o gerente e o caixa resolvendo a mesma pendência
+   * da faixa. O dinheiro desta venda já entrou uma vez na adquirente: dois
+   * pagamentos aqui são R$ 40 de faturamento sobre uma venda de R$ 20.
+   */
+  it("dois toques simultâneos na retaguarda registram um pagamento só", async () => {
+    await caixaAberto();
+    const { comandaId } = await vendaPresa(B.gerentes[0]!, "balcao-dois-toques", 2_000);
+
+    await Promise.all([
+      tentar(B.gerentes[0]!, () => receberBalcao(comandaId, B.formas.credito.id)),
+      tentar(B.gerentes[0]!, () => receberBalcao(comandaId, B.formas.debito.id)),
+    ]);
+
+    const comanda = await comandaComPagamentos(comandaId);
+    await varrer();
+
+    expect({
+      pagamentos: comanda.pagamentos.length,
+      pago: comanda.pagamentos.reduce((s, p) => s + Number(p.valor) - Number(p.troco), 0),
+      status: comanda.status,
+    }).toEqual({ pagamentos: 1, pago: 20, status: "PAGA" });
+  });
+
+  /**
+   * A comanda do vizinho na retaguarda do demo.
+   *
+   * O `comandaId` vem do navegador. Sob RLS a linha do outro restaurante não
+   * existe para esta sessão, e `findUniqueOrThrow` lança antes da conferência
+   * de tenant: o que o caixa vê é erro de sistema, com a consulta do Prisma
+   * dentro, onde devia ver uma recusa.
+   */
+  it("comanda de outro restaurante na retaguarda é recusa legível, não erro de sistema", async () => {
+    await caixaAberto();
+    const { comandaId } = await vendaPresa(B.gerentes[0]!, "balcao-do-vizinho", 2_000);
+
+    const t = await tentar(A.proprietario, () => receberBalcao(comandaId, B.formas.credito.id));
+    const comanda = await comandaComPagamentos(comandaId);
+    await varrer();
+
+    expect({
+      recusou: recusou(t),
+      recusa: t.lancou ?? (temErro(t.resposta) ? t.resposta.erro : null),
+      vazouPrisma: /prisma|invocation|findUniqueOrThrow/i.test(t.lancou ?? ""),
+      status: comanda.status,
+      pagamentos: comanda.pagamentos.length,
+    }).toEqual({
+      recusou: true,
+      recusa: "Venda não encontrada.",
+      vazouPrisma: false,
+      status: "ABERTA",
+      pagamentos: 0,
+    });
   });
 });
