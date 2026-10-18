@@ -2,6 +2,7 @@
 
 import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { TEXTO_DE_CAMPO } from "@/lib/campo";
+import { nomeDaComanda, type ComandaAberta } from "@/lib/comandas-abertas";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { abrirCaixa, fecharCaixa, registrarMovimentoCaixa } from "../pagamento-actions";
@@ -52,7 +53,7 @@ export function CaixaPainel({
   podeMovimentar = false,
 }: {
   caixa: CaixaAberto | null;
-  comandasAbertas: number;
+  comandasAbertas: ComandaAberta[];
   podeOperar: boolean;
   podeMovimentar?: boolean;
 }) {
@@ -419,9 +420,14 @@ export function CaixaPainel({
           </p>
         )}
 
-        {comandasAbertas > 0 && (
+        {comandasAbertas.length > 0 && (
           <p className="mb-4 rounded-lg bg-amber-950/50 px-3 py-2 text-sm text-amber-400">
-            {comandasAbertas} comanda(s) ainda aberta(s) — feche todas antes.
+            {/*
+              Nomeadas, e não contadas: a de balcão não aparece no mapa do
+              salão, e sem o número dela o caixa procura a noite inteira.
+            */}
+            Ainda aberta(s): {comandasAbertas.map(nomeDaComanda).join(", ")} — feche
+            todas antes.
           </p>
         )}
 
@@ -438,7 +444,7 @@ export function CaixaPainel({
 
         <button
           onClick={fechar}
-          disabled={pendente || comandasAbertas > 0 || !conferido || !podeOperar}
+          disabled={pendente || comandasAbertas.length > 0 || !conferido || !podeOperar}
           className="w-full rounded-lg bg-neutral-100 py-3 font-semibold text-neutral-900 transition hover:bg-white disabled:opacity-30"
         >
           {pendente ? "Fechando..." : "Fechar caixa"}

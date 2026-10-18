@@ -43,9 +43,23 @@ export default async function CaixaPage() {
     },
   });
 
-  const comandasAbertas = await db.comanda.count({
+  /*
+   * Quais, e não quantas.
+   *
+   * "2 comanda(s) ainda aberta(s) — feche todas antes" mandava o caixa
+   * procurar no mapa do salão, e a venda de balcão não está lá: ela não tem
+   * mesa. A noite acabava sem fechar por causa de uma comanda que nenhuma
+   * tela mostrava.
+   */
+  const abertas = await db.comanda.findMany({
     where: { unidadeId: unidade.id, status: { in: ["ABERTA", "FECHANDO"] } },
+    orderBy: { numero: "asc" },
+    select: { numero: true, mesa: { select: { numero: true } } },
   });
+  const comandasAbertas = abertas.map((c) => ({
+    numero: c.numero,
+    mesa: c.mesa?.numero ?? null,
+  }));
 
   if (!caixa) {
     return (

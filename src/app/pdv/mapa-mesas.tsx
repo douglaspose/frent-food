@@ -11,6 +11,22 @@ import { useTemTeclado } from "./teclado";
 
 type StatusMesa = "LIVRE" | "OCUPADA" | "FECHANDO" | "RESERVADA" | "SUJA";
 
+/**
+ * Uma comanda aberta que não tem mesa — venda de balcão cobrada na maquininha.
+ *
+ * O mapa é feito de mesas, então estas não tinham onde aparecer. Ficavam
+ * invisíveis e travavam o fechamento do caixa, que recusa enquanto houver
+ * comanda aberta na unidade.
+ */
+export type ComandaSemMesa = {
+  id: string;
+  numero: number;
+  origem: string;
+  total: number;
+  recebido: number;
+  abertaEm: string;
+};
+
 export type MesaView = {
   id: string;
   numero: string;
@@ -138,9 +154,11 @@ export type AjustesDoMapa = {
 
 export function MapaMesas({
   areas,
+  semMesa,
   ajustes,
 }: {
   areas: AreaView[];
+  semMesa: ComandaSemMesa[];
   ajustes: AjustesDoMapa;
 }) {
   // A área filtrada vive fora do React para sobreviver à ida e volta da tela
@@ -251,6 +269,33 @@ export function MapaMesas({
           </div>
         </dl>
       </header>
+
+      {semMesa.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-900/60 bg-amber-950/50 px-4 py-3 text-sm">
+          <p className="font-semibold text-amber-300">
+            {semMesa.length} venda(s) de balcão em aberto — sem mesa, e por isso fora do mapa
+          </p>
+          <ul className="mt-2 space-y-1 text-amber-200/90">
+            {semMesa.map((c) => (
+              <li key={c.id} className="tabular-nums">
+                #{c.numero} · {brl.format(c.total)} · aberta há {decorrido(agora, c.abertaEm)}
+                {" · "}
+                {/*
+                  O que o caixa decide com isto: pago e aberto é fechamento que
+                  ficou pela metade; sem pagamento é a maquininha que ainda vai
+                  reenviar — ou uma venda que ela deu como recusada.
+                */}
+                <span className={c.recebido > 0 ? "text-emerald-300" : "text-amber-200"}>
+                  {c.recebido > 0 ? `${brl.format(c.recebido)} recebido` : "sem pagamento"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-amber-200/70">
+            Enquanto estiverem abertas, o caixa não fecha.
+          </p>
+        </div>
+      )}
 
       {(chamando > 0 || carrinhosParados > 0) && (
         <div className="mb-4 flex flex-wrap gap-3 text-sm">

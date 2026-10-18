@@ -40,8 +40,35 @@ export default async function PdvMesasPage() {
     where: { unidadeId: unidade.id, status: { in: ["ABERTA", "FECHANDO"] } },
     include: {
       itens: { where: { status: { not: "CANCELADO" } }, select: { status: true, precoTotal: true } },
+      pagamentos: { select: { valor: true, troco: true } },
     },
   });
+
+  /*
+   * As comandas sem mesa, que o mapa não tinha onde desenhar.
+   *
+   * Venda de balcão não ocupa mesa, então ela não existia em tela nenhuma do
+   * salão — e `fecharCaixa` recusa enquanto houver comanda aberta na unidade.
+   * O caixa terminava a noite lendo "ainda há 1 comanda(s) aberta(s)" sobre
+   * uma comanda que ninguém conseguia achar.
+   *
+   * Aqui elas viram uma faixa com o que o caixa precisa para decidir: quanto,
+   * desde quando, e se o pagamento já entrou — pago e aberto é problema de
+   * fechamento; aberto e sem pagamento é a maquininha que ainda vai reenviar,
+   * ou uma venda recusada que ficou para trás.
+   */
+  const semMesa = comandas
+    .filter((c) => !c.mesaId)
+    .map((c) => ({
+      id: c.id,
+      numero: c.numero,
+      origem: c.origem,
+      total: c.itens
+        .filter((i) => i.status !== "PENDENTE")
+        .reduce((soma, i) => soma + Number(i.precoTotal), 0),
+      recebido: c.pagamentos.reduce((soma, p) => soma + Number(p.valor) - Number(p.troco), 0),
+      abertaEm: c.abertaEm.toISOString(),
+    }));
 
   const porMesa = new Map(
     comandas.filter((c) => c.mesaId).map((c) => {
@@ -84,6 +111,7 @@ export default async function PdvMesasPage() {
       <BarraAmbientes dados={await dadosDaBarra(sessao)} />
       <MapaMesas
         areas={areas}
+        semMesa={semMesa}
         ajustes={{
           alertaSemPedidoMin: Number(ajustes["mesa.alertaSemLancamentoMin"]),
           voltarParaAreas: Boolean(ajustes["mesa.voltarParaAreasAoFechar"]),

@@ -11,6 +11,7 @@ import { finalizarConta, receberPagamento } from "@/lib/conta";
 import { publicar } from "@/lib/eventos";
 import { auditoria } from "@/lib/auditoria-servidor";
 import { dinheiroNaGaveta } from "@/lib/caixa";
+import { porQueOCaixaNaoFecha } from "@/lib/comandas-abertas";
 import { ajusteBooleano } from "@/lib/parametros-servidor";
 import { liberar } from "@/lib/autorizacao-servidor";
 import type { PrecisaAutorizacao } from "@/lib/autorizacao";
@@ -89,12 +90,24 @@ export async function fecharCaixa(caixaId: string, valorInformado: number) {
       throw new ErroDeOperacao("Informe o valor contado na gaveta.");
     }
 
-    const comandasAbertas = await db.comanda.count({
+    /*
+     * Quais, e não quantas.
+     *
+     * "Ainda há 1 comanda(s) aberta(s)" mandava o caixa procurar no mapa do
+     * salão — e a comanda de balcão não está lá, porque o mapa só monta as que
+     * têm mesa. A noite acabava sem fechar por causa de uma comanda que
+     * ninguém conseguia achar.
+     */
+    const abertas = await db.comanda.findMany({
       where: { unidadeId: caixa.unidadeId, status: { in: ["ABERTA", "FECHANDO"] } },
+      orderBy: { numero: "asc" },
+      select: { numero: true, mesa: { select: { numero: true } } },
     });
-    if (comandasAbertas > 0) {
+    if (abertas.length > 0) {
       throw new ErroDeOperacao(
-        `Ainda há ${comandasAbertas} comanda(s) aberta(s). Feche todas antes de fechar o caixa.`
+        porQueOCaixaNaoFecha(
+          abertas.map((c) => ({ numero: c.numero, mesa: c.mesa?.numero ?? null }))
+        )
       );
     }
 
