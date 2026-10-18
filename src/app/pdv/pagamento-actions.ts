@@ -81,6 +81,16 @@ export async function fecharCaixa(caixaId: string, valorInformado: number) {
     });
     if (caixa.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Caixa de outro restaurante.");
     /**
+     * E a unidade, não só o restaurante.
+     *
+     * O `caixaId` vem do navegador e o RLS é por **restaurante**: a gaveta da
+     * filial existe para a sessão da matriz. Fechar é assinar um número — o
+     * valor contado, a divergência e o nome de quem fechou —, e assinar o
+     * turno de outra cidade, que nem acabou, é o estrago. `receberPagamento` e
+     * `finalizarConta` já conferem as duas coisas; aqui faltava a segunda.
+     */
+    if (caixa.unidadeId !== sessao.unidadeId) throw new ErroDeOperacao("Caixa de outra unidade.");
+    /**
      * Caixa fechado é número assinado. Fechar de novo regravava o valor
      * informado, a divergência e quem fechou — uma falta de ontem sumia com
      * um toque, e o diário ficava com dois fechamentos do mesmo caixa.
@@ -229,6 +239,7 @@ export async function registrarMovimentoCaixa(
       },
     });
     if (caixa.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Caixa de outro restaurante.");
+    if (caixa.unidadeId !== sessao.unidadeId) throw new ErroDeOperacao("Caixa de outra unidade.");
     if (caixa.status !== "ABERTO") throw new ErroDeOperacao("Este caixa já foi fechado.");
 
     const naGaveta = gavetaDoCaixa(caixa);
@@ -391,9 +402,10 @@ export async function definirTaxaServico(comandaId: string, pct: number) {
 
     const antes = await db.comanda.findUniqueOrThrow({
       where: { id: comandaId },
-      select: { tenantId: true, taxaServicoPct: true },
+      select: { tenantId: true, unidadeId: true, taxaServicoPct: true },
     });
     if (antes.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+    if (antes.unidadeId !== sessao.unidadeId) throw new ErroDeOperacao("Comanda de outra unidade.");
 
     await db.$transaction([
       db.comanda.update({ where: { id: comandaId }, data: { taxaServicoPct: pct } }),
@@ -437,6 +449,7 @@ export async function aplicarDesconto(
     });
     // Faltava aqui: todas as outras ações conferem o tenant, esta não conferia.
     if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+    if (comanda.unidadeId !== sessao.unidadeId) throw new ErroDeOperacao("Comanda de outra unidade.");
 
     /**
      * O total já limitava o desconto ao subtotal, mas o valor gravado não:
