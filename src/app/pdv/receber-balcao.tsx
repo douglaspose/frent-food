@@ -61,7 +61,7 @@ export function ReceberBalcao({
       <PainelAutorizacao
         tipo="RECEBER_BALCAO"
         referenciaId={comanda.id}
-        motivo={`Venda de balcão #${comanda.numero} · ${brl.format(comanda.total)}`}
+        motivo={`Venda de balcão #${comanda.numero} · ${brl.format(comanda.falta)}`}
         aoLiberar={(autorizacaoId) => receber(autorizacaoId)}
         aoDesistir={() => setPedindoPin(false)}
       />
@@ -82,8 +82,17 @@ export function ReceberBalcao({
   return (
     <div className="mt-2 rounded-lg border border-amber-900/60 bg-neutral-950 p-3">
       <p className="text-xs text-neutral-400">
-        Registra {brl.format(comanda.total)} como recebido e fecha a comanda. Faça com o
-        comprovante da maquininha na frente — o sistema não tem como conferir esta venda.
+        {comanda.falta > 0 ? (
+          <>
+            Registra {brl.format(comanda.falta)} como recebido e fecha a comanda. Faça com o
+            comprovante da maquininha na frente — o sistema não tem como conferir esta venda.
+          </>
+        ) : (
+          <>
+            Esta venda já recebeu {brl.format(comanda.recebido)} e ficou aberta: nada entra, só
+            o fechamento que faltou. Enquanto ela estiver aberta, o caixa não fecha.
+          </>
+        )}
       </p>
 
       <div className="mt-2 flex flex-wrap gap-2">
@@ -110,7 +119,11 @@ export function ReceberBalcao({
           disabled={!forma || pendente}
           className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
         >
-          {pendente ? "Recebendo..." : `Receber ${brl.format(comanda.total)}`}
+          {pendente
+            ? "Recebendo..."
+            : comanda.falta > 0
+              ? `Receber ${brl.format(comanda.falta)}`
+              : "Fechar esta venda"}
         </button>
         <button
           onClick={() => {
