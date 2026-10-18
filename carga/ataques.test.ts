@@ -2895,3 +2895,195 @@ describe("a venda de balcão recebida pela retaguarda", () => {
     });
   });
 });
+
+/**
+ * A conta da outra filial, pela sessão da matriz.
+ *
+ * O `comandaId` vem do navegador, e o RLS é por **restaurante**: a conta da
+ * filial existe para a sessão da matriz, porque as duas são do mesmo tenant.
+ * Dez lugares do código conferem `unidadeId` depois de conferir `tenantId` —
+ * `receberPagamento`, `finalizarConta`, `estornarPagamento`, a retaguarda do
+ * balcão. Outros conferem só o restaurante, e esses aceitam mexer na conta da
+ * filial vizinha. É a mesma falha que `abrirCaixa` tinha e que já foi
+ * corrigida: a sessão sabe em que unidade a pessoa está, e é essa que vale.
+ *
+ * Duas delas mexem com dinheiro, e as duas são do cargo do gerente.
+ */
+describe("a conta da filial vizinha", () => {
+  let filial: { unidadeId: string; comandaId: string; areaId: string; mesaId: string } | null = null;
+
+  /** Uma filial do mesmo restaurante, com uma conta de R$ 100 aberta. */
+  async function montarFilial() {
+    const unidade = await admin.unidade.create({
+      data: {
+        tenantId: B.tenant.id,
+        codigo: "002",
+        nome: "Filial",
+        cidade: "Anápolis",
+        uf: "GO",
+        taxaServicoPct: 10,
+        atuaLoja: true,
+      },
+    });
+    const area = await admin.area.create({
+      data: { tenantId: B.tenant.id, unidadeId: unidade.id, nome: "Salão", ordem: 1 },
+    });
+    const mesa = await admin.mesa.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: unidade.id,
+        areaId: area.id,
+        numero: "1",
+        capacidade: 4,
+        qrToken: `qr-filial-${unidade.id}`,
+      },
+    });
+    const comanda = await admin.comanda.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: unidade.id,
+        numero: 1,
+        mesaId: mesa.id,
+        pessoas: 2,
+        taxaServicoPct: 10,
+        abertaPorId: B.gerentes[0]!.usuarioId,
+        itens: {
+          create: {
+            tenantId: B.tenant.id,
+            produtoId: B.itens[0]!.produtoId,
+            quantidade: 1,
+            precoUnitario: 100,
+            precoTotal: 100,
+            status: "ENTREGUE",
+            lancadoPorId: B.gerentes[0]!.usuarioId,
+          },
+        },
+      },
+    });
+    filial = {
+      unidadeId: unidade.id,
+      comandaId: comanda.id,
+      areaId: area.id,
+      mesaId: mesa.id,
+    };
+    return filial;
+  }
+
+  async function desmontarFilial() {
+    if (!filial) return;
+    await admin.comanda.deleteMany({ where: { unidadeId: filial.unidadeId } });
+    await admin.mesa.deleteMany({ where: { unidadeId: filial.unidadeId } });
+    await admin.area.deleteMany({ where: { unidadeId: filial.unidadeId } });
+    await admin.unidade.deleteMany({ where: { id: filial.unidadeId } });
+    filial = null;
+  }
+
+  /**
+   * O gerente da matriz abatendo a conta da filial.
+   *
+   * Ele tem `comanda.aplicarDesconto` — na unidade dele. A conta é de outra,
+   * a 100 km de distância, com outro caixa e outro turno: o desconto entra no
+   * fechamento de quem nem sabe que ele existiu, e o diário o registra na
+   * unidade da conta, não na de quem o deu.
+   */
+  it("o gerente da matriz não abate a conta da filial", async () => {
+    const { comandaId } = await montarFilial();
+
+    const t = await tentar(B.gerentes[0]!, () =>
+      aplicarDesconto(comandaId, 20, "cortesia que não é minha de dar")
+    );
+
+    const depois = await admin.comanda.findUniqueOrThrow({
+      where: { id: comandaId },
+      select: { descontoValor: true },
+    });
+    await desmontarFilial();
+
+    expect({ recusou: recusou(t), desconto: Number(depois.descontoValor) }).toEqual({
+      recusou: true,
+      desconto: 0,
+    });
+  });
+
+  /**
+   * A taxa de serviço da filial, tirada pela matriz.
+   *
+   * Zerar a taxa de 10% de uma conta de R$ 100 é R$ 10 a menos na gorjeta da
+   * equipe de outra cidade. Mesma permissão do desconto, e por isso mesmo a
+   * mesma régua: a unidade é a da sessão.
+   */
+  it("o gerente da matriz não tira a taxa de serviço da filial", async () => {
+    const { comandaId } = await montarFilial();
+
+    const t = await tentar(B.gerentes[0]!, () => definirTaxaServico(comandaId, 0));
+
+    const depois = await admin.comanda.findUniqueOrThrow({
+      where: { id: comandaId },
+      select: { taxaServicoPct: true },
+    });
+    await desmontarFilial();
+
+    expect({ recusou: recusou(t), taxa: Number(depois.taxaServicoPct) }).toEqual({
+      recusou: true,
+      taxa: 10,
+    });
+  });
+
+  /**
+   * A gaveta da filial, mexida pela matriz.
+   *
+   * `fecharCaixa` e `registrarMovimentoCaixa` recebem um `caixaId` do
+   * navegador e conferem só o restaurante. Fechar é assinar um número: o
+   * valor contado, a divergência e o nome de quem fechou entram no turno de
+   * outra cidade, que nem acabou. E a sangria tira dinheiro de uma gaveta que
+   * quem a tirou não vai contar.
+   */
+  it("o caixa da matriz não fecha nem sangra a gaveta da filial", async () => {
+    const { unidadeId } = await montarFilial();
+    const gaveta = await admin.caixa.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId,
+        data: new Date(),
+        tipo: "GERAL",
+        turno: "NOITE",
+        status: "ABERTO",
+        fundoCaixa: 300,
+        abertoPorId: B.caixas[0]!.usuarioId,
+      },
+    });
+
+    const sangrou = await tentar(B.gerentes[0]!, () =>
+      registrarMovimentoCaixa(gaveta.id, "SANGRIA", 100, "para o cofre")
+    );
+    /*
+     * A conta da filial sai antes de tentar fechar.
+     *
+     * Com ela aberta, `fecharCaixa` recusa por "ainda há 1 comanda aberta" e o
+     * teste passaria sem nada provar: a recusa que se quer aqui é a da
+     * unidade, não a da comanda.
+     */
+    await admin.comanda.deleteMany({ where: { unidadeId } });
+    const fechou = await tentar(B.caixas[0]!, () => fecharCaixa(gaveta.id, 300));
+
+    const depois = await admin.caixa.findUniqueOrThrow({
+      where: { id: gaveta.id },
+      include: { movimentos: true },
+    });
+    await admin.caixa.deleteMany({ where: { unidadeId } });
+    await desmontarFilial();
+
+    expect({
+      recusouSangria: recusou(sangrou),
+      recusouFechamento: recusou(fechou),
+      movimentos: depois.movimentos.length,
+      status: depois.status,
+    }).toEqual({
+      recusouSangria: true,
+      recusouFechamento: true,
+      movimentos: 0,
+      status: "ABERTO",
+    });
+  });
+
+});
