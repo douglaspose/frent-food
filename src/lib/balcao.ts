@@ -1,8 +1,7 @@
 import { db } from "@/lib/db";
 import { ErroDeOperacao } from "@/lib/erro-de-operacao";
-import { centavos } from "@/lib/comanda";
-import { CONSUMO } from "@/lib/itens";
-import { finalizarConta, receberPagamento } from "@/lib/conta";
+import { TOLERANCIA } from "@/lib/comanda";
+import { contaDaComanda, finalizarConta, receberPagamento } from "@/lib/conta";
 import { liberar } from "@/lib/autorizacao-servidor";
 import type { PrecisaAutorizacao } from "@/lib/autorizacao";
 import { auditoria } from "@/lib/auditoria-servidor";
@@ -194,10 +193,25 @@ export async function receberBalcaoPelaRetaguarda(
   if (!liberacao) return { precisaAutorizacao: "RECEBER_BALCAO" };
   const { sessao, aprovadoPor, consumir } = liberacao;
 
-  const comanda = await db.comanda.findUniqueOrThrow({
-    where: { id: dados.comandaId },
-    include: { itens: { where: CONSUMO, select: { precoTotal: true } } },
-  });
+  /*
+   * A conta vem de `contaDaComanda`, e não de uma soma própria.
+   *
+   * Somar os itens aqui era somar **outra coisa**: o total de uma conta é o
+   * consumo menos o desconto, mais a taxa de serviço, menos o que já entrou —
+   * é o que `calcularTotais` faz e o que `receberPagamento` confere do outro
+   * lado da porta. Com a soma crua, um desconto de R$ 5 numa venda de R$ 20
+   * fazia esta porta oferecer R$ 20 a uma conta que valia R$ 15, e a recusa
+   * certa do outro lado ("Falta receber só R$ 15,00") trancava a venda para
+   * sempre: sem mesa, ela não tem outra tela por onde ser recebida, e o caixa
+   * recusa fechar a noite enquanto ela estiver aberta.
+   *
+   * `findUnique` por dentro, e não `findUniqueOrThrow`: sob RLS a comanda de
+   * outro restaurante não existe para esta sessão, e o que chegava ao caixa
+   * era o erro do Prisma com arquivo e linha, onde devia vir uma recusa.
+   */
+  const conta = await contaDaComanda(dados.comandaId);
+  if (!conta) throw new ErroDeOperacao("Venda não encontrada.");
+  const comanda = conta.comanda;
   if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
   if (comanda.unidadeId !== sessao.unidadeId) throw new ErroDeOperacao("Comanda de outra unidade.");
   /*
@@ -212,8 +226,27 @@ export async function receberBalcaoPelaRetaguarda(
   }
   if (comanda.status === "PAGA") throw new ErroDeOperacao("Esta venda já foi recebida.");
 
-  const total = centavos(comanda.itens.reduce((soma, i) => soma + Number(i.precoTotal), 0));
-  if (total <= 0) throw new ErroDeOperacao("Esta venda não tem valor para receber.");
+  /*
+   * O que falta, e não o que a venda soma.
+   *
+   * A venda de balcão cobrada em duas passadas de cartão — a primeira aprova,
+   * a segunda cai na rede — fica aberta com parte do dinheiro dentro. Pedindo
+   * o total cheio, esta porta era recusada por "falta receber só R$ 12,00" e a
+   * venda ficava presa; a faixa do mapa, que só oferece a porta quando nada
+   * entrou, nem mostra o botão. Pedindo o que falta, a mesma porta serve aos
+   * dois casos.
+   */
+  const falta = conta.falta;
+  if (falta <= TOLERANCIA) {
+    /*
+     * Nada falta: ou a venda já recebeu tudo e só ficou aberta — e então o que
+     * esta porta tem a fazer é fechá-la, que é o que tira a comanda do mapa e
+     * destrava o caixa —, ou ela não vale nada e não há o que receber.
+     */
+    if (conta.recebido <= TOLERANCIA) {
+      throw new ErroDeOperacao("Esta venda não tem valor para receber.");
+    }
+  }
 
   /*
    * A liberação é gasta antes do dinheiro entrar, e em transação própria.
@@ -224,25 +257,30 @@ export async function receberBalcaoPelaRetaguarda(
    */
   await db.$transaction(async (tx) => consumir(tx));
 
-  const { jaRegistrado } = await receberPagamento(
-    { usuarioId: sessao.usuarioId, tenantId: sessao.tenantId, unidadeId: sessao.unidadeId, nome: sessao.nome },
-    {
-      comandaId: dados.comandaId,
-      formaPagamentoId: dados.formaPagamentoId,
-      valor: total,
-      troco: 0,
-    }
-  );
+  const quemRecebe = {
+    usuarioId: sessao.usuarioId,
+    tenantId: sessao.tenantId,
+    unidadeId: sessao.unidadeId,
+    nome: sessao.nome,
+  };
+
+  // Venda já quitada e aberta não recebe de novo: só falta fechá-la.
+  const { jaRegistrado } =
+    falta > TOLERANCIA
+      ? await receberPagamento(quemRecebe, {
+          comandaId: dados.comandaId,
+          formaPagamentoId: dados.formaPagamentoId,
+          valor: falta,
+          troco: 0,
+        })
+      : { jaRegistrado: true };
 
   /*
    * Fecha junto, como a maquininha faria: a venda de balcão nasce terminada, e
    * deixá-la aberta seria repor no mapa a comanda que esta ação veio tirar de
    * lá — e manter o caixa travado.
    */
-  await finalizarConta(
-    { usuarioId: sessao.usuarioId, tenantId: sessao.tenantId, unidadeId: sessao.unidadeId, nome: sessao.nome },
-    dados.comandaId
-  );
+  await finalizarConta(quemRecebe, dados.comandaId);
 
   const registro = await auditoria(sessao, {
     entidade: "Comanda",
@@ -250,7 +288,7 @@ export async function receberBalcaoPelaRetaguarda(
     acao: "BALCAO_RECEBIDO_PELA_RETAGUARDA",
     depois: {
       numero: comanda.numero,
-      valor: total,
+      valor: falta,
       jaRegistrado,
       // Quem liberou fica no registro: é o que separa "o caixa decidiu
       // sozinho" de "o gerente conferiu o comprovante".
@@ -260,5 +298,5 @@ export async function receberBalcaoPelaRetaguarda(
   await db.auditLog.create({ data: registro });
 
 
-  return { ok: true, valor: total };
+  return { ok: true, valor: falta };
 }
