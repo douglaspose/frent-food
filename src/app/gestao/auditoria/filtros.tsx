@@ -53,7 +53,14 @@ export function Filtros({ acao, periodo }: { acao: Acao | null; periodo: string 
           if (e.target.value) busca.set("acao", e.target.value);
           router.push(`/gestao/auditoria?${busca}`);
         }}
-        className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm"
+        /*
+         * `max-w-full` porque a largura de um `select` é a da opção mais
+         * comprida, e a lista de ações cresce a cada recurso novo. "Venda de
+         * balcão recebida pela retaguarda" (40 caracteres, contra 30 da
+         * anterior mais comprida) esticou o campo para 354 px e pôs a tela
+         * inteira do Diário a rolar de lado no celular — medido a 375 px.
+         */
+        className="max-w-full rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm"
       >
         <option value="">Todas as ações</option>
         {Object.entries(ACOES).map(([chave, rotulo]) => (
