@@ -22,6 +22,7 @@ export const ACOES = {
   PAGAMENTO_ESTORNADO: "Pagamento estornado",
   CAIXA_FECHADO: "Caixa fechado",
   CAIXA_SANGRIA: "Sangria",
+  BALCAO_RECEBIDO_PELA_RETAGUARDA: "Venda de balcão recebida pela retaguarda",
   CAIXA_SUPRIMENTO: "Suprimento",
   CAIXA_PAGAMENTO: "Pagamento pela gaveta",
   CAIXA_RECEBIMENTO: "Recebimento na gaveta",

@@ -91,6 +91,21 @@ export default async function PdvMesasPage() {
     })
   );
 
+  /*
+   * As formas ativas, para a venda de balcão recebida à mão.
+   *
+   * Quem recebe não digita valor — é o da comanda —, mas escolhe a forma: é
+   * ela que diz onde o dinheiro caiu e qual taxa a casa pagou naquela venda.
+   */
+  const formas =
+    semMesa.length > 0
+      ? await db.formaPagamento.findMany({
+          where: { tenantId: unidade.tenantId, ativo: true },
+          orderBy: { nome: "asc" },
+          select: { id: true, nome: true },
+        })
+      : [];
+
   const areas = unidade.areas.map((area) => ({
     id: area.id,
     nome: area.nome,
@@ -112,6 +127,7 @@ export default async function PdvMesasPage() {
       <MapaMesas
         areas={areas}
         semMesa={semMesa}
+        formasDePagamento={formas}
         ajustes={{
           alertaSemPedidoMin: Number(ajustes["mesa.alertaSemLancamentoMin"]),
           voltarParaAreas: Boolean(ajustes["mesa.voltarParaAreasAoFechar"]),

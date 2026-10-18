@@ -22,6 +22,17 @@ export const TIPOS_DE_AUTORIZACAO = {
     permissao: "caixa.sangria",
     titulo: "Movimento de gaveta precisa de autorização",
   },
+  /*
+   * Registrar à mão uma venda que a adquirente já cobrou e o sistema recusou.
+   *
+   * A prova é o comprovante de papel, não o banco: é dinheiro entrando pela
+   * palavra de quem opera, da mesma natureza de um movimento de gaveta — e por
+   * isso com a mesma permissão.
+   */
+  RECEBER_BALCAO: {
+    permissao: "caixa.sangria",
+    titulo: "Receber venda de balcão precisa de autorização",
+  },
 } as const;
 
 export type TipoAutorizacao = keyof typeof TIPOS_DE_AUTORIZACAO;

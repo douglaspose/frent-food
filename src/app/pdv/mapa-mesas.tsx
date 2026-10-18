@@ -8,6 +8,7 @@ import { useAoVivo } from "./use-ao-vivo";
 import { SeloAoVivo } from "./selo-ao-vivo";
 import { guardarArea, useAreaLembrada } from "./area-lembrada";
 import { useTemTeclado } from "./teclado";
+import { ReceberBalcao } from "./receber-balcao";
 
 type StatusMesa = "LIVRE" | "OCUPADA" | "FECHANDO" | "RESERVADA" | "SUJA";
 
@@ -18,6 +19,9 @@ type StatusMesa = "LIVRE" | "OCUPADA" | "FECHANDO" | "RESERVADA" | "SUJA";
  * invisíveis e travavam o fechamento do caixa, que recusa enquanto houver
  * comanda aberta na unidade.
  */
+/** Uma forma de pagamento da casa, só o que a escolha precisa. */
+export type FormaDePagamentoView = { id: string; nome: string };
+
 export type ComandaSemMesa = {
   id: string;
   numero: number;
@@ -155,10 +159,12 @@ export type AjustesDoMapa = {
 export function MapaMesas({
   areas,
   semMesa,
+  formasDePagamento,
   ajustes,
 }: {
   areas: AreaView[];
   semMesa: ComandaSemMesa[];
+  formasDePagamento: FormaDePagamentoView[];
   ajustes: AjustesDoMapa;
 }) {
   // A área filtrada vive fora do React para sobreviver à ida e volta da tela
@@ -288,6 +294,13 @@ export function MapaMesas({
                 <span className={c.recebido > 0 ? "text-emerald-300" : "text-amber-200"}>
                   {c.recebido > 0 ? `${brl.format(c.recebido)} recebido` : "sem pagamento"}
                 </span>
+                {/*
+                  O botão só aparece onde falta dinheiro. Na que já recebeu, o
+                  que falta é fechar — e isso não se faz pela faixa.
+                */}
+                {c.recebido === 0 && formasDePagamento.length > 0 && (
+                  <ReceberBalcao comanda={c} formas={formasDePagamento} />
+                )}
               </li>
             ))}
           </ul>

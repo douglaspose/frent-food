@@ -1087,6 +1087,10 @@ enum TipoAutorizacao {
   DESCONTO
   REABERTURA_COMANDA
   SANGRIA
+
+  /// Registrar à mão uma venda de balcão que a adquirente cobrou e o sistema
+  /// recusou. A prova é o comprovante; por isso pede quem responde pela gaveta.
+  RECEBER_BALCAO
 }
 
 enum StatusAutorizacao {

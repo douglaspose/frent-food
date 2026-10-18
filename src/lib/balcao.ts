@@ -1,5 +1,12 @@
 import { db } from "@/lib/db";
 import { ErroDeOperacao } from "@/lib/erro-de-operacao";
+import { centavos } from "@/lib/comanda";
+import { CONSUMO } from "@/lib/itens";
+import { finalizarConta, receberPagamento } from "@/lib/conta";
+import { liberar } from "@/lib/autorizacao-servidor";
+import type { PrecisaAutorizacao } from "@/lib/autorizacao";
+import { auditoria } from "@/lib/auditoria-servidor";
+import type { Sessao } from "@/lib/session";
 
 /**
  * A venda de balcão: o que a maquininha cobrou sem passar por mesa nenhuma.
@@ -154,4 +161,104 @@ export async function comandaDeBalcao(
   });
 
   return { comandaId, jaExistia: false };
+}
+
+/**
+ * Receber uma venda de balcão pela retaguarda.
+ *
+ * A saída da comanda de balcão que ficou presa. Ela nasce quando a maquininha
+ * cobra sem mesa e, se o pagamento não chega — caixa fechado na hora, ou o
+ * servidor recusou aquela venda de vez —, ela fica aberta: sem mesa, fora do
+ * mapa do salão, e travando o fechamento do caixa, que recusa enquanto houver
+ * comanda aberta na unidade.
+ *
+ * Aqui a casa registra à mão o que a adquirente já cobrou, com o comprovante
+ * na frente. Por isso pede autorização: é dinheiro entrando no sistema pela
+ * palavra de quem opera, com a prova em papel e não no banco — a mesma
+ * natureza de um movimento de gaveta.
+ *
+ * O valor não se digita: é o da comanda. Quem escolhe é a forma, porque é ela
+ * que diz onde o dinheiro caiu e qual taxa a casa pagou.
+ */
+export async function receberBalcaoPelaRetaguarda(
+  quem: Sessao,
+  dados: { comandaId: string; formaPagamentoId: string; autorizacaoId?: string | null }
+): Promise<{ ok: true; valor: number } | PrecisaAutorizacao> {
+  const liberacao = await liberar(
+    quem,
+    "caixa.sangria",
+    "RECEBER_BALCAO",
+    dados.comandaId,
+    dados.autorizacaoId
+  );
+  if (!liberacao) return { precisaAutorizacao: "RECEBER_BALCAO" };
+  const { sessao, aprovadoPor, consumir } = liberacao;
+
+  const comanda = await db.comanda.findUniqueOrThrow({
+    where: { id: dados.comandaId },
+    include: { itens: { where: CONSUMO, select: { precoTotal: true } } },
+  });
+  if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+  if (comanda.unidadeId !== sessao.unidadeId) throw new ErroDeOperacao("Comanda de outra unidade.");
+  /*
+   * Só a de balcão entra por aqui.
+   *
+   * A conta de mesa tem a tela dela, com o teclado, o troco e a divisão por
+   * pessoa. Deixar esta porta aberta para ela seria uma segunda forma de
+   * receber, sem nada disso e com autorização de gaveta.
+   */
+  if (comanda.mesaId) {
+    throw new ErroDeOperacao("Esta conta tem mesa: receba por ela, na tela da mesa.");
+  }
+  if (comanda.status === "PAGA") throw new ErroDeOperacao("Esta venda já foi recebida.");
+
+  const total = centavos(comanda.itens.reduce((soma, i) => soma + Number(i.precoTotal), 0));
+  if (total <= 0) throw new ErroDeOperacao("Esta venda não tem valor para receber.");
+
+  /*
+   * A liberação é gasta antes do dinheiro entrar, e em transação própria.
+   *
+   * Receber e fechar são duas regras com transações próprias — não há uma só
+   * para carregar a liberação junto. Gastando antes, uma falha no meio custa
+   * um PIN novo ao gerente; gastando depois, o mesmo PIN receberia duas vezes.
+   */
+  await db.$transaction(async (tx) => consumir(tx));
+
+  const { jaRegistrado } = await receberPagamento(
+    { usuarioId: sessao.usuarioId, tenantId: sessao.tenantId, unidadeId: sessao.unidadeId, nome: sessao.nome },
+    {
+      comandaId: dados.comandaId,
+      formaPagamentoId: dados.formaPagamentoId,
+      valor: total,
+      troco: 0,
+    }
+  );
+
+  /*
+   * Fecha junto, como a maquininha faria: a venda de balcão nasce terminada, e
+   * deixá-la aberta seria repor no mapa a comanda que esta ação veio tirar de
+   * lá — e manter o caixa travado.
+   */
+  await finalizarConta(
+    { usuarioId: sessao.usuarioId, tenantId: sessao.tenantId, unidadeId: sessao.unidadeId, nome: sessao.nome },
+    dados.comandaId
+  );
+
+  const registro = await auditoria(sessao, {
+    entidade: "Comanda",
+    entidadeId: dados.comandaId,
+    acao: "BALCAO_RECEBIDO_PELA_RETAGUARDA",
+    depois: {
+      numero: comanda.numero,
+      valor: total,
+      jaRegistrado,
+      // Quem liberou fica no registro: é o que separa "o caixa decidiu
+      // sozinho" de "o gerente conferiu o comprovante".
+      aprovadoPor: aprovadoPor?.nome ?? null,
+    },
+  });
+  await db.auditLog.create({ data: registro });
+
+
+  return { ok: true, valor: total };
 }
