@@ -682,6 +682,15 @@ model FilaImpressao {
   /// serve para a tela de impressão dizer quem está puxando a fila.
   entregueA String?
 
+  /// Qual aparelho **cadastrado** levou, pelo id. É a credencial com que ele
+  /// entrou, e não o apelido que ele diz ter: é por esta que a confirmação
+  /// confere se a baixa é de quem levou o papel.
+  ///
+  /// Nula quando quem levou usou o token da unidade — o agente antigo, sem
+  /// cadastro. Sem chave estrangeira de propósito: é o registro de um momento,
+  /// e cortar um aparelho não deve reescrever o que ele imprimiu.
+  entregueAoAparelhoId String?
+
   @@index([tenantId])
   @@index([unidadeId, status])
   @@index([unidadeId, status, entregueEm])

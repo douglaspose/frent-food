@@ -93,6 +93,11 @@ export function AparelhosTela({
           garçom, o agente de impressão do balcão — entra aqui e recebe uma credencial própria.
           Assim, a maquininha que sumir se corta sozinha, sem derrubar as outras.
         </p>
+        <p className="mt-2 text-sm text-neutral-600">
+          Com credencial própria, o turno que o operador abre no aparelho vale só nele, e quem dá
+          baixa num papel impresso é quem o levou. Com o token da unidade, que é o mesmo para
+          todos, o servidor não tem como separar um aparelho do outro.
+        </p>
         {temTokenDaUnidade && (
           <p className="mt-2 text-sm text-neutral-600">
             O token antigo da unidade continua valendo, em{" "}

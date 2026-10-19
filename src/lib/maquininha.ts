@@ -38,18 +38,33 @@ function chaveDaMaquininha() {
 
 export type Operador = QuemRecebe & { cargo: string; permissoes: string[] };
 
-export async function criarTokenDeOperador(operador: Operador) {
-  return new SignJWT({ ...operador })
+/**
+ * O que vai dentro do crachá: o operador, e o aparelho em que ele entrou.
+ *
+ * O `aparelhoId` é o que prende o crachá à mão que digitou o PIN. Sem ele o
+ * token era portador puro: copiado do cabeçalho, operava como aquela pessoa
+ * pelas doze horas inteiras, em qualquer aparelho da casa.
+ *
+ * Nulo quando o turno começou pelo token da unidade — o aparelho sem cadastro,
+ * que não tem a que prender. Ausente nos crachás emitidos antes desta regra,
+ * que seguem valendo até vencerem: derrubar o turno de todo mundo no deploy
+ * seria o salão parando no meio do serviço para digitar PIN de novo.
+ */
+type Cracha = Operador & { aparelhoId?: string | null };
+
+export async function criarTokenDeOperador(operador: Operador, aparelhoId: string | null) {
+  const cracha: Cracha = { ...operador, aparelhoId };
+  return new SignJWT({ ...cracha })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${DURACAO_HORAS}h`)
     .sign(chaveDaMaquininha());
 }
 
-export async function lerTokenDeOperador(token: string): Promise<Operador | null> {
+export async function lerTokenDeOperador(token: string): Promise<Cracha | null> {
   try {
     const { payload } = await jwtVerify(token, chaveDaMaquininha());
-    return payload as unknown as Operador;
+    return payload as unknown as Cracha;
   } catch {
     // Expirado ou adulterado: a maquininha pede o PIN de novo.
     return null;
@@ -113,6 +128,20 @@ export async function operadorDaRequisicao(
    * da outra — e o pagamento entraria no caixa errado.
    */
   if (operador.tenantId !== unidade.tenantId || operador.unidadeId !== unidade.id) return null;
+
+  /*
+   * E o crachá vale no aparelho em que foi emitido.
+   *
+   * A unidade acima já barra o operador da filial recebendo na maquininha da
+   * outra; dentro da mesma casa, o cabeçalho copiado valia em qualquer
+   * aparelho — inclusive no de quem só tem o token da unidade, que está no
+   * arquivo de configuração do agente de impressão. Preso ao cadastro, o
+   * crachá roubado não tem onde ser usado.
+   *
+   * Crachá sem aparelho é o de antes desta regra, ou o de um turno começado
+   * pelo token da unidade: continua valendo, e some em até doze horas.
+   */
+  if (operador.aparelhoId && operador.aparelhoId !== unidade.aparelho?.id) return null;
 
   const vinculo = await vinculoAtual(operador.usuarioId, unidade.tenantId, unidade.id);
   if (!vinculo) return null;

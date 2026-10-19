@@ -20,11 +20,55 @@ const APARELHO = "token-do-agente-de-impressao-do-teste";
 let tenantId: string;
 let unidadeId: string;
 
+/*
+ * Os dois aparelhos **cadastrados** da casa.
+ *
+ * Os testes de reserva acima usam o token da unidade para os dois agentes, e
+ * os separam só pelo apelido do `?agente=` — que é o que o agente diz ser, e
+ * serve para a tela mostrar. A baixa não pode decidir por ele, então os testes
+ * dela precisam de credenciais de verdade, uma por aparelho.
+ */
+const TOKEN_DO_BALCAO = "token-do-aparelho-do-balcao-do-teste";
+const TOKEN_DO_BOLSO = "token-da-maquininha-do-bolso-do-teste";
+
+let idDoBalcao: string;
+let idDoBolso: string;
+
 function busca(agente: string) {
   return new NextRequest(`http://localhost/api/impressao?agente=${agente}`, {
     headers: { authorization: `Bearer ${APARELHO}` },
   });
 }
+
+/** Busca com a credencial de um aparelho cadastrado. */
+function buscaCom(token: string) {
+  return new NextRequest("http://localhost/api/impressao", {
+    headers: { authorization: `Bearer ${token}` },
+  });
+}
+
+function avisoCom(token: string, id: string, ok: boolean, erro?: string) {
+  return new NextRequest("http://localhost/api/impressao", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ id, ok, erro }),
+  });
+}
+
+/** O que este aparelho levou. */
+async function pegarCom(token: string) {
+  const corpo = await (await buscarFila(buscaCom(token))).json();
+  return (corpo.trabalhos ?? []).map((t: { id: string }) => t.id) as string[];
+}
+
+/** O status da confirmação, que é o que o agente lê. */
+async function darBaixa(token: string, id: string, ok = true, erro?: string) {
+  const resposta = await confirmar(avisoCom(token, id, ok, erro));
+  return { status: resposta.status, corpo: await resposta.json() };
+}
+
+const statusDe = async (id: string) =>
+  (await db.filaImpressao.findUniqueOrThrow({ where: { id } })).status;
 
 function aviso(id: string, ok: boolean, erro?: string) {
   return new NextRequest("http://localhost/api/impressao", {
@@ -60,6 +104,13 @@ beforeAll(async () => {
   tenantId = r.tenant.id;
   unidadeId = r.unidade.id;
   await db.unidade.update({ where: { id: unidadeId }, data: { tokenImpressao: APARELHO } });
+
+  const cadastrar = async (nome: string, tipo: "AGENTE_IMPRESSAO" | "MAQUININHA", token: string) =>
+    (
+      await db.aparelho.create({ data: { tenantId, unidadeId, nome, tipo, token } })
+    ).id;
+  idDoBalcao = await cadastrar("PC do balcão", "AGENTE_IMPRESSAO", TOKEN_DO_BALCAO);
+  idDoBolso = await cadastrar("Maquininha do salão", "MAQUININHA", TOKEN_DO_BOLSO);
 });
 
 beforeEach(async () => {
@@ -249,5 +300,103 @@ describe("quem só tem a bobina da mão", () => {
     // existe ali: recusar a comanda da cozinha seria trocar "o papel saiu no
     // lugar errado" por "o papel não saiu".
     expect(await pegarEmbutida("maquininha")).toHaveLength(3);
+  });
+});
+
+/**
+ * A baixa é de quem levou o papel.
+ *
+ * A fila entrega cada trabalho a um agente só, mas a confirmação aceitava
+ * qualquer token da unidade: o aparelho do bolso dava baixa no papel reservado
+ * pelo balcão. Era inofensivo quando todos imprimiam a mesma fila — deixou de
+ * ser quando a reserva passou a entregar listas diferentes de propósito, porque
+ * dar baixa no papel do outro marca como impresso um papel que não saiu.
+ */
+describe("a baixa é de quem levou", () => {
+  it("o aparelho do bolso não dá baixa no papel do balcão", async () => {
+    await enfileirar(1);
+    const [id] = await pegarCom(TOKEN_DO_BALCAO);
+
+    const recusa = await darBaixa(TOKEN_DO_BOLSO, id!);
+
+    expect(recusa.status).toBe(409);
+    expect(recusa.corpo.erro).toContain("outro aparelho");
+    // O papel continua esperando quem o levou: é ele que tem a bobina.
+    expect(await statusDe(id!)).toBe("PENDENTE");
+  });
+
+  it("e o balcão dá", async () => {
+    await enfileirar(1);
+    const [id] = await pegarCom(TOKEN_DO_BALCAO);
+
+    expect((await darBaixa(TOKEN_DO_BALCAO, id!)).status).toBe(200);
+    expect(await statusDe(id!)).toBe("IMPRESSO");
+  });
+
+  it("reserva vencida troca de dono, e a baixa do primeiro não vale mais", async () => {
+    await enfileirar(1);
+    const [id] = await pegarCom(TOKEN_DO_BALCAO);
+
+    // O balcão perdeu a rede no meio; passados os dois minutos, o papel volta
+    // à fila e o bolso o leva — a segunda via é de propósito, papel que não
+    // saiu merece outra chance.
+    await db.$executeRaw`
+      UPDATE fila_impressao SET "entregueEm" = now() - interval '5 minutes'
+       WHERE "tenantId" = ${tenantId}`;
+    expect(await pegarCom(TOKEN_DO_BOLSO)).toEqual([id]);
+
+    // Agora o balcão volta e confirma o que imprimiu antes de cair. A reserva
+    // é do bolso, e a baixa do papel é de quem está com ele.
+    expect((await darBaixa(TOKEN_DO_BALCAO, id!)).status).toBe(409);
+    expect(await statusDe(id!)).toBe("PENDENTE");
+
+    expect((await darBaixa(TOKEN_DO_BOLSO, id!)).status).toBe(200);
+    expect(await statusDe(id!)).toBe("IMPRESSO");
+  });
+
+  it("falha devolve a reserva sem dono, e o outro dá baixa no que imprimiu", async () => {
+    await enfileirar(1);
+    const [id] = await pegarCom(TOKEN_DO_BALCAO);
+
+    // "Acabou o papel": a reserva é devolvida na hora, com o dono.
+    expect((await darBaixa(TOKEN_DO_BALCAO, id!, false, "impressora sem papel")).status).toBe(200);
+    expect(await db.filaImpressao.findUniqueOrThrow({ where: { id: id! } })).toMatchObject({
+      status: "PENDENTE",
+      entregueAoAparelhoId: null,
+    });
+
+    expect(await pegarCom(TOKEN_DO_BOLSO)).toEqual([id]);
+    expect((await darBaixa(TOKEN_DO_BOLSO, id!)).status).toBe(200);
+    expect(await statusDe(id!)).toBe("IMPRESSO");
+  });
+
+  it("a reserva guarda o aparelho, e não o apelido que o agente diz ter", async () => {
+    await enfileirar(1);
+    const [id] = await pegarCom(TOKEN_DO_BOLSO);
+
+    const trabalho = await db.filaImpressao.findUniqueOrThrow({ where: { id: id! } });
+    expect(trabalho.entregueAoAparelhoId).toBe(idDoBolso);
+    expect(idDoBolso).not.toBe(idDoBalcao);
+  });
+
+  /**
+   * O agente sem cadastro, que é o que está instalado nos restaurantes.
+   *
+   * Ele usa o token da unidade e não tem id: a reserva nasce sem dono, e a
+   * baixa continua passando para qualquer um. É o que **não** dá para fechar —
+   * dois agentes com a mesma credencial são a mesma credencial —, e cadastrar o
+   * aparelho é o que fecha. O teste existe para que a regra nova não derrube
+   * quem está imprimindo hoje.
+   */
+  it("o agente do token da unidade continua dando baixa no que levou", async () => {
+    await enfileirar(1);
+    const [id] = await pegar("balcao");
+
+    expect(await db.filaImpressao.findUniqueOrThrow({ where: { id: id! } })).toMatchObject({
+      entregueA: "balcao",
+      entregueAoAparelhoId: null,
+    });
+    expect((await darBaixa(APARELHO, id!)).status).toBe(200);
+    expect(await statusDe(id!)).toBe("IMPRESSO");
   });
 });

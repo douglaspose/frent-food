@@ -116,7 +116,9 @@ export async function POST(request: NextRequest) {
       permissoes,
     };
     return NextResponse.json({
-      token: await criarTokenDeOperador(operador),
+      // O crachá sai preso a este aparelho: é o que impede o cabeçalho
+      // copiado de operar noutro. Nulo no aparelho sem cadastro.
+      token: await criarTokenDeOperador(operador, unidade.aparelho?.id ?? null),
       nome: operador.nome,
       cargo: operador.cargo,
       unidade: unidade.nome,

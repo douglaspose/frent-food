@@ -1,0 +1,13 @@
+-- Quem levou o papel, pelo cadastro do aparelho.
+--
+-- A coluna `entregueA` já dizia quem levou, mas pelo apelido que o próprio
+-- agente manda na busca (`?agente=balcao`): serve para a tela de impressão
+-- mostrar, e não para decidir nada — qualquer um escreve qualquer coisa ali.
+-- Esta guarda o id do aparelho cadastrado, que é a credencial com que ele
+-- entrou, e é por ela que a confirmação confere se a baixa é de quem levou.
+--
+-- Nula quando quem levou veio com o token da unidade (o agente antigo, sem
+-- cadastro) e nos trabalhos que já estavam na fila. Sem chave estrangeira de
+-- propósito: é o registro de um momento, e cortar um aparelho não deve
+-- reescrever o que ele imprimiu nem travar a exclusão.
+ALTER TABLE "fila_impressao" ADD COLUMN "entregueAoAparelhoId" TEXT;

@@ -29,6 +29,15 @@ import { criarProduto, criarRestaurante, limpar } from "./fixtures";
 
 const SLUG = "teste-porta";
 const APARELHO = "token-de-aparelho-do-teste-da-porta";
+/*
+ * As credenciais dos dois aparelhos **cadastrados**.
+ *
+ * O `APARELHO` acima é o token da unidade, que é o que o agente antigo usa e
+ * não identifica aparelho nenhum. O crachá só tem a que se prender quando o
+ * turno começa numa credencial própria.
+ */
+const TOKEN_DO_SALAO = "token-da-maquininha-do-salao-do-teste";
+const TOKEN_DO_BALCAO = "token-da-maquininha-do-balcao-do-teste";
 
 let tenantId: string;
 let unidadeId: string;
@@ -61,9 +70,27 @@ async function criarCargo(nome: string, chaves: string[], pin: string) {
   });
 }
 
+/** O mesmo pedido, com a credencial de um aparelho cadastrado no lugar. */
+function pedidoDe(token: string, caminho: string, corpo?: unknown, operador?: string) {
+  const r = pedido(caminho, corpo, operador);
+  const cabecalhos = new Headers(r.headers);
+  cabecalhos.set("authorization", `Bearer ${token}`);
+  return new NextRequest(r.url, {
+    method: r.method,
+    headers: cabecalhos,
+    body: corpo === undefined ? undefined : JSON.stringify(corpo),
+  });
+}
+
 /** Faz o turno e devolve o token do operador, ou a recusa. */
 async function entrarCom(pin: string) {
   const resposta = await entrar(pedido("/api/maquininha/entrar", { pin }));
+  return { status: resposta.status, corpo: await resposta.json() };
+}
+
+/** O turno começado num aparelho cadastrado. */
+async function entrarNoAparelho(token: string, pin: string) {
+  const resposta = await entrar(pedidoDe(token, "/api/maquininha/entrar", { pin }));
   return { status: resposta.status, corpo: await resposta.json() };
 }
 
@@ -72,6 +99,15 @@ beforeAll(async () => {
   tenantId = r.tenant.id;
   unidadeId = r.unidade.id;
   await db.unidade.update({ where: { id: unidadeId }, data: { tokenImpressao: APARELHO } });
+
+  // Dois aparelhos cadastrados: o crachá nasce preso a um deles, e o outro é
+  // onde o cabeçalho copiado tentaria valer.
+  for (const [nome, token] of [
+    ["Maquininha do salão", TOKEN_DO_SALAO],
+    ["Maquininha do balcão", TOKEN_DO_BALCAO],
+  ] as const) {
+    await db.aparelho.create({ data: { tenantId, unidadeId, nome, token } });
+  }
 
   await criarCargo(
     "GARCOM",
@@ -838,5 +874,71 @@ describe("qual forma de pagamento a maquininha usa", () => {
 
     expect(resposta.status).toBe(409);
     expect((await resposta.json()).erro).toContain("Nenhuma forma de pagamento do tipo");
+  });
+});
+
+/**
+ * O crachá vale no aparelho em que foi emitido.
+ *
+ * O token do turno é um JWT de doze horas que viaja no cabeçalho `x-operador`.
+ * A unidade dentro dele já barrava o operador da filial recebendo na maquininha
+ * da outra; dentro da mesma casa ele era portador puro — copiado do cabeçalho,
+ * operava como aquela pessoa até vencer, em qualquer aparelho. E o token do
+ * aparelho que faltava para completar o par não é segredo nenhum: o da unidade
+ * está no arquivo de configuração do agente de impressão do balcão.
+ *
+ * Quatro relatórios seguidos apontaram isto. O que fecha é prender o crachá ao
+ * cadastro do aparelho onde o PIN foi digitado.
+ */
+describe("o crachá vale no aparelho que o emitiu", () => {
+  it("o crachá do salão não vale na maquininha do balcão", async () => {
+    const { corpo: turno } = await entrarNoAparelho(TOKEN_DO_SALAO, "1111");
+    // Vale onde nasceu: o garçom acabou de digitar o PIN ali.
+    expect(
+      (await salao(pedidoDe(TOKEN_DO_SALAO, "/api/maquininha/mesas", undefined, turno.token))).status
+    ).toBe(200);
+
+    const noutro = await salao(
+      pedidoDe(TOKEN_DO_BALCAO, "/api/maquininha/mesas", undefined, turno.token)
+    );
+
+    // 401 é o que a maquininha trata voltando à tela do PIN — que é
+    // exatamente o que se quer de quem está com um crachá que não é seu.
+    expect(noutro.status).toBe(401);
+  });
+
+  it("nem com o token da unidade, que está no arquivo do agente de impressão", async () => {
+    const { corpo: turno } = await entrarNoAparelho(TOKEN_DO_SALAO, "2222");
+
+    const resposta = await salao(pedido("/api/maquininha/mesas", undefined, turno.token));
+
+    expect(resposta.status).toBe(401);
+  });
+
+  it("o crachá do balcão vale no balcão", async () => {
+    const { corpo: turno } = await entrarNoAparelho(TOKEN_DO_BALCAO, "1111");
+
+    const resposta = await salao(
+      pedidoDe(TOKEN_DO_BALCAO, "/api/maquininha/mesas", undefined, turno.token)
+    );
+
+    expect(resposta.status).toBe(200);
+  });
+
+  /**
+   * O turno começado pelo token da unidade.
+   *
+   * Não tem aparelho a que se prender, e continua valendo em qualquer um — é o
+   * que **não** dá para fechar sem cadastrar o aparelho, e é também o que
+   * impede o deploy desta regra de derrubar o turno de quem está no meio do
+   * serviço. Fica preso em teste para que a troca seja uma decisão, e não uma
+   * surpresa de quem ler o código depois.
+   */
+  it("o turno do token da unidade não tem a que se prender, e segue valendo", async () => {
+    const { corpo: turno } = await entrarCom("1111");
+
+    expect(
+      (await salao(pedidoDe(TOKEN_DO_SALAO, "/api/maquininha/mesas", undefined, turno.token))).status
+    ).toBe(200);
   });
 });

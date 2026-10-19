@@ -834,6 +834,66 @@ describe("maquininha", () => {
     return { status: r.status, corpo: (await r.json()) as { token?: string; erro?: string } };
   };
 
+  /**
+   * Um aparelho com **cadastro próprio**, e não o token da unidade.
+   *
+   * O `ligarAparelho` acima põe o token na unidade, que é o que o agente antigo
+   * usa: ele não identifica aparelho nenhum, e com ele o crachá não tem a que
+   * se prender. Os ataques de crachá copiado precisam de dois aparelhos que o
+   * servidor saiba distinguir.
+   */
+  const cadastrarAparelho = async (r: Restaurante, nome: string) =>
+    (
+      await admin.aparelho.create({
+        data: {
+          tenantId: r.tenant.id,
+          unidadeId: r.unidade.id,
+          nome,
+          token: `aparelho-${nome}-${r.unidade.id}`,
+        },
+      })
+    ).token;
+
+  /**
+   * O cabeçalho `x-operador` copiado de um aparelho para o outro.
+   *
+   * O crachá do turno é um JWT de doze horas, e era portador puro: quem
+   * copiasse o cabeçalho operava como aquela pessoa até ele vencer. O par que
+   * falta — o token do aparelho — também não é segredo: o da unidade está no
+   * arquivo de configuração do agente de impressão do balcão. Quatro
+   * relatórios seguidos apontaram isto antes de ser fechado, e o que fecha é o
+   * crachá nascer preso ao aparelho em que o PIN foi digitado.
+   */
+  it("o crachá copiado não recebe no aparelho do lado", async () => {
+    const doSalao = await cadastrarAparelho(A, "salao");
+    const doBalcao = await cadastrarAparelho(A, "balcao");
+    const caixa = await tokenDoOperador(doSalao, A.caixas[0]!.pin);
+
+    const { comandaId } = await contaNaMesaNova(A.garcons[0]!, 2);
+    const { falta } = await quantoDeve(comandaId);
+    const corpo = {
+      comandaId,
+      referencia: "cracha-copiado-de-outro-aparelho",
+      forma: "DEBITO",
+      valorEmCentavos: Math.round(falta * 100),
+    };
+
+    const noOutro = await POSTPagamentos(
+      chamada("/api/maquininha/pagamentos", { aparelho: doBalcao, operador: caixa.corpo.token!, corpo })
+    );
+    // E o mesmo crachá, no aparelho dele, recebe: a regra barra o lugar
+    // errado, não o operador.
+    const noDele = await POSTPagamentos(
+      chamada("/api/maquininha/pagamentos", { aparelho: doSalao, operador: caixa.corpo.token!, corpo })
+    );
+
+    expect({
+      noOutro: noOutro.status,
+      noDele: noDele.status,
+      pagamentos: await admin.pagamento.count({ where: { comandaId } }),
+    }).toEqual({ noOutro: 401, noDele: 200, pagamentos: 1 });
+  });
+
   it("sem token do aparelho e sem operador, ninguém vê as mesas", async () => {
     const aparelho = await ligarAparelho(A, "mesas");
     const semNada = await GETMesas(chamada("/api/maquininha/mesas"));
@@ -2546,6 +2606,73 @@ describe("papel da impressora", () => {
     const papel = trabalhos.find((t) => t.id === fila.id)!.conteudo;
     const semOsDoServidor = papel.split("\x1d\x21\x11").join("").split("\x1d\x21\x00").join("");
     expect(semOsDoServidor).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
+  });
+
+  /**
+   * A fila entrega o papel a um agente só, e a baixa é dele.
+   *
+   * A confirmação aceitava qualquer token da unidade: o aparelho do bolso dava
+   * baixa no papel reservado pelo balcão. Era inofensivo quando todos
+   * imprimiam a mesma fila — deixou de ser quando a reserva passou a entregar
+   * listas diferentes de propósito, porque dar baixa no papel do outro marca
+   * como impresso um papel que não saiu, e a praça espera um prato que ninguém
+   * mandou fazer.
+   */
+  it("a baixa do papel é de quem levou, e não de qualquer aparelho da casa", async () => {
+    const dados = (nome: string) => ({
+      tenantId: A.tenant.id,
+      unidadeId: A.unidade.id,
+      nome,
+      token: `baixa-${nome}-${A.unidade.id}`,
+    });
+    const doBalcao = (await admin.aparelho.create({ data: dados("balcao") })).token;
+    const doBolso = (await admin.aparelho.create({ data: dados("bolso") })).token;
+
+    // O resto do dia já saiu: sobra um papel na fila, que é o que se segue.
+    await admin.filaImpressao.updateMany({
+      where: { unidadeId: A.unidade.id, status: "PENDENTE" },
+      data: { status: "IMPRESSO" },
+    });
+    const papel = await admin.filaImpressao.create({
+      data: {
+        tenantId: A.tenant.id,
+        unidadeId: A.unidade.id,
+        tipo: "COMANDA_PRODUCAO",
+        titulo: "Comanda da praça",
+        conteudo: "papel da praça",
+      },
+    });
+
+    const comToken = (token: string, corpo?: unknown) =>
+      new NextRequest("http://demo.frentfood.test/api/impressao", {
+        method: corpo === undefined ? "GET" : "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        ...(corpo === undefined ? {} : { body: JSON.stringify(corpo) }),
+      });
+    const baixa = (token: string) => POSTImpressao(comToken(token, { id: papel.id, ok: true }));
+
+    const levou = (await (await GETImpressao(comToken(doBalcao))).json()) as {
+      trabalhos: { id: string }[];
+    };
+    const doOutro = await baixa(doBolso);
+    const depoisDaTentativa = await admin.filaImpressao.findUniqueOrThrow({
+      where: { id: papel.id },
+    });
+    const dele = await baixa(doBalcao);
+
+    expect({
+      levou: levou.trabalhos.map((t) => t.id),
+      doOutro: doOutro.status,
+      statusNaTentativa: depoisDaTentativa.status,
+      dele: dele.status,
+      statusNoFim: (await admin.filaImpressao.findUniqueOrThrow({ where: { id: papel.id } })).status,
+    }).toEqual({
+      levou: [papel.id],
+      doOutro: 409,
+      statusNaTentativa: "PENDENTE",
+      dele: 200,
+      statusNoFim: "IMPRESSO",
+    });
   });
 });
 

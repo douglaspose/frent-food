@@ -133,9 +133,19 @@ export async function GET(request: NextRequest) {
    * dois agentes imprimem a mesma comanda — que é o que esta reserva existe
    * para impedir.
    */
+  /*
+   * O dono da reserva é o cadastro do aparelho, não o apelido.
+   *
+   * `entregueA` é o que o agente diz ser (`?agente=balcao`), e serve para a
+   * tela mostrar; quem decide é o id do aparelho, que é a credencial com que
+   * ele entrou. Nulo para o agente que ainda usa o token da unidade.
+   */
+  const dono = quem.aparelho?.id ?? null;
   const reservados = await db.$queryRaw<{ id: string }[]>`
     UPDATE fila_impressao
-       SET "entregueEm" = timezone('UTC', now()), "entregueA" = ${agente}
+       SET "entregueEm" = timezone('UTC', now()),
+           "entregueA" = ${agente},
+           "entregueAoAparelhoId" = ${dono}
      WHERE id IN (
        SELECT id
          FROM fila_impressao
@@ -210,10 +220,10 @@ export async function GET(request: NextRequest) {
 /** POST — o agente confirma o que saiu (ou relata a falha). */
 export async function POST(request: NextRequest) {
   const quem = await quemEsta(request);
-  const unidade = quem?.unidade;
-  if (!unidade?.ativo) {
+  if (!quem?.unidade.ativo) {
     return NextResponse.json({ erro: "Token inválido." }, { status: 401 });
   }
+  const unidade = quem.unidade;
 
   // No corpo do handler, pelo mesmo motivo do GET acima.
   declararTenant(unidade.tenantId);
@@ -236,6 +246,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ erro: "Trabalho não encontrado." }, { status: 404 });
   }
 
+  /*
+   * A baixa é de quem levou o papel.
+   *
+   * A fila entrega cada trabalho a um agente só, mas a confirmação aceitava
+   * qualquer token da unidade: o aparelho do bolso dava baixa no papel
+   * reservado pelo balcão. Era inofensivo quando todos imprimiam a mesma fila;
+   * deixou de ser quando a reserva passou a entregar listas diferentes de
+   * propósito — dar baixa no papel do outro marca como impresso um papel que
+   * não saiu, e a cozinha espera um prato que ninguém mandou fazer.
+   *
+   * Vale também para o atraso legítimo: se a reserva venceu e outro aparelho
+   * levou o trabalho, a confirmação do primeiro chega quando o papel já é do
+   * segundo, e é a dele que conta.
+   *
+   * Reserva sem dono (o agente do token da unidade, que não tem cadastro) é a
+   * que continua aberta: dois agentes com a mesma credencial são a mesma
+   * credencial, e o servidor não tem como separá-los. Quem quiser isso fechado
+   * cadastra o aparelho em `/gestao/impressao` — o cadastro já existe.
+   */
+  const dono = trabalho.entregueAoAparelhoId;
+  if (dono && dono !== quem.aparelho?.id) {
+    return NextResponse.json({ erro: "Este papel foi entregue a outro aparelho." }, { status: 409 });
+  }
+
   await db.filaImpressao.update({
     where: { id: corpo.id },
     data: corpo.ok
@@ -248,7 +282,10 @@ export async function POST(request: NextRequest) {
           erro: corpo.erro?.slice(0, 500) ?? "falha desconhecida",
           // A entrega é devolvida junto: o agente avisou que não saiu, e
           // esperar os dois minutos da janela seria a cozinha esperando à toa.
+          // O dono vai com ela — reserva devolvida não tem dono, e "sem
+          // entrega mas com dono" seria um estado que não quer dizer nada.
           entregueEm: null,
+          entregueAoAparelhoId: null,
         },
   });
 
