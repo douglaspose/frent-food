@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { calcularTotais, centavos } from "@/lib/comanda";
 import { sessaoDaTela } from "@/lib/session";
 import { dadosDaBarra } from "@/lib/barra";
 import { lerAjustes } from "@/lib/parametros-servidor";
@@ -59,16 +60,35 @@ export default async function PdvMesasPage() {
    */
   const semMesa = comandas
     .filter((c) => !c.mesaId)
-    .map((c) => ({
-      id: c.id,
-      numero: c.numero,
-      origem: c.origem,
-      total: c.itens
-        .filter((i) => i.status !== "PENDENTE")
-        .reduce((soma, i) => soma + Number(i.precoTotal), 0),
-      recebido: c.pagamentos.reduce((soma, p) => soma + Number(p.valor) - Number(p.troco), 0),
-      abertaEm: c.abertaEm.toISOString(),
-    }));
+    .map((c) => {
+      /*
+       * O total é o da conta, não a soma dos itens.
+       *
+       * Somando os itens, a faixa prometia R$ 20 numa venda de R$ 20 que tinha
+       * ganhado R$ 5 de desconto, e o botão "Receber R$ 20,00" batia na recusa
+       * certa de quem confere a conta de verdade. `calcularTotais` é a mesma
+       * régua do resto do sistema; `falta` é o que esta porta vai receber.
+       */
+      const { total } = calcularTotais({
+        itens: c.itens
+          .filter((i) => i.status !== "PENDENTE")
+          .map((i) => ({ precoTotal: Number(i.precoTotal) })),
+        taxaServicoPct: Number(c.taxaServicoPct),
+        descontoValor: Number(c.descontoValor),
+      });
+      const recebido = centavos(
+        c.pagamentos.reduce((soma, p) => soma + Number(p.valor) - Number(p.troco), 0)
+      );
+      return {
+        id: c.id,
+        numero: c.numero,
+        origem: c.origem,
+        total,
+        recebido,
+        falta: centavos(Math.max(0, total - recebido)),
+        abertaEm: c.abertaEm.toISOString(),
+      };
+    });
 
   const porMesa = new Map(
     comandas.filter((c) => c.mesaId).map((c) => {

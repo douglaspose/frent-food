@@ -28,6 +28,8 @@ export type ComandaSemMesa = {
   origem: string;
   total: number;
   recebido: number;
+  /** O que esta porta vai receber: o total menos o que já entrou. */
+  falta: number;
   abertaEm: string;
 };
 
@@ -295,10 +297,13 @@ export function MapaMesas({
                   {c.recebido > 0 ? `${brl.format(c.recebido)} recebido` : "sem pagamento"}
                 </span>
                 {/*
-                  O botão só aparece onde falta dinheiro. Na que já recebeu, o
-                  que falta é fechar — e isso não se faz pela faixa.
+                  O botão aparece em toda venda da faixa, e não só nas que não
+                  receberam nada. A que recebeu parte precisa receber o resto, e
+                  a que recebeu tudo precisa ser fechada — nos dois casos é esta
+                  a única porta: sem mesa, não há outra tela por onde passar, e
+                  enquanto a comanda estiver aberta o caixa não fecha.
                 */}
-                {c.recebido === 0 && formasDePagamento.length > 0 && (
+                {formasDePagamento.length > 0 && (
                   <ReceberBalcao comanda={c} formas={formasDePagamento} />
                 )}
               </li>
