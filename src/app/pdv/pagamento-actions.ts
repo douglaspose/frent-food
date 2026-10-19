@@ -12,6 +12,7 @@ import { publicar } from "@/lib/eventos";
 import { auditoria } from "@/lib/auditoria-servidor";
 import { dinheiroNaGaveta } from "@/lib/caixa";
 import { porQueOCaixaNaoFecha } from "@/lib/comandas-abertas";
+import { conferirUnidade } from "@/lib/da-unidade";
 import { ajusteBooleano } from "@/lib/parametros-servidor";
 import { liberar } from "@/lib/autorizacao-servidor";
 import type { PrecisaAutorizacao } from "@/lib/autorizacao";
@@ -531,13 +532,19 @@ export async function estornarPagamento(pagamentoId: string) {
     const pagamento = await db.pagamento.findUniqueOrThrow({
       where: { id: pagamentoId },
       include: {
-        comanda: { select: { id: true, status: true, mesaId: true, tenantId: true } },
+        comanda: {
+          select: { id: true, status: true, mesaId: true, tenantId: true, unidadeId: true },
+        },
         caixa: { select: { status: true } },
       },
     });
-    if (pagamento.comanda.tenantId !== sessao.tenantId) {
-      throw new ErroDeOperacao("Pagamento de outro restaurante.");
-    }
+    /*
+     * A unidade vem da comanda, e não do pagamento — que também a tem, mas é
+     * a conta que diz de quem é o dinheiro. Estorno é dinheiro saindo do
+     * faturamento de um turno: o da filial não é o desta sessão, e o caixa de
+     * lá fecharia a noite com um buraco que ninguém explica.
+     */
+    conferirUnidade(pagamento.comanda, sessao, "Pagamento");
 
     /*
      * Estorno é para corrigir um fechamento em andamento — forma errada, valor

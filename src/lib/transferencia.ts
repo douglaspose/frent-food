@@ -3,6 +3,7 @@ import { publicar } from "@/lib/eventos";
 import { auditoria } from "@/lib/auditoria-servidor";
 import { enfileirarTransferencia } from "@/lib/fila-impressao";
 import { ErroDeOperacao } from "@/lib/erro-de-operacao";
+import { conferirUnidade } from "@/lib/da-unidade";
 
 /**
  * Mudar a comanda de mesa — a regra que o PDV e a maquininha compartilham.
@@ -35,7 +36,15 @@ export async function transferirMesa(
     where: { id: comandaId },
     include: { mesa: { select: { id: true, numero: true } } },
   });
-  if (comanda.tenantId !== quem.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+  /*
+   * A unidade de quem manda transferir, e não só o restaurante.
+   *
+   * O destino já era conferido contra a unidade **da comanda** — uma conta não
+   * atravessa cidades. Faltava esta ponta: sem ela, quem está na matriz
+   * escolhia para onde vai a conta da filial, e o salão de lá via a mesa
+   * trocar sozinha, com o papel de aviso saindo na cozinha de lá.
+   */
+  conferirUnidade(comanda, quem, "Comanda");
   if (comanda.status === "PAGA") throw new ErroDeOperacao("Comanda já paga. Abra uma nova.");
   if (comanda.status === "CANCELADA") throw new ErroDeOperacao("Comanda cancelada.");
   // Mesma mesa não é erro: é o toque repetido, ou o reenvio de uma resposta

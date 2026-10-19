@@ -6,6 +6,7 @@ import { exigirPermissao, exigirSessao } from "@/lib/session";
 import { publicar } from "@/lib/eventos";
 import { ajusteNumerico } from "@/lib/parametros-servidor";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
+import { conferirUnidade, type QuemPergunta } from "@/lib/da-unidade";
 import { adicionarItem, comandaAberta, limparObservacao } from "@/lib/carrinho";
 import { atenderChamado as atender } from "@/lib/chamado";
 
@@ -64,12 +65,19 @@ export async function adicionarAoCarrinho(dados: {
   });
 }
 
-async function itemPendente(itemId: string, tenantId: string) {
+async function itemPendente(itemId: string, quem: QuemPergunta) {
   const item = await db.comandaItem.findUniqueOrThrow({
     where: { id: itemId },
-    include: { comanda: { select: { status: true } } },
+    include: { comanda: { select: { status: true, tenantId: true, unidadeId: true } } },
   });
-  if (item.tenantId !== tenantId) throw new ErroDeOperacao("Item de outro restaurante.");
+  /*
+   * A unidade vem da comanda, que é quem tem endereço.
+   *
+   * O item só sabe de que restaurante é, e o RLS é por restaurante: sem isto,
+   * quem está na matriz mudava a quantidade, o ponto da carne e a observação
+   * de um item que a cozinha da filial ia ler.
+   */
+  conferirUnidade(item.comanda, quem, "Item");
   // Item já enviado não se mexe por aqui: cancelar pedido na cozinha é outra
   // operação, com autorização.
   if (item.status !== "PENDENTE") throw new ErroDeOperacao("Este item já foi enviado para a cozinha.");
@@ -94,7 +102,7 @@ export async function alterarQuantidade(itemId: string, delta: number) {
      * anda de inteiro em inteiro.
      */
     if (!Number.isInteger(delta)) throw new ErroDeOperacao("Quantidade inválida.");
-    const item = await itemPendente(itemId, sessao.tenantId);
+    const item = await itemPendente(itemId, sessao);
 
     const quantidade = Number(item.quantidade) + delta;
 
@@ -116,7 +124,7 @@ export async function alterarQuantidade(itemId: string, delta: number) {
 export async function definirPontoCarne(itemId: string, pontoCarne: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.lancarItem");
-    await itemPendente(itemId, sessao.tenantId);
+    await itemPendente(itemId, sessao);
 
     await db.comandaItem.update({ where: { id: itemId }, data: { pontoCarne } });
     revalidatePath("/pdv");
@@ -138,7 +146,7 @@ export async function definirPontoCarne(itemId: string, pontoCarne: string) {
 export async function definirObservacao(itemId: string, texto: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.lancarItem");
-    await itemPendente(itemId, sessao.tenantId);
+    await itemPendente(itemId, sessao);
 
     await db.comandaItem.update({
       where: { id: itemId },
@@ -153,7 +161,7 @@ export async function definirObservacao(itemId: string, texto: string) {
 export async function limparCarrinho(comandaId: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("comanda.lancarItem");
-    await comandaAberta(comandaId, sessao.tenantId);
+    await comandaAberta(comandaId, sessao);
 
     await db.comandaItem.deleteMany({ where: { comandaId, status: "PENDENTE" } });
     revalidatePath("/pdv");
@@ -170,7 +178,7 @@ export async function chamarGarcom(mesaId: string) {
     const sessao = await exigirSessao();
 
     const comanda = await db.comanda.findFirst({
-      where: { mesaId, status: { in: ["ABERTA", "FECHANDO"] } },
+      where: { mesaId, unidadeId: sessao.unidadeId, status: { in: ["ABERTA", "FECHANDO"] } },
     });
     if (!comanda || comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Mesa sem comanda aberta.");
 

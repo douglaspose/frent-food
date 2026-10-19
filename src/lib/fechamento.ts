@@ -3,6 +3,7 @@ import { publicar } from "@/lib/eventos";
 import { auditoria } from "@/lib/auditoria-servidor";
 import { enfileirarConferencia } from "@/lib/fila-impressao";
 import { ErroDeOperacao } from "@/lib/erro-de-operacao";
+import { comandaDaUnidade } from "@/lib/da-unidade";
 
 /**
  * Pedir a conta e voltar atrás — a regra que o PDV e a maquininha compartilham.
@@ -24,9 +25,14 @@ export type QuemFecha = {
 };
 
 async function comandaDe(quem: QuemFecha, comandaId: string) {
-  const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
-  if (comanda.tenantId !== quem.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
-  return comanda;
+  /*
+   * A unidade é a de quem pede, e não a da conta.
+   *
+   * "Pedir a conta" imprime a parcial na impressora **da unidade da comanda**:
+   * sem esta conferência, o PDV da matriz fazia sair papel na cozinha da
+   * filial, e a mesa de lá entrava em fechamento sem ninguém ter pedido.
+   */
+  return comandaDaUnidade(comandaId, quem);
 }
 
 /**

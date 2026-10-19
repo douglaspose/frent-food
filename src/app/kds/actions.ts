@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { exigirSessao } from "@/lib/session";
 import { publicar } from "@/lib/eventos";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
+import { conferirUnidade } from "@/lib/da-unidade";
 
 /** O status do ticket e o dos itens dele andam juntos. */
 const STATUS_DO_ITEM = {
@@ -39,7 +40,13 @@ export async function avancarPedido(pedidoId: string, para: Avanco) {
         comanda: { select: { status: true } },
       },
     });
-    if (pedido.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Pedido de outro restaurante.");
+    /*
+     * A cozinha é a da unidade de quem está no KDS.
+     *
+     * Sem isto, o monitor da matriz avançava e entregava o ticket da praça da
+     * filial: o prato sumia da tela de lá sem ninguém ter montado nada.
+     */
+    conferirUnidade(pedido, sessao, "Pedido");
     if (pedido.status === "CANCELADO") throw new ErroDeOperacao("Este pedido foi cancelado.");
     if (pedido.comanda.status === "CANCELADA") {
       throw new ErroDeOperacao("A conta desta mesa foi cancelada.");

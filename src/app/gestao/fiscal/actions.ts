@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { exigirPermissao } from "@/lib/session";
 import { cancelarNfce, emitirNfce } from "@/lib/fiscal/emitir";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
+import { comandaDaUnidade, conferirUnidade } from "@/lib/da-unidade";
 
 const PERMISSAO = "produto.editar";
 
@@ -141,8 +142,12 @@ export async function reemitirNota(comandaId: string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao(PERMISSAO);
 
-    const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
-    if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+    /*
+     * Nota é documento da unidade: série, numeração e certificado são dela.
+     * Reemitir a da filial pela matriz gastaria número na série de lá, com o
+     * CNPJ de lá, por decisão de quem não responde por aquele caixa.
+     */
+    await comandaDaUnidade(comandaId, sessao);
 
     const resultado = await emitirNfce(comandaId, sessao.usuarioId);
     revalidatePath("/gestao/fiscal");
@@ -155,7 +160,9 @@ export async function cancelarNota(notaId: string, motivo: string) {
     const sessao = await exigirPermissao(PERMISSAO);
 
     const nota = await db.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
-    if (nota.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Nota de outro restaurante.");
+    // A nota tem unidade própria — série, numeração e CNPJ são dela. Cancelar
+    // é ato fiscal com prazo contado, e o da filial não é desta sessão.
+    conferirUnidade(nota, sessao, "Nota");
 
     await cancelarNfce(notaId, motivo);
     revalidatePath("/gestao/fiscal");

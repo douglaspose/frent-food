@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { publicar } from "@/lib/eventos";
-import { ErroDeOperacao } from "@/lib/erro-de-operacao";
+import { comandaDaUnidade } from "@/lib/da-unidade";
 
 /**
  * O chamado da mesa — levantar a mão, e alguém responder.
@@ -12,12 +12,19 @@ import { ErroDeOperacao } from "@/lib/erro-de-operacao";
  * que é justamente quem vai até a mesa.
  */
 
-/** Quem está atendendo. Só o restaurante importa: o chamado é da mesa. */
-export type QuemAtende = { tenantId: string };
+/**
+ * Quem está atendendo.
+ *
+ * A unidade entrou aqui depois: dizia-se que "só o restaurante importa, o
+ * chamado é da mesa" — e é verdade que quem atende é quem está perto. Mas
+ * "perto" é dentro da mesma casa: apagar o chamado da filial pela matriz
+ * deixava a mesa de lá com a mão levantada e sem o aviso na tela de quem
+ * poderia ir até ela.
+ */
+export type QuemAtende = { tenantId: string; unidadeId: string };
 
 export async function atenderChamado(quem: QuemAtende, comandaId: string) {
-  const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
-  if (comanda.tenantId !== quem.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+  const comanda = await comandaDaUnidade(comandaId, quem);
 
   // Já atendido não é erro: dois garçons podem ir à mesma mesa, e o segundo
   // não precisa descobrir isso por uma mensagem vermelha.

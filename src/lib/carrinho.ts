@@ -5,6 +5,7 @@ import { baixarVenda } from "./estoque";
 import { publicar } from "./eventos";
 import { ajusteBooleano, ajusteNumerico } from "./parametros-servidor";
 import { ErroDeOperacao } from "./erro-de-operacao";
+import { comandaDaUnidade, type QuemPergunta } from "./da-unidade";
 
 /**
  * Lançar item e mandar a rodada para a cozinha — a regra, sem a tela.
@@ -41,9 +42,8 @@ async function limitarQuantidade(unidadeId: string, quantidade: number) {
   }
 }
 
-export async function comandaAberta(comandaId: string, tenantId: string) {
-  const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
-  if (comanda.tenantId !== tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+export async function comandaAberta(comandaId: string, quem: QuemPergunta) {
+  const comanda = await comandaDaUnidade(comandaId, quem);
   if (comanda.status === "PAGA") throw new ErroDeOperacao("Comanda já paga. Abra uma nova.");
   // A mensagem diz o que fazer: "não está aberta" deixava o garçom sem saída.
   if (comanda.status !== "ABERTA") {
@@ -352,7 +352,7 @@ export async function adicionarItem(
     throw new ErroDeOperacao("Informe uma quantidade maior que zero.");
   }
 
-  const comanda = await comandaAberta(dados.comandaId, quem.tenantId);
+  const comanda = await comandaAberta(dados.comandaId, quem);
   const referencia = dados.referencia?.trim() || null;
   const item = await itemDoCardapio(dados.cardapioItemId, comanda.unidadeId);
   const opcionais = await conferirOpcionais(item.produtoId, dados.opcionais ?? []);
@@ -503,8 +503,7 @@ export function limparObservacao(texto: string | null | undefined) {
  * tela. O que ela segura está comentado passo a passo abaixo.
  */
 export async function enviarCarrinho(quem: QuemLanca, comandaId: string) {
-  const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
-  if (comanda.tenantId !== quem.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+  const comanda = await comandaDaUnidade(comandaId, quem);
   if (comanda.status !== "ABERTA") throw new ErroDeOperacao("A comanda não está aberta.");
 
   const pedidosCriados: string[] = [];

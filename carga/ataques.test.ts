@@ -7,6 +7,8 @@ import { receberBalcao } from "@/app/pdv/balcao-actions";
 import { comandaDeBalcao } from "@/lib/balcao";
 import { pedirAutorizacao } from "@/app/pdv/autorizacao-actions";
 import { avancarPedido } from "@/app/kds/actions";
+import { atenderChamado } from "@/app/pdv/carrinho-actions";
+import { cancelarNota, reemitirNota } from "@/app/gestao/fiscal/actions";
 import { transferirMesa } from "@/app/pdv/transferencia-actions";
 import { registrarContagem, registrarEntrada, registrarPerda } from "@/app/gestao/estoque/actions";
 import { salvarDivisaoDaTaxa } from "@/app/gestao/ajustes/actions";
@@ -81,6 +83,17 @@ async function tentar<T>(quem: Membro, fn: () => Promise<T>) {
 
 const recusou = (t: { resposta: unknown; lancou: string | null }) =>
   t.lancou !== null || temErro(t.resposta);
+
+/**
+ * A frase da recusa.
+ *
+ * Existe porque "recusou" não basta em algumas portas: a nota fiscal recusa
+ * sozinha quando a emissão está desligada, e o carrinho recusa por preço ou
+ * esgotado. Um ataque que aceite qualquer recusa passaria sem provar nada da
+ * regra que ele veio defender.
+ */
+const porQue = (t: { resposta: unknown; lancou: string | null }) =>
+  t.lancou ?? (temErro(t.resposta) ? t.resposta.erro : "");
 
 /** Uma mesa aberta pelo garçom, com itens honestos já mandados à cozinha. */
 async function comandaPronta(g: Membro, mesaIndice: number, itens = 3) {
@@ -3083,6 +3096,290 @@ describe("a conta da filial vizinha", () => {
       recusouFechamento: true,
       movimentos: 0,
       status: "ABERTO",
+    });
+  });
+
+  /**
+   * O garçom da matriz lançando na conta da filial.
+   *
+   * `comandaAberta` conferia só o restaurante, e o cardápio da sessão é o da
+   * matriz: o item entrava na conta de outra cidade, com o preço daqui, e
+   * aparecia na comanda de quem está servindo lá.
+   */
+  it("o garçom da matriz não lança item na conta da filial", async () => {
+    const { comandaId } = await montarFilial();
+    const item = B.itens[0]!;
+
+    const t = await tentar(B.garcons[0]!, () =>
+      adicionarAoCarrinho({
+        comandaId,
+        produtoId: item.produtoId,
+        cardapioItemId: item.cardapioItemId,
+        precoUnitario: item.preco,
+        exigePontoCarne: false,
+      })
+    );
+
+    const itens = await admin.comandaItem.count({ where: { comandaId } });
+    await desmontarFilial();
+
+    // A recusa tem de ser a da unidade: o carrinho também recusa por preço,
+    // por esgotado e por conta em fechamento, e qualquer uma delas faria este
+    // ataque passar sem provar nada.
+    expect({ porQue: porQue(t), itens }).toEqual({
+      porQue: "Comanda de outra unidade.",
+      itens: 1,
+    });
+  });
+
+  /**
+   * E mandando para a cozinha de lá o que estava no carrinho.
+   *
+   * `enviarCarrinho` é a operação mais delicada do sistema: ela imprime na
+   * praça, baixa estoque e abre ticket no KDS — tudo na unidade da comanda.
+   */
+  it("a matriz não manda para a cozinha da filial o carrinho de lá", async () => {
+    const { comandaId } = await montarFilial();
+    await admin.comandaItem.create({
+      data: {
+        tenantId: B.tenant.id,
+        comandaId,
+        produtoId: B.itens[0]!.produtoId,
+        quantidade: 1,
+        precoUnitario: 50,
+        precoTotal: 50,
+        status: "PENDENTE",
+        lancadoPorId: B.gerentes[0]!.usuarioId,
+      },
+    });
+
+    const t = await tentar(B.garcons[0]!, () => enviarCarrinho(comandaId));
+
+    const pendentes = await admin.comandaItem.count({ where: { comandaId, status: "PENDENTE" } });
+    const pedidos = await admin.pedido.count({ where: { comandaId } });
+    await desmontarFilial();
+
+    expect({ recusou: recusou(t), pendentes, pedidos }).toEqual({
+      recusou: true,
+      pendentes: 1,
+      pedidos: 0,
+    });
+  });
+
+  /**
+   * O ticket da praça da filial, avançado pelo monitor da matriz.
+   *
+   * Mover ticket só exige estar logado — é o trabalho de todo mundo na cozinha
+   * —, então aqui a unidade é a única régua que existe. Sem ela, o prato sumia
+   * da tela de lá sem ninguém ter montado nada.
+   */
+  it("o KDS da matriz não avança o ticket da filial", async () => {
+    const { comandaId, unidadeId } = await montarFilial();
+    const item = await admin.comandaItem.findFirstOrThrow({ where: { comandaId } });
+    const pedido = await admin.pedido.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId,
+        comandaId,
+        estacaoId: (await admin.estacao.findFirstOrThrow({ where: { tenantId: B.tenant.id } })).id,
+        numero: 1,
+        status: "EM_PREPARO",
+        itens: { create: { comandaItemId: item.id } },
+      },
+    });
+
+    const t = await tentar(B.garcons[0]!, () => avancarPedido(pedido.id, "PRONTO"));
+
+    const depois = await admin.pedido.findUniqueOrThrow({ where: { id: pedido.id } });
+    await admin.pedidoItem.deleteMany({ where: { pedidoId: pedido.id } });
+    await admin.pedido.deleteMany({ where: { comandaId } });
+    await desmontarFilial();
+
+    expect({ recusou: recusou(t), status: depois.status }).toEqual({
+      recusou: true,
+      status: "EM_PREPARO",
+    });
+  });
+
+  /**
+   * O item da filial cancelado pelo gerente da matriz.
+   *
+   * Cancelar é tirar dinheiro da conta de alguém — e o estoque volta na
+   * unidade da comanda, não na de quem cancelou.
+   */
+  it("o gerente da matriz não cancela item da conta da filial", async () => {
+    const { comandaId } = await montarFilial();
+    const item = await admin.comandaItem.findFirstOrThrow({ where: { comandaId } });
+
+    const t = await tentar(B.gerentes[0]!, () => cancelarItem(item.id, "não é minha de cancelar"));
+
+    const depois = await admin.comandaItem.findUniqueOrThrow({ where: { id: item.id } });
+    await desmontarFilial();
+
+    expect({ recusou: recusou(t), status: depois.status }).toEqual({
+      recusou: true,
+      status: "ENTREGUE",
+    });
+  });
+
+  /**
+   * A conta da filial mudando de mesa por ordem da matriz.
+   *
+   * O destino já era conferido contra a unidade **da comanda** — uma conta não
+   * atravessa cidades. Faltava a outra ponta: quem manda transferir precisa
+   * estar na mesma casa, senão o salão de lá vê a mesa trocar sozinha.
+   */
+  it("a matriz não transfere a conta da filial de mesa", async () => {
+    const { comandaId, unidadeId, areaId, mesaId } = await montarFilial();
+    const destino = await admin.mesa.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId,
+        areaId,
+        numero: "2",
+        capacidade: 4,
+        qrToken: `qr-filial-2-${unidadeId}`,
+      },
+    });
+
+    const t = await tentar(B.gerentes[0]!, () => transferirMesa(comandaId, destino.id));
+
+    const depois = await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    await desmontarFilial();
+
+    expect({ recusou: recusou(t), ficouNaMesa: depois.mesaId === mesaId }).toEqual({
+      recusou: true,
+      ficouNaMesa: true,
+    });
+  });
+
+  /**
+   * O pagamento da filial estornado pelo caixa da matriz.
+   *
+   * Estorno é dinheiro saindo do faturamento de um turno que não é o de quem
+   * estorna: o caixa de lá fecha a noite com um buraco que ninguém explica.
+   */
+  it("o caixa da matriz não estorna o pagamento da filial", async () => {
+    const { comandaId } = await montarFilial();
+    const pagamento = await admin.pagamento.create({
+      data: {
+        tenantId: B.tenant.id,
+        comandaId,
+        formaPagamentoId: B.formas.credito.id,
+        valor: 110,
+        troco: 0,
+        taxaPct: 0,
+        taxaValor: 0,
+        usuarioId: B.caixas[0]!.usuarioId,
+      },
+    });
+
+    const t = await tentar(B.caixas[0]!, () => estornarPagamento(pagamento.id));
+
+    const aindaExiste = await admin.pagamento.count({ where: { id: pagamento.id } });
+    await admin.pagamento.deleteMany({ where: { comandaId } });
+    await desmontarFilial();
+
+    expect({ recusou: recusou(t), aindaExiste }).toEqual({ recusou: true, aindaExiste: 1 });
+  });
+
+  /**
+   * A conta da filial posta em fechamento pela matriz.
+   *
+   * "Pedir a conta" imprime a parcial na impressora da unidade da comanda:
+   * saía papel na cozinha de lá, e a mesa entrava em fechamento sem ninguém
+   * ter pedido nada ao garçom.
+   */
+  it("a matriz não põe a conta da filial em fechamento", async () => {
+    const { comandaId } = await montarFilial();
+
+    const t = await tentar(B.gerentes[0]!, () => iniciarFechamento(comandaId));
+
+    const depois = await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    await desmontarFilial();
+
+    expect({ recusou: recusou(t), status: depois.status }).toEqual({
+      recusou: true,
+      status: "ABERTA",
+    });
+  });
+
+  /**
+   * O chamado da mesa da filial, apagado pela matriz.
+   *
+   * Aqui não há dinheiro: há uma mesa de mão levantada que some da tela de
+   * quem poderia ir até ela. O comentário do código dizia que "só o
+   * restaurante importa, porque o chamado é da mesa" — e "perto" é dentro da
+   * mesma casa.
+   */
+  it("a matriz não apaga o chamado da mesa da filial", async () => {
+    const { comandaId } = await montarFilial();
+    await admin.comanda.update({
+      where: { id: comandaId },
+      data: { chamadoGarcomEm: new Date() },
+    });
+
+    const t = await tentar(B.garcons[0]!, () => atenderChamado(comandaId));
+
+    const depois = await admin.comanda.findUniqueOrThrow({ where: { id: comandaId } });
+    await desmontarFilial();
+
+    expect({ recusou: recusou(t), aindaChamando: depois.chamadoGarcomEm !== null }).toEqual({
+      recusou: true,
+      aindaChamando: true,
+    });
+  });
+
+  /**
+   * E a nota da filial reemitida pela matriz.
+   *
+   * Reemitir gasta número na série **da unidade da conta**, com o CNPJ de lá,
+   * por decisão de quem não responde por aquele caixa. A recusa precisa ser a
+   * da unidade: com a emissão desligada no ambiente de teste, "recusou"
+   * sozinho não provaria nada.
+   */
+  it("a matriz não reemite a nota da conta da filial", async () => {
+    const { comandaId } = await montarFilial();
+
+    const t = await tentar(B.gerentes[0]!, () => reemitirNota(comandaId));
+
+    await desmontarFilial();
+
+    expect(porQue(t)).toBe("Comanda de outra unidade.");
+  });
+
+  /**
+   * A nota fiscal da filial cancelada pela matriz.
+   *
+   * Série, numeração e CNPJ são da unidade, e cancelar é ato fiscal com prazo
+   * contado. A nota de lá não é desta sessão, nem o prazo dela.
+   */
+  it("a matriz não cancela a nota fiscal da filial", async () => {
+    const { comandaId, unidadeId } = await montarFilial();
+    const nota = await admin.notaFiscal.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId,
+        comandaId,
+        serie: 1,
+        numero: 1,
+        ambiente: "HOMOLOGACAO",
+        status: "AUTORIZADA",
+        valorTotal: 110,
+      },
+    });
+
+    const t = await tentar(B.gerentes[0]!, () => cancelarNota(nota.id, "cancelamento que não é meu"));
+
+    const depois = await admin.notaFiscal.findUniqueOrThrow({ where: { id: nota.id } });
+    await admin.notaFiscal.deleteMany({ where: { unidadeId } });
+    await desmontarFilial();
+
+    // Pela mesma razão do carrinho: com a emissão desligada, "recusou" seria
+    // verdade mesmo sem a regra da unidade existir.
+    expect({ porQue: porQue(t), status: depois.status }).toEqual({
+      porQue: "Nota de outra unidade.",
+      status: "AUTORIZADA",
     });
   });
 

@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { exigirPermissao } from "@/lib/session";
 import { mesasLivres as livresDaUnidade } from "@/lib/abertura";
 import { transferirMesa as transferir } from "@/lib/transferencia";
-import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
+import { emResultado } from "@/lib/erro-de-operacao";
+import { conferirUnidade } from "@/lib/da-unidade";
 
 /**
  * Move a comanda inteira para outra mesa.
@@ -34,7 +35,13 @@ export async function mesasLivres(comandaId: string) {
       where: { id: comandaId },
       select: { tenantId: true, unidadeId: true, mesaId: true },
     });
-    if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+    /*
+     * A lista de destinos é a da unidade **da comanda**, de propósito: uma
+     * conta não atravessa cidades. Mas sem conferir a unidade da sessão, quem
+     * está na matriz escolhia para onde vai a conta da filial — e o salão de
+     * lá via a mesa trocar sozinha.
+     */
+    conferirUnidade(comanda, sessao, "Comanda");
 
     /*
      * A mesma lista que o aparelho usa para abrir mesa, menos a mesa onde a

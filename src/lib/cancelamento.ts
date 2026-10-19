@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { liberar } from "@/lib/autorizacao-servidor";
+import { conferirUnidade } from "@/lib/da-unidade";
 import type { PrecisaAutorizacao } from "@/lib/autorizacao";
 import type { Sessao } from "@/lib/session";
 import { estornarVenda } from "@/lib/estoque";
@@ -50,12 +51,14 @@ export async function cancelarItem(
     where: { id: itemId },
     include: {
       produto: { select: { titulo: true } },
-      comanda: { select: { id: true, numero: true, status: true, unidadeId: true } },
+      comanda: { select: { id: true, numero: true, status: true, tenantId: true, unidadeId: true } },
       pedidoItens: { select: { pedidoId: true } },
     },
   });
 
-  if (item.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Item de outro restaurante.");
+  // A unidade vem da comanda: cancelar é tirar dinheiro da conta de alguém,
+  // e a conta da filial não é desta sessão.
+  conferirUnidade(item.comanda, sessao, "Item");
   if (item.status === "CANCELADO") return { ok: true };
   // O carrinho tem as próprias ferramentas: diminuir a quantidade até zero
   // apaga a linha, e nada disso precisa de permissão de gerente.
