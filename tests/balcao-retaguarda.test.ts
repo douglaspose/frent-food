@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { comandaDeBalcao, receberBalcaoPelaRetaguarda } from "@/lib/balcao";
+import { receberPagamento } from "@/lib/conta";
 import { precisaAutorizacao } from "@/lib/autorizacao";
 import { aprovarComPin } from "@/lib/autorizacao-servidor";
 import type { Sessao } from "@/lib/session";
@@ -230,6 +231,103 @@ describe("receber uma venda de balcão pela retaguarda", () => {
 
     expect(precisaAutorizacao(r)).toBe(true);
     expect((await db.comanda.findUniqueOrThrow({ where: { id: outraId } })).status).toBe("ABERTA");
+  });
+
+  /**
+   * O PIN do gerente não se gasta à toa.
+   *
+   * A liberação é gasta **antes** de o dinheiro entrar, de propósito (gastando
+   * depois, o mesmo PIN receberia duas vezes). O preço disso é que qualquer
+   * recusa posterior queima o PIN sem nada ter entrado, e o gerente tem de
+   * voltar à faixa para digitar outro na mesma venda — com o caixa travado
+   * enquanto isso, porque a venda sem mesa não tem outra porta.
+   *
+   * A forma de pagamento era o motivo mais provável: desativada pela
+   * retaguarda no meio do turno, ou apagada entre a escolha e o clique. Agora
+   * ela é perguntada antes.
+   */
+  it("forma desativada recusa sem gastar a liberação", async () => {
+    const comandaId = await vendaPresa("venda-presa-11", 2_000);
+    const liberacao = await aprovarComPin(sessaoDoCaixa, "RECEBER_BALCAO", comandaId, "2222");
+    const autorizacaoId = liberacao.ok ? liberacao.id : "";
+
+    await db.formaPagamento.update({ where: { id: formaId }, data: { ativo: false } });
+    try {
+      await expect(
+        receberBalcaoPelaRetaguarda(sessaoDoCaixa, {
+          comandaId,
+          formaPagamentoId: formaId,
+          autorizacaoId,
+        })
+      ).rejects.toThrow("desativada");
+    } finally {
+      await db.formaPagamento.update({ where: { id: formaId }, data: { ativo: true } });
+    }
+
+    // O PIN continua valendo: é só escolher outra forma e tocar de novo.
+    const intacta = await db.autorizacao.findUniqueOrThrow({ where: { id: autorizacaoId } });
+    expect(intacta.usadoEm).toBeNull();
+
+    const r = await receberBalcaoPelaRetaguarda(sessaoDoCaixa, {
+      comandaId,
+      formaPagamentoId: formaId,
+      autorizacaoId,
+    });
+    expect(precisaAutorizacao(r)).toBe(false);
+    expect((await db.comanda.findUniqueOrThrow({ where: { id: comandaId } })).status).toBe("PAGA");
+  });
+
+  /** Forma apagada entre a escolha na tela e o clique: mesma conversa. */
+  it("forma que não existe recusa sem gastar a liberação", async () => {
+    const comandaId = await vendaPresa("venda-presa-12", 2_000);
+    const liberacao = await aprovarComPin(sessaoDoCaixa, "RECEBER_BALCAO", comandaId, "2222");
+    const autorizacaoId = liberacao.ok ? liberacao.id : "";
+
+    await expect(
+      receberBalcaoPelaRetaguarda(sessaoDoCaixa, {
+        comandaId,
+        formaPagamentoId: "forma-que-nao-existe",
+        autorizacaoId,
+      })
+    ).rejects.toThrow("não encontrada");
+
+    const intacta = await db.autorizacao.findUniqueOrThrow({ where: { id: autorizacaoId } });
+    expect(intacta.usadoEm).toBeNull();
+  });
+
+  /**
+   * A venda já quitada e aberta, que a faixa fecha sem receber nada.
+   *
+   * Aqui não há pagamento a registrar, então a forma não importa — e recusar
+   * por causa dela trancaria a única porta que fecha a comanda, e com ela o
+   * caixa da noite.
+   */
+  it("venda já quitada fecha mesmo com a forma desativada", async () => {
+    const comandaId = await vendaPresa("venda-presa-13", 2_000);
+    // O dinheiro já entrou por outro caminho; sobrou a comanda aberta.
+    await receberPagamento(
+      { usuarioId: donoId, tenantId, unidadeId, nome: "DONO" },
+      { comandaId, formaPagamentoId: formaId, valor: 20, troco: 0 }
+    );
+
+    await db.formaPagamento.update({ where: { id: formaId }, data: { ativo: false } });
+    try {
+      const r = await receberBalcaoPelaRetaguarda(sessaoDoGerente, {
+        comandaId,
+        formaPagamentoId: formaId,
+      });
+      expect(precisaAutorizacao(r)).toBe(false);
+    } finally {
+      await db.formaPagamento.update({ where: { id: formaId }, data: { ativo: true } });
+    }
+
+    const comanda = await db.comanda.findUniqueOrThrow({
+      where: { id: comandaId },
+      include: { pagamentos: true },
+    });
+    expect(comanda.status).toBe("PAGA");
+    // E não entrou pagamento nenhum a mais: o dinheiro já estava dentro.
+    expect(comanda.pagamentos).toHaveLength(1);
   });
 
   /**

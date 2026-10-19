@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { ErroDeOperacao } from "@/lib/erro-de-operacao";
 import { TOLERANCIA } from "@/lib/comanda";
-import { contaDaComanda, finalizarConta, receberPagamento } from "@/lib/conta";
+import { contaDaComanda, finalizarConta, formaQueServe, receberPagamento } from "@/lib/conta";
 import { liberar } from "@/lib/autorizacao-servidor";
 import type { PrecisaAutorizacao } from "@/lib/autorizacao";
 import { auditoria } from "@/lib/auditoria-servidor";
@@ -249,11 +249,29 @@ export async function receberBalcaoPelaRetaguarda(
   }
 
   /*
+   * A forma é conferida antes de a liberação ser gasta.
+   *
+   * `receberPagamento` já a confere do outro lado — mas lá dentro, depois do
+   * gasto: a forma apagada entre a escolha e o clique, ou desativada pela
+   * retaguarda no meio do turno, recusava a venda com o PIN do gerente já
+   * queimado, e ele tinha de vir digitar outro para a mesma venda.
+   *
+   * Só quando há o que receber: a venda já quitada e aberta não registra
+   * pagamento nenhum, e recusá-la por causa da forma trancaria a única porta
+   * que fecha a comanda — e, com ela, o caixa da noite.
+   */
+  if (falta > TOLERANCIA) await formaQueServe(dados.formaPagamentoId, sessao);
+
+  /*
    * A liberação é gasta antes do dinheiro entrar, e em transação própria.
    *
    * Receber e fechar são duas regras com transações próprias — não há uma só
    * para carregar a liberação junto. Gastando antes, uma falha no meio custa
    * um PIN novo ao gerente; gastando depois, o mesmo PIN receberia duas vezes.
+   *
+   * O que sobra de motivo para falhar depois do gasto é o caixa fechado entre
+   * uma linha e a outra — corrida de verdade, que conferir antes não fecha,
+   * só estreita.
    */
   await db.$transaction(async (tx) => consumir(tx));
 

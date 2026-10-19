@@ -73,6 +73,34 @@ const reais = (v: number) => v.toFixed(2).replace(".", ",");
  * Devolve quanto ainda falta — é o que a maquininha mostra depois de aprovar,
  * e o que decide se a conta pode ser finalizada.
  */
+/**
+ * A forma de pagamento desta casa, se ela ainda serve para receber.
+ *
+ * A taxa da adquirente é copiada para dentro do pagamento, não consultada
+ * depois: o painel multiplicava cada pagamento pela taxa cadastrada hoje, e
+ * renegociar com a maquininha reescrevia o custo de um mês já fechado — o
+ * número de ontem virava outro hoje sem nada ter acontecido. Congelada no
+ * pagamento, a conta do mês passado fica parada como deve.
+ *
+ * `findUnique` e não `findUniqueOrThrow`: forma apagada entre a escolha na
+ * tela e o clique é caso de erro legível, não de exceção minificada.
+ *
+ * Virou função própria para poder ser perguntada **antes** da hora: a
+ * retaguarda gasta a liberação do gerente antes de receber, e uma forma
+ * apagada ou desativada queimava o PIN dele sem nada ter entrado.
+ */
+export async function formaQueServe(formaPagamentoId: string, quem: { tenantId: string }) {
+  const forma = await db.formaPagamento.findUnique({
+    where: { id: formaPagamentoId },
+    select: { tenantId: true, ativo: true, taxaPct: true, tipo: true },
+  });
+  if (!forma || forma.tenantId !== quem.tenantId) {
+    throw new ErroDeOperacao("Forma de pagamento não encontrada.");
+  }
+  if (!forma.ativo) throw new ErroDeOperacao("Esta forma de pagamento está desativada.");
+  return forma;
+}
+
 export async function receberPagamento(
   quem: QuemRecebe,
   dados: PagamentoParaRegistrar
@@ -131,26 +159,7 @@ export async function receberPagamento(
   });
   if (!caixa) throw new ErroDeOperacao("Nenhum caixa aberto. Abra o caixa antes de receber.");
 
-  /**
-   * A taxa da adquirente é copiada para dentro do pagamento, não consultada
-   * depois.
-   *
-   * O painel multiplicava cada pagamento pela taxa cadastrada hoje, e
-   * renegociar com a maquininha reescrevia o custo de um mês já fechado: o
-   * número de ontem virava outro hoje sem nada ter acontecido. Congelada
-   * aqui, a conta do mês passado fica parada como deve.
-   *
-   * `findUnique` e não `findUniqueOrThrow`: forma apagada entre a escolha na
-   * tela e o clique é caso de erro legível, não de exceção minificada.
-   */
-  const forma = await db.formaPagamento.findUnique({
-    where: { id: formaPagamentoId },
-    select: { tenantId: true, ativo: true, taxaPct: true, tipo: true },
-  });
-  if (!forma || forma.tenantId !== quem.tenantId) {
-    throw new ErroDeOperacao("Forma de pagamento não encontrada.");
-  }
-  if (!forma.ativo) throw new ErroDeOperacao("Esta forma de pagamento está desativada.");
+  const forma = await formaQueServe(formaPagamentoId, quem);
   // Só dinheiro tem troco: cartão e Pix são cobrados no valor exato.
   if (troco > 0 && forma.tipo !== "DINHEIRO") throw new ErroDeOperacao("Só pagamento em dinheiro tem troco.");
 

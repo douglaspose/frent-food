@@ -25,19 +25,34 @@ export function nomeDaComanda(comanda: ComandaAberta): string {
 }
 
 /**
- * A frase da recusa, com as comandas nomeadas.
+ * Quantas cabem por extenso antes de o resto virar contagem.
  *
- * Até cinco por extenso, porque é o que cabe numa linha de aviso e o que uma
- * casa costuma ter esquecido aberto. Acima disso, o resto vira contagem: a
- * lista inteira de uma casa cheia não ajudaria ninguém a achar nada.
+ * Cinco é o que cabe numa linha de aviso e o que uma casa costuma ter
+ * esquecido aberto. Acima disso a lista não ajuda ninguém a achar nada: numa
+ * casa com sessenta contas abertas, o aviso ocupa a tela e não se lê.
  */
+const CABEM_POR_EXTENSO = 5;
+
+/**
+ * As comandas nomeadas, com o corte.
+ *
+ * Mora aqui porque são **dois** lugares que dizem o que falta fechar — a
+ * recusa do `fecharCaixa` e o aviso na tela do caixa — e eles contavam de
+ * formas diferentes: a recusa cortava em cinco, a tela juntava todas numa
+ * linha só. Numa casa cheia, a tela ficava ilegível justamente quando o caixa
+ * mais precisa dela.
+ */
+export function listaDeComandas(comandas: ComandaAberta[]): string {
+  const nomes = comandas.slice(0, CABEM_POR_EXTENSO).map(nomeDaComanda);
+  const sobraram = comandas.length - nomes.length;
+  return sobraram > 0 ? `${nomes.join(", ")} e mais ${sobraram}` : nomes.join(", ");
+}
+
+/** A frase da recusa, com as comandas nomeadas. */
 export function porQueOCaixaNaoFecha(comandas: ComandaAberta[]): string {
   if (comandas.length === 0) return "";
 
-  const nomes = comandas.slice(0, 5).map(nomeDaComanda);
-  const sobraram = comandas.length - nomes.length;
-  const lista = sobraram > 0 ? `${nomes.join(", ")} e mais ${sobraram}` : nomes.join(", ");
   const quantas = comandas.length === 1 ? "1 comanda aberta" : `${comandas.length} comandas abertas`;
 
-  return `Ainda há ${quantas}: ${lista}. Feche todas antes de fechar o caixa.`;
+  return `Ainda há ${quantas}: ${listaDeComandas(comandas)}. Feche todas antes de fechar o caixa.`;
 }

@@ -2,7 +2,7 @@
 
 import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { TEXTO_DE_CAMPO } from "@/lib/campo";
-import { nomeDaComanda, type ComandaAberta } from "@/lib/comandas-abertas";
+import { listaDeComandas, type ComandaAberta } from "@/lib/comandas-abertas";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { abrirCaixa, fecharCaixa, registrarMovimentoCaixa } from "../pagamento-actions";
@@ -425,9 +425,12 @@ export function CaixaPainel({
             {/*
               Nomeadas, e não contadas: a de balcão não aparece no mapa do
               salão, e sem o número dela o caixa procura a noite inteira.
+
+              Pelo `listaDeComandas`, que é o mesmo corte da recusa do
+              servidor: aqui estavam **todas** numa linha só, e numa casa com
+              sessenta contas abertas o aviso tomava a tela e não se lia.
             */}
-            Ainda aberta(s): {comandasAbertas.map(nomeDaComanda).join(", ")} — feche
-            todas antes.
+            Ainda aberta(s): {listaDeComandas(comandasAbertas)} — feche todas antes.
           </p>
         )}
 

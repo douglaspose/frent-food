@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nomeDaComanda, porQueOCaixaNaoFecha } from "@/lib/comandas-abertas";
+import { listaDeComandas, nomeDaComanda, porQueOCaixaNaoFecha } from "@/lib/comandas-abertas";
 
 /**
  * O caixa que não fechava.
@@ -20,6 +20,46 @@ describe("o nome de uma comanda aberta", () => {
 
   it("a mesa com letra sai como a casa a chama", () => {
     expect(nomeDaComanda({ numero: 283, mesa: "12A" })).toBe("mesa 12A (#283)");
+  });
+});
+
+/**
+ * O corte vale nos dois lugares que dizem o que falta fechar.
+ *
+ * A recusa do `fecharCaixa` cortava em cinco; o aviso na tela do caixa
+ * juntava **todas** numa linha só. Numa casa com sessenta contas abertas, a
+ * tela ficava ilegível justamente quando o caixa mais precisa dela — e as duas
+ * contavam a mesma coisa de formas diferentes, que é como uma delas fica para
+ * trás na próxima mudança.
+ */
+describe("a lista das comandas abertas", () => {
+  const tantas = (quantas: number) =>
+    Array.from({ length: quantas }, (_, i) => ({ numero: 300 + i, mesa: String(i + 1) }));
+
+  it("até cinco saem todas, sem contagem", () => {
+    const lista = listaDeComandas(tantas(5));
+
+    expect(lista).toBe(
+      "mesa 1 (#300), mesa 2 (#301), mesa 3 (#302), mesa 4 (#303), mesa 5 (#304)"
+    );
+    expect(lista).not.toContain("e mais");
+  });
+
+  it("acima de cinco, o resto vira contagem", () => {
+    expect(listaDeComandas(tantas(60))).toBe(
+      "mesa 1 (#300), mesa 2 (#301), mesa 3 (#302), mesa 4 (#303), mesa 5 (#304) e mais 55"
+    );
+  });
+
+  /** O aviso da tela e a recusa do servidor dizem a mesma coisa. */
+  it("é a mesma lista que entra na recusa do caixa", () => {
+    const muitas = tantas(60);
+
+    expect(porQueOCaixaNaoFecha(muitas)).toContain(listaDeComandas(muitas));
+  });
+
+  it("sem comanda aberta, não há lista", () => {
+    expect(listaDeComandas([])).toBe("");
   });
 });
 
