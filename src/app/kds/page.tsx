@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { sessaoDaTela } from "@/lib/session";
 import { dadosDaBarra } from "@/lib/barra";
+import { destinoDoPedido } from "@/lib/parametros-servidor";
 import { BarraAmbientes } from "../pdv/barra-ambientes";
 import { KdsBoard } from "./kds-board";
 
@@ -19,7 +20,8 @@ export default async function KdsPage() {
     );
   }
 
-  const [estacoes, pedidos, alerta] = await Promise.all([
+  const [destino, estacoes, pedidos, alerta] = await Promise.all([
+    destinoDoPedido(unidade.id),
     db.estacao.findMany({
       where: { unidadeId: unidade.id, ativo: true, tipo: { in: ["KDS", "AMBOS"] } },
       orderBy: { ordem: "asc" },
@@ -62,6 +64,31 @@ export default async function KdsPage() {
 
   const parametro = (chave: string, padrao: number) =>
     Number(alerta.find((a) => a.chave === chave)?.valor ?? padrao);
+
+  /*
+   * Casa que trabalha por papel não deve encarar um quadro vazio.
+   *
+   * O ticket dela nasce `NO_PAPEL` e nunca entra neste quadro — de propósito,
+   * porque não há quem toque em "pronto" aqui. Sem este aviso, a tela diria
+   * "nenhum pedido" num sábado cheio, e alguém ia procurar defeito onde há
+   * configuração.
+   */
+  if (destino === "PAPEL") {
+    return (
+      <div className="flex h-tela flex-col bg-neutral-950">
+        <BarraAmbientes dados={await dadosDaBarra(sessao)} />
+        <main className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-lg font-semibold text-neutral-200">
+            Esta unidade recebe os pedidos pela impressora.
+          </p>
+          <p className="max-w-md text-sm text-neutral-500">
+            A comanda de produção sai na térmica de cada praça, e o acompanhamento do prato é o
+            papel pendurado. Para usar esta tela, mude em Gestão → Ajustes → Cozinha.
+          </p>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-tela flex-col bg-neutral-950">

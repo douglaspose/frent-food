@@ -3,7 +3,8 @@ import { db } from "./db";
 import { enfileirarPedidos } from "./fila-impressao";
 import { baixarVenda } from "./estoque";
 import { publicar } from "./eventos";
-import { ajusteBooleano, ajusteNumerico } from "./parametros-servidor";
+import { ajusteNumerico, lerAjustes } from "./parametros-servidor";
+import { CHAVE_DO_DESTINO, destinoValido, saiNoPapel, vaiParaTela } from "./producao";
 import { ErroDeOperacao } from "./erro-de-operacao";
 import { comandaDaUnidade, type QuemPergunta } from "./da-unidade";
 
@@ -508,13 +509,39 @@ export async function enviarCarrinho(quem: QuemLanca, comandaId: string) {
 
   const pedidosCriados: string[] = [];
 
+  /*
+   * Os dois ajustes numa leitura só.
+   *
+   * Este é o caminho mais quente do salão — um envio por rodada, a noite
+   * inteira —, e eram duas idas ao banco para responder duas perguntas sobre a
+   * mesma unidade.
+   */
+  const ajustes = await lerAjustes(comanda.unidadeId, [
+    CHAVE_DO_DESTINO,
+    "kds.confirmarPedidoNaTela",
+  ]);
+  const destino = destinoValido(ajustes[CHAVE_DO_DESTINO]);
+
   /**
    * Cozinha que não quer o toque a mais recebe o ticket já em preparo. Com a
    * confirmação ligada ele nasce em NA FILA e alguém assume o prato — é o que
    * separa "a cozinha viu" de "o pedido chegou".
    */
-  const confirmaNaTela = await ajusteBooleano(comanda.unidadeId, "kds.confirmarPedidoNaTela");
-  const statusInicial = confirmaNaTela ? "AGUARDANDO" : "EM_PREPARO";
+  const confirmaNaTela = Boolean(ajustes["kds.confirmarPedidoNaTela"]);
+
+  /**
+   * Onde o ticket nasce depende de quem vai acompanhá-lo.
+   *
+   * Na casa que trabalha só com papel não há quem toque em "pronto" na tela: o
+   * ticket nasce `NO_PAPEL`, fora do quadro e fora da contagem de atrasados —
+   * senão cada pedido viraria alarme na barra vinte minutos depois, o dia
+   * inteiro. Quem acompanha o prato lá é a comanda pendurada na praça.
+   */
+  const statusInicial = !vaiParaTela(destino)
+    ? "NO_PAPEL"
+    : confirmaNaTela
+      ? "AGUARDANDO"
+      : "EM_PREPARO";
 
   const pendentes = await db.$transaction(async (tx) => {
     /**
@@ -555,9 +582,18 @@ export async function enviarCarrinho(quem: QuemLanca, comandaId: string) {
 
     await tx.comandaItem.updateMany({
       where: { id: { in: pendentes.map((i) => i.id) } },
-      // O item da comanda acompanha o ticket: o garçom vê "EM_PREPARO" na
-      // tela da mesa sem a cozinha precisar tocar em nada.
-      data: { status: confirmaNaTela ? "ENVIADO" : "EM_PREPARO", lancadoEm: new Date() },
+      /*
+       * O item da comanda acompanha o ticket: o garçom vê "EM_PREPARO" na tela
+       * da mesa sem a cozinha precisar tocar em nada.
+       *
+       * No modo papel também EM_PREPARO, e é a verdade: foi para a praça e
+       * ninguém disse que ficou pronto. Quem avisa a mesa é o garçom que
+       * recebe o prato, como já era antes de existir tela de cozinha.
+       */
+      data: {
+        status: confirmaNaTela && vaiParaTela(destino) ? "ENVIADO" : "EM_PREPARO",
+        lancadoEm: new Date(),
+      },
     });
 
     // Agrupa os itens por estação de produção.
@@ -615,7 +651,9 @@ export async function enviarCarrinho(quem: QuemLanca, comandaId: string) {
           estacaoId,
           numero: numero++,
           status: statusInicial,
-          iniciadoEm: confirmaNaTela ? null : new Date(),
+          // Sem hora de início só quando alguém ainda vai assumir na tela. O
+          // ticket de papel já saiu para a praça: a hora é agora.
+          iniciadoEm: statusInicial === "AGUARDANDO" ? null : new Date(),
           itens: { create: itemIds.map((comandaItemId) => ({ comandaItemId })) },
         },
       });
@@ -625,12 +663,20 @@ export async function enviarCarrinho(quem: QuemLanca, comandaId: string) {
   });
   if (pendentes.length === 0) return { enviados: 0 };
 
-  // Fora da transação: o pedido já está no KDS, e uma falha ao montar o papel
-  // não pode desfazer o lançamento que a cozinha já está vendo.
-  try {
-    await enfileirarPedidos(pedidosCriados);
-  } catch (e) {
-    console.error("Falha ao enfileirar impressão dos pedidos", e);
+  /*
+   * O papel sai se a casa pediu papel.
+   *
+   * Fora da transação: o pedido já está no KDS, e uma falha ao montar o papel
+   * não pode desfazer o lançamento que a cozinha já está vendo. Na casa que
+   * trabalha só pela tela nem se enfileira — era papel que ninguém imprimia,
+   * enchendo a fila de trabalho pendente para sempre.
+   */
+  if (saiNoPapel(destino)) {
+    try {
+      await enfileirarPedidos(pedidosCriados);
+    } catch (e) {
+      console.error("Falha ao enfileirar impressão dos pedidos", e);
+    }
   }
 
   // O evento que mais importa: é ele que faz o ticket aparecer na cozinha sem

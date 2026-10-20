@@ -32,8 +32,21 @@ describe("catálogo de parâmetros", () => {
   });
 
   it("o padrão bate com o tipo declarado", () => {
+    const esperado = { bool: "boolean", inteiro: "number", escolha: "string" } as const;
     for (const p of PARAMETROS) {
-      expect(typeof p.padrao, p.chave).toBe(p.tipo === "bool" ? "boolean" : "number");
+      expect(typeof p.padrao, p.chave).toBe(esperado[p.tipo]);
+    }
+  });
+
+  /**
+   * Escolha sem opções é um campo que não deixa escolher nada, e padrão fora
+   * da lista é o valor que a tela mostra vazio e o código nunca grava de volta.
+   */
+  it("escolha tem opções, e o padrão é uma delas", () => {
+    for (const p of PARAMETROS.filter((p) => p.tipo === "escolha")) {
+      expect(p.opcoes?.length ?? 0, p.chave).toBeGreaterThan(1);
+      expect(p.opcoes?.map((o) => o.valor), p.chave).toContain(p.padrao);
+      for (const o of p.opcoes ?? []) expect(o.rotulo.length, o.valor).toBeGreaterThan(0);
     }
   });
 

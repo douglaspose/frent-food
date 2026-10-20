@@ -1,9 +1,10 @@
 import "server-only";
 import { db } from "./db";
 import { padroes, valorDoParametro } from "./parametros";
+import { CHAVE_DO_DESTINO, destinoValido, type DestinoDoPedido } from "./producao";
 import { CHAVE_DIVISAO_DA_TAXA, lerDivisao, type AreaDaTaxa } from "./divisao-da-taxa";
 
-export type Ajustes = Record<string, boolean | number>;
+export type Ajustes = Record<string, boolean | number | string>;
 
 /**
  * Lê os parâmetros da unidade, já com os padrões preenchidos.
@@ -32,6 +33,17 @@ export async function ajusteBooleano(unidadeId: string, chave: string): Promise<
 
 export async function ajusteNumerico(unidadeId: string, chave: string): Promise<number> {
   return Number((await lerAjustes(unidadeId, [chave]))[chave]);
+}
+
+/**
+ * Por onde a cozinha e o bar desta unidade recebem o pedido.
+ *
+ * Atalho próprio, e não `ajusteTexto` genérico: quem chama recebe o tipo dos
+ * três destinos, e o valor estranho no banco cai no padrão aqui, uma vez, em
+ * vez de em cada `if` de quem lê.
+ */
+export async function destinoDoPedido(unidadeId: string): Promise<DestinoDoPedido> {
+  return destinoValido((await lerAjustes(unidadeId, [CHAVE_DO_DESTINO]))[CHAVE_DO_DESTINO]);
 }
 
 /** As áreas que repartem a taxa de serviço; vazio quando a casa não divide. */

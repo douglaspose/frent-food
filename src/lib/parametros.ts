@@ -1,3 +1,5 @@
+import { CHAVE_DO_DESTINO, DESTINO_PADRAO } from "./producao";
+
 /**
  * Catálogo dos parâmetros de comportamento da unidade.
  *
@@ -10,7 +12,15 @@
  * componente de cliente. As duas precisam desta lista.
  */
 
-export type TipoParametro = "bool" | "inteiro";
+/**
+ * `escolha` existe porque há pergunta que não é sim-ou-não nem número.
+ *
+ * "Como a cozinha recebe o pedido" tem três respostas, e duas delas se
+ * excluem: com dois interruptores daria para desligar os dois e deixar a praça
+ * sem receber nada — estado que não quer dizer nada e que ninguém vai notar
+ * até o sábado cheio.
+ */
+export type TipoParametro = "bool" | "inteiro" | "escolha";
 
 export type Parametro = {
   chave: string;
@@ -19,10 +29,12 @@ export type Parametro = {
   rotulo: string;
   /** O que muda de verdade quando se mexe. Aparece na tela, embaixo do rótulo. */
   explicacao: string;
-  padrao: boolean | number;
+  padrao: boolean | number | string;
   min?: number;
   max?: number;
   sufixo?: string;
+  /** As respostas possíveis, quando o tipo é `escolha`. */
+  opcoes?: { valor: string; rotulo: string }[];
 };
 
 export const GRUPOS = ["MESAS", "COZINHA", "KDS", "CAIXA", "IMPRESSAO"] as const;
@@ -105,6 +117,20 @@ export const PARAMETROS: Parametro[] = [
     explicacao:
       "Desligado, o resultado da busca fica na tela — quem lança o mesmo produto várias vezes seguidas ganha tempo.",
     padrao: true,
+  },
+  {
+    chave: CHAVE_DO_DESTINO,
+    grupo: "KDS",
+    tipo: "escolha",
+    rotulo: "Como a cozinha e o bar recebem os pedidos",
+    explicacao:
+      "Pela tela, o KDS é a cozinha e não sai papel de produção. Pela térmica, a comanda sai na impressora da praça e o ticket não entra no quadro — não há quem toque em 'pronto' na tela. As duas juntas é como o sistema sempre se comportou.",
+    padrao: DESTINO_PADRAO,
+    opcoes: [
+      { valor: "TELA", rotulo: "Só pela tela da cozinha" },
+      { valor: "PAPEL", rotulo: "Só pela impressora térmica" },
+      { valor: "TELA_E_PAPEL", rotulo: "Pelas duas" },
+    ],
   },
   {
     chave: "kds.confirmarPedidoNaTela",
@@ -192,11 +218,23 @@ export const POR_CHAVE = new Map(PARAMETROS.map((p) => [p.chave, p]));
  * por uma versão anterior do sistema. Valor torto cai no padrão em vez de
  * virar `NaN` no meio de um cálculo de alerta.
  */
-export function valorDoParametro(chave: string, bruto: unknown): boolean | number {
+export function valorDoParametro(chave: string, bruto: unknown): boolean | number | string {
   const def = POR_CHAVE.get(chave);
   if (!def) return typeof bruto === "boolean" || typeof bruto === "number" ? bruto : false;
 
   if (def.tipo === "bool") return typeof bruto === "boolean" ? bruto : def.padrao;
+
+  /*
+   * Escolha só aceita o que está na lista.
+   *
+   * O valor chega do navegador e a tabela é livre: sem esta conferência, um
+   * "destino" inventado passaria e cairia no `else` de quem lê — a cozinha
+   * deixaria de receber por um texto que ninguém digitou de propósito.
+   */
+  if (def.tipo === "escolha") {
+    const opcoes = def.opcoes ?? [];
+    return opcoes.some((o) => o.valor === bruto) ? (bruto as string) : String(def.padrao);
+  }
 
   /**
    * Só número ou texto que é número. `Number(null)` e `Number("")` valem zero
@@ -215,6 +253,6 @@ export function valorDoParametro(chave: string, bruto: unknown): boolean | numbe
 }
 
 /** Tudo com o padrão, para quem lê antes de a unidade ter salvo qualquer coisa. */
-export function padroes(): Record<string, boolean | number> {
+export function padroes(): Record<string, boolean | number | string> {
   return Object.fromEntries(PARAMETROS.map((p) => [p.chave, p.padrao]));
 }

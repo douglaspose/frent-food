@@ -48,6 +48,18 @@ export async function avancarPedido(pedidoId: string, para: Avanco) {
      */
     conferirUnidade(pedido, sessao, "Pedido");
     if (pedido.status === "CANCELADO") throw new ErroDeOperacao("Este pedido foi cancelado.");
+    /*
+     * O ticket que saiu no papel não anda pela tela.
+     *
+     * Nesta casa quem acompanha o prato é a comanda pendurada na praça, e o
+     * ticket nasce `NO_PAPEL` justamente para ficar fora do quadro e dos
+     * alertas. Puxá-lo de volta para o fluxo da tela por esta porta — que é
+     * pública e só exige estar logado — faria o pedido reaparecer no quadro e
+     * voltar a contar como atrasado, que é o problema que o estado resolve.
+     */
+    if (pedido.status === "NO_PAPEL") {
+      throw new ErroDeOperacao("Este pedido saiu no papel: quem acompanha é a comanda da praça.");
+    }
     if (pedido.comanda.status === "CANCELADA") {
       throw new ErroDeOperacao("A conta desta mesa foi cancelada.");
     }

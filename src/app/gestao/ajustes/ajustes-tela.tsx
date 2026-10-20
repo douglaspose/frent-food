@@ -11,7 +11,7 @@ export function AjustesTela({
   valores,
   divisaoDaTaxa,
 }: {
-  valores: Record<string, boolean | number>;
+  valores: Record<string, boolean | number | string>;
   divisaoDaTaxa: AreaDaTaxa[];
 }) {
   // Estado local para o interruptor responder ao dedo na hora; o servidor
@@ -21,7 +21,7 @@ export function AjustesTela({
   const [erro, setErro] = useState<string | null>(null);
   const [, iniciar] = useTransition();
 
-  function salvar(chave: string, valor: boolean | number) {
+  function salvar(chave: string, valor: boolean | number | string) {
     const anterior = atual[chave]!;
     setAtual((v) => ({ ...v, [chave]: valor }));
     setErro(null);
@@ -119,9 +119,9 @@ function Controle({
   aoMudar,
 }: {
   parametro: Parametro;
-  valor: boolean | number;
+  valor: boolean | number | string;
   salvando: boolean;
-  aoMudar: (valor: boolean | number) => void;
+  aoMudar: (valor: boolean | number | string) => void;
 }) {
   if (parametro.tipo === "bool") {
     const ligado = Boolean(valor);
@@ -142,6 +142,31 @@ function Controle({
           }`}
         />
       </button>
+    );
+  }
+
+  /*
+   * Escolha é um `select`, e não três botões.
+   *
+   * São respostas que se excluem e que ninguém troca duas vezes por semana —
+   * o que importa é caber na linha ao lado da explicação, no celular, sem
+   * empurrar o resto da tela.
+   */
+  if (parametro.tipo === "escolha") {
+    return (
+      <select
+        aria-label={parametro.rotulo}
+        value={String(valor)}
+        disabled={salvando}
+        onChange={(e) => aoMudar(e.target.value)}
+        className="mt-1 shrink-0 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm disabled:opacity-50"
+      >
+        {(parametro.opcoes ?? []).map((o) => (
+          <option key={o.valor} value={o.valor}>
+            {o.rotulo}
+          </option>
+        ))}
+      </select>
     );
   }
 

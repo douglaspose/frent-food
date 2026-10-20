@@ -18,7 +18,7 @@ import { divisaoDaTaxa } from "@/lib/parametros-servidor";
  * ficou pendente. O registro no diário é o que responde depois "quem desligou
  * a exigência de motivo no desconto?".
  */
-export async function salvarAjuste(chave: string, valor: boolean | number) {
+export async function salvarAjuste(chave: string, valor: boolean | number | string) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("unidade.configurar");
 

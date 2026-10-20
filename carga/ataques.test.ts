@@ -523,6 +523,46 @@ describe("permissões e sessão", () => {
   });
 });
 
+/**
+ * O ticket que saiu no papel, puxado de volta para a tela.
+ *
+ * A casa que trocou a tela de cozinha pela térmica não tem quem toque em
+ * "pronto": o ticket nasce `NO_PAPEL` justamente para ficar fora do quadro e
+ * da contagem de atrasados da barra. A porta do KDS, porém, é pública e só
+ * exige estar logado — pelo `avancarPedido` o ticket voltaria ao fluxo da
+ * tela, reaparecendo no quadro e voltando a contar como atrasado, que é o
+ * problema que o estado resolve.
+ */
+describe("o ticket de papel e a porta do KDS", () => {
+  it("o monitor não puxa de volta o pedido que saiu no papel", async () => {
+    const g = A.garcons[1]!;
+    const aberta = (await como(g, () => abrirComanda(A.mesas[49]!.id, 2))) as { comandaId: string };
+    const item = A.itens[0]!;
+    await como(g, () =>
+      adicionarAoCarrinho({
+        comandaId: aberta.comandaId,
+        produtoId: item.produtoId,
+        cardapioItemId: item.cardapioItemId,
+        precoUnitario: item.preco,
+        exigePontoCarne: false,
+      })
+    );
+    await como(g, () => enviarCarrinho(aberta.comandaId));
+    const pedido = await admin.pedido.findFirstOrThrow({ where: { comandaId: aberta.comandaId } });
+    // A casa é de papel: o ticket já nasceria assim no fluxo de verdade, e
+    // aqui chega-se ao mesmo estado sem reconfigurar o cenário inteiro.
+    await admin.pedido.update({ where: { id: pedido.id }, data: { status: "NO_PAPEL" } });
+
+    const t = await tentar(A.caixas[0]!, () => avancarPedido(pedido.id, "PRONTO"));
+
+    const depois = await admin.pedido.findUniqueOrThrow({ where: { id: pedido.id } });
+    expect({ porQue: porQue(t), status: depois.status }).toEqual({
+      porQue: "Este pedido saiu no papel: quem acompanha é a comanda da praça.",
+      status: "NO_PAPEL",
+    });
+  });
+});
+
 describe("cozinha, salão e cliente ao mesmo tempo", () => {
   /**
    * Achado pelo dia simulado: o cliente desistiu, o prato foi cancelado com o
