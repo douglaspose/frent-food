@@ -34,38 +34,61 @@ export async function abrirCaixa(turno: Turno, fundoCaixa: number) {
     const sessao = await exigirPermissao("caixa.abrir");
     const unidadeId = sessao.unidadeId;
 
-    const aberto = await db.caixa.findFirst({
-      where: { unidadeId, tipo: "GERAL", status: "ABERTO" },
+    // Abrir com zero faz o primeiro cliente que pagar em dinheiro ficar sem
+    // troco. Lido antes da transação para não pedir conexão nova com a linha
+    // da unidade já travada; a conferência em si continua depois do "já está
+    // aberto", senão re-tocar o botão numa casa que exige fundo viraria recusa.
+    const exigeFundo =
+      fundoCaixa <= 0 ? await ajusteBooleano(unidadeId, "caixa.exigirFundoNaAbertura") : false;
+
+    const novo = await db.$transaction(async (tx) => {
+      /*
+       * Uma abertura de gaveta por vez na unidade.
+       *
+       * A mesma trava da abertura de mesa (`lib/abertura`) e da venda de
+       * balcão, e pelo mesmo motivo: entre "procura gaveta aberta" e "cria"
+       * não havia nada, e `caixas` não tem índice único por unidade aberta.
+       * Quem abre a casa são duas pessoas em dois tablets — o caixa que chega
+       * e o gerente que confere o fundo — tocando no mesmo botão da barra.
+       * Medido: seis toques simultâneos deixavam até **quatro** gavetas
+       * abertas na mesma unidade, e daí o pagamento entra numa, o fechamento
+       * fecha outra, e a noite não fecha.
+       */
+      await tx.$queryRaw`SELECT id FROM unidades WHERE id = ${unidadeId} FOR NO KEY UPDATE`;
+
+      const aberto = await tx.caixa.findFirst({
+        where: { unidadeId, tipo: "GERAL", status: "ABERTO" },
+      });
+      if (aberto) return { caixaId: aberto.id, jaEstavaAberto: true };
+
+      if (exigeFundo) throw new ErroDeOperacao("Informe o fundo de troco para abrir o caixa.");
+
+      // A data do caixa é o dia da operação, não o instante — um caixa de
+      // madrugada aberto às 00:30 ainda pertence ao movimento da noite anterior.
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+
+      const caixa = await tx.caixa.create({
+        data: {
+          tenantId: sessao.tenantId,
+          unidadeId,
+          tipo: "GERAL",
+          data: hoje,
+          turno,
+          fundoCaixa,
+          abertoPorId: sessao.usuarioId,
+        },
+      });
+      return { caixaId: caixa.id, jaEstavaAberto: false };
     });
-    if (aberto) return { caixaId: aberto.id };
 
-    // Abrir com zero faz o primeiro cliente que pagar em dinheiro ficar sem troco.
-    if (fundoCaixa <= 0 && (await ajusteBooleano(unidadeId, "caixa.exigirFundoNaAbertura"))) {
-      throw new ErroDeOperacao("Informe o fundo de troco para abrir o caixa.");
-    }
-
-    // A data do caixa é o dia da operação, não o instante — um caixa de
-    // madrugada aberto às 00:30 ainda pertence ao movimento da noite anterior.
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
-
-    const caixa = await db.caixa.create({
-      data: {
-        tenantId: sessao.tenantId,
-        unidadeId,
-        tipo: "GERAL",
-        data: hoje,
-        turno,
-        fundoCaixa,
-        abertoPorId: sessao.usuarioId,
-      },
-    });
+    if (novo.jaEstavaAberto) return { caixaId: novo.caixaId };
 
     revalidatePath("/pdv");
     // A barra mostra "Caixa fechado" em todo tablet: abrir o caixa apaga o aviso
     // nos aparelhos de todo mundo, não só no de quem abriu.
     await publicar(sessao.unidadeId, "caixa");
-    return { caixaId: caixa.id };
+    return { caixaId: novo.caixaId };
   });
 }
 

@@ -174,6 +174,10 @@ export async function atualizarMesa(dados: {
   return emResultado(async () => {
     const sessao = await exigirPermissao(PERMISSAO);
     await mesaDaUnidade(dados.mesaId, sessao.unidadeId);
+    // A área também vem do navegador, e chave estrangeira ignora o RLS: sem
+    // esta linha a mesa ia para a área de outra casa e desaparecia das duas
+    // telas que a mostram, inclusive da que a editaria de volta.
+    if (dados.areaId) await areaDaUnidade(dados.areaId, sessao.unidadeId);
     if (!dados.numero.trim()) throw new ErroDeOperacao("Informe o número da mesa.");
 
     const repetida = await db.mesa.findFirst({
