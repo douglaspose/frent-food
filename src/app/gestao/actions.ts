@@ -80,6 +80,60 @@ export type DadosProduto = {
 };
 
 /**
+ * Os três ids que o formulário de produto manda, conferidos antes de virarem
+ * referência.
+ *
+ * Chave estrangeira ignora o RLS — o banco aceita apontar para a linha que
+ * esconderia numa consulta —, e os três levam a lugares diferentes:
+ *
+ * - a **categoria** é do restaurante, e é por ela que a tela de produtos e o
+ *   cardápio agrupam: com a de fora, o produto cai num grupo cujo nome esta
+ *   sessão não lê;
+ * - a **praça** é da unidade, e decide em qual monitor o ticket aparece e em
+ *   qual impressora o papel sai: com a de fora, o pedido vai para uma cozinha
+ *   que não é desta casa — ou para nenhuma;
+ * - o **perfil fiscal** é da unidade e carrega CFOP, CST/CSOSN e alíquotas: é
+ *   o que a NFC-e declara à SEFAZ no nome desta empresa.
+ *
+ * Nenhum dos três é obrigatório: vazio é vazio, e só o id preenchido é
+ * conferido.
+ */
+async function conferirReferenciasDoProduto(
+  dados: DadosProduto,
+  sessao: { tenantId: string; unidadeId: string }
+) {
+  if (dados.categoriaId) {
+    const categoria = await db.categoriaProduto.findUnique({
+      where: { id: dados.categoriaId },
+      select: { tenantId: true },
+    });
+    if (!categoria || categoria.tenantId !== sessao.tenantId) {
+      throw new ErroDeOperacao("Categoria não encontrada.");
+    }
+  }
+
+  if (dados.estacaoId) {
+    const estacao = await db.estacao.findUnique({
+      where: { id: dados.estacaoId },
+      select: { unidadeId: true },
+    });
+    if (!estacao || estacao.unidadeId !== sessao.unidadeId) {
+      throw new ErroDeOperacao("Praça de produção não encontrada.");
+    }
+  }
+
+  if (dados.perfilFiscalId) {
+    const perfil = await db.perfilFiscal.findUnique({
+      where: { id: dados.perfilFiscalId },
+      select: { unidadeId: true },
+    });
+    if (!perfil || perfil.unidadeId !== sessao.unidadeId) {
+      throw new ErroDeOperacao("Perfil fiscal não encontrado.");
+    }
+  }
+}
+
+/**
  * Cria produto, entrada no cardápio do salão e destino de produção de uma vez.
  * Cadastrar as três coisas em telas separadas seria fiel ao modelo de dados e
  * péssimo para quem só quer colocar um prato novo no cardápio.
@@ -88,6 +142,7 @@ export async function criarProduto(dados: DadosProduto) {
   return emResultado(async () => {
     const sessao = await exigirPermissao("produto.editar");
     if (!dados.titulo.trim()) throw new ErroDeOperacao("Informe o título do produto.");
+    await conferirReferenciasDoProduto(dados, sessao);
 
     const cardapio = await db.cardapio.findFirst({
       where: { unidadeId: sessao.unidadeId, canal: "SALAO" },
@@ -130,6 +185,7 @@ export async function atualizarProduto(produtoId: string, dados: DadosProduto) {
 
     const produto = await db.produto.findUnique({ where: { id: produtoId } });
     if (!produto || produto.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Produto não encontrado.");
+    await conferirReferenciasDoProduto(dados, sessao);
 
     await db.$transaction(async (tx) => {
       await tx.produto.update({
