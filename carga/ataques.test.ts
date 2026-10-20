@@ -3799,3 +3799,77 @@ describe("o cadastro da retaguarda com id de fora", () => {
     });
   });
 });
+
+/**
+ * A gaveta aberta por dois toques ao mesmo tempo.
+ *
+ * `abrirCaixa` procura um caixa aberto na unidade e, se não achar, cria. Entre
+ * as duas consultas não há trava nem índice único (`@@index([unidadeId,
+ * status])` não é `@@unique`), e as duas pessoas que abrem a casa — o caixa que
+ * chega às 17h e o gerente que confere o fundo — tocam no mesmo botão da mesma
+ * barra, nos dois tablets, ao mesmo tempo.
+ *
+ * O teste roda numa unidade recém-criada, porque o `beforeAll` já abriu as
+ * gavetas das duas casas do cenário.
+ */
+describe("duas pessoas abrindo a mesma gaveta", () => {
+  it("dois toques em 'abrir caixa' no mesmo instante deixam uma gaveta só", async () => {
+    const unidade = await admin.unidade.create({
+      data: {
+        tenantId: B.tenant.id,
+        codigo: "004",
+        nome: "Filial que vai abrir",
+        cidade: "Anápolis",
+        uf: "GO",
+        taxaServicoPct: 10,
+        atuaLoja: true,
+      },
+    });
+    const usuario = await admin.usuario.create({
+      data: {
+        tenantId: B.tenant.id,
+        nome: "caixa da filial",
+        email: `caixa-filial-${Date.now()}@vizinho.com`,
+        pinHash: await bcrypt.hash("9999", 4),
+        unidades: { create: { unidadeId: unidade.id, cargoId: B.cargos.CAIXA! } },
+      },
+    });
+    const cargo = await admin.cargo.findUniqueOrThrow({
+      where: { id: B.cargos.CAIXA! },
+      include: { permissoes: true },
+    });
+
+    const quem = { ...pessoa("caixa da filial", "9999", "10.4.0.9", "vizinho.frentfood.test"), usuarioId: usuario.id, cargo: "CAIXA" };
+    await sessaoAssinada(quem, {
+      usuarioId: usuario.id,
+      tenantId: B.tenant.id,
+      unidadeId: unidade.id,
+      nome: quem.nome,
+      cargo: "CAIXA",
+      permissoes: cargo.permissoes.map((p) => p.chave),
+    });
+
+    // Os toques de verdade: a mesma ação, disparada ao mesmo tempo. Seis e não
+    // dois — a janela entre o "procura aberto" e o "cria" é estreita, e com
+    // dois toques ela se fecha sozinha na maioria das execuções.
+    const toques = await Promise.all(
+      Array.from({ length: 6 }, () => tentar(quem, () => abrirCaixa("NOITE", 200)))
+    );
+
+    const gavetas = await admin.caixa.findMany({
+      where: { unidadeId: unidade.id, status: "ABERTO" },
+    });
+
+    await admin.caixa.deleteMany({ where: { unidadeId: unidade.id } });
+    await admin.usuarioUnidade.deleteMany({ where: { unidadeId: unidade.id } });
+    await admin.usuario.delete({ where: { id: usuario.id } });
+    await admin.unidade.delete({ where: { id: unidade.id } });
+
+    // Um dos dois pode ter sido recusado, e isso está certo: o que não pode é
+    // a casa ficar com duas gavetas abertas, cada uma com metade do dinheiro.
+    expect({
+      gavetasAbertas: gavetas.length,
+      algumRespondeu: toques.some((t) => !recusou(t)),
+    }).toEqual({ gavetasAbertas: 1, algumRespondeu: true });
+  });
+});
