@@ -10,7 +10,15 @@ import { avancarPedido } from "@/app/kds/actions";
 import { atenderChamado } from "@/app/pdv/carrinho-actions";
 import { cancelarNota, reemitirNota } from "@/app/gestao/fiscal/actions";
 import { transferirMesa } from "@/app/pdv/transferencia-actions";
-import { registrarContagem, registrarEntrada, registrarPerda } from "@/app/gestao/estoque/actions";
+import {
+  registrarContagem,
+  registrarEntrada,
+  registrarPerda,
+  salvarComposicao,
+} from "@/app/gestao/estoque/actions";
+import { atualizarProduto, criarProduto, type DadosProduto } from "@/app/gestao/actions";
+import { atualizarMesa } from "@/app/gestao/mesas/actions";
+import { descartar, reimprimir } from "@/app/gestao/impressao/actions";
 import { salvarDivisaoDaTaxa } from "@/app/gestao/ajustes/actions";
 import { gerarTokenImpressao } from "@/app/gestao/impressao/actions";
 import {
@@ -3510,4 +3518,284 @@ describe("a conta da filial vizinha", () => {
     });
   });
 
+});
+
+/**
+ * O cadastro da retaguarda recebendo id de fora.
+ *
+ * O PDV e a maquininha já conferem cada id que o navegador manda. A retaguarda
+ * — onde se cadastra mesa, produto, ficha técnica e papel — faz isso em
+ * algumas portas e não em outras: `vincularProduto` confere o produto com um
+ * comentário citando a regra, e as vizinhas de arquivo não conferem nada.
+ *
+ * O que está em jogo é o que a memória do projeto chama de "chave estrangeira
+ * ignora o RLS": o Postgres valida a referência com os privilégios do dono da
+ * tabela, então o banco **aceita apontar** para uma linha que ele próprio
+ * esconderia numa consulta. Quem segura isso é o código.
+ */
+describe("o cadastro da retaguarda com id de fora", () => {
+  /** Uma mesa só desta bateria, para não brigar com as contas dos outros testes. */
+  async function mesaDeProva() {
+    const area = await admin.area.findFirstOrThrow({ where: { unidadeId: A.unidade.id } });
+    const mesa = await admin.mesa.create({
+      data: {
+        tenantId: A.tenant.id,
+        unidadeId: A.unidade.id,
+        areaId: area.id,
+        numero: "901",
+        capacidade: 4,
+        qrToken: `qr-prova-${Date.now()}`,
+      },
+    });
+    return { mesa, areaId: area.id };
+  }
+
+  function dadosDeProduto(sobre: Partial<DadosProduto> = {}): DadosProduto {
+    return {
+      titulo: "Produto de prova",
+      codigo: "",
+      categoriaId: "",
+      preco: 10,
+      descricao: "",
+      exigePontoCarne: false,
+      ncm: "",
+      cest: "",
+      perfilFiscalId: "",
+      maiorDeIdade: false,
+      estacaoId: "",
+      ...sobre,
+    };
+  }
+
+  /** O produto que a tentativa criou, se criou — pelo título, que é só meu. */
+  async function produtoCriado(titulo: string) {
+    return admin.produto.findFirst({ where: { titulo }, include: { estacoes: true } });
+  }
+
+  /**
+   * A mesa indo para a área do vizinho.
+   *
+   * `atualizarMesa` confere a mesa (`mesaDaUnidade`) e grava o `areaId` como
+   * veio. A mesa é agrupada pela área no mapa do salão e na tela de mesas: uma
+   * mesa pendurada numa área que a sessão não enxerga sai das duas telas — e
+   * não há por onde trazê-la de volta, porque a tela que a editaria é a que
+   * deixou de mostrá-la.
+   */
+  it("a mesa não muda para a área do vizinho", async () => {
+    const { mesa, areaId } = await mesaDeProva();
+    const areaDoVizinho = await admin.area.findFirstOrThrow({
+      where: { unidadeId: B.unidade.id },
+    });
+
+    const t = await tentar(A.gerentes[0]!, () =>
+      atualizarMesa({
+        mesaId: mesa.id,
+        numero: mesa.numero,
+        capacidade: mesa.capacidade,
+        areaId: areaDoVizinho.id,
+      })
+    );
+
+    const depois = await admin.mesa.findUniqueOrThrow({ where: { id: mesa.id } });
+    await admin.mesa.delete({ where: { id: mesa.id } });
+
+    expect({
+      recusou: recusou(t),
+      area: depois.areaId === areaId ? "a própria" : "a do vizinho",
+    }).toEqual({ recusou: true, area: "a própria" });
+  });
+
+  /**
+   * O produto nascendo na praça de produção do vizinho.
+   *
+   * A praça (`Estacao`) é por **unidade**: é ela que decide em qual monitor o
+   * ticket aparece e em qual impressora o papel sai. Um produto apontado para
+   * a praça de outra casa manda o pedido para uma cozinha que não é a dele —
+   * ou, se a outra casa não imprime, para nenhuma.
+   */
+  it("o produto não nasce na praça de produção do vizinho", async () => {
+    const titulo = `Prova praca ${Date.now()}`;
+    const estacaoDoVizinho = await admin.estacao.findFirstOrThrow({
+      where: { unidadeId: B.unidade.id },
+    });
+
+    const t = await tentar(A.gerentes[0]!, () =>
+      criarProduto(dadosDeProduto({ titulo, estacaoId: estacaoDoVizinho.id }))
+    );
+
+    const criado = await produtoCriado(titulo);
+    if (criado) await admin.produto.delete({ where: { id: criado.id } });
+
+    expect({
+      recusou: recusou(t),
+      pracas: criado?.estacoes.map((e) => (e.estacaoId === estacaoDoVizinho.id ? "do vizinho" : "propria")) ?? [],
+    }).toEqual({ recusou: true, pracas: [] });
+  });
+
+  /**
+   * O produto nascendo na categoria do vizinho.
+   *
+   * A categoria é do restaurante, e é por ela que a tela de produtos e o
+   * cardápio agrupam. Apontando para a de fora, o produto cai num grupo cujo
+   * nome esta sessão não lê — a linha aparece sem categoria ou não aparece,
+   * conforme a tela.
+   */
+  it("o produto não nasce na categoria do vizinho", async () => {
+    const titulo = `Prova categoria ${Date.now()}`;
+    const categoriaDoVizinho = await admin.categoriaProduto.findFirstOrThrow({
+      where: { tenantId: B.tenant.id },
+    });
+
+    const t = await tentar(A.gerentes[0]!, () =>
+      criarProduto(dadosDeProduto({ titulo, categoriaId: categoriaDoVizinho.id }))
+    );
+
+    const criado = await produtoCriado(titulo);
+    if (criado) await admin.produto.delete({ where: { id: criado.id } });
+
+    expect({ recusou: recusou(t), categoria: criado?.categoriaId ?? null }).toEqual({
+      recusou: true,
+      categoria: null,
+    });
+  });
+
+  /**
+   * O produto herdando o perfil fiscal do vizinho.
+   *
+   * O perfil fiscal carrega CFOP, CST/CSOSN e alíquotas: é o que a NFC-e
+   * declara à SEFAZ. Emitir nota com o perfil de outra empresa é número errado
+   * em documento fiscal — e o perfil é por unidade, então nem dentro da mesma
+   * rede vale pegar o da filial.
+   */
+  it("o produto não herda o perfil fiscal do vizinho", async () => {
+    const titulo = `Prova fiscal ${Date.now()}`;
+    const perfilDoVizinho = await admin.perfilFiscal.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: B.unidade.id,
+        nome: "Perfil do vizinho",
+        cfop: "5102",
+      },
+    });
+
+    const t = await tentar(A.gerentes[0]!, () =>
+      criarProduto(dadosDeProduto({ titulo, perfilFiscalId: perfilDoVizinho.id }))
+    );
+
+    const criado = await produtoCriado(titulo);
+    if (criado) await admin.produto.delete({ where: { id: criado.id } });
+    await admin.perfilFiscal.delete({ where: { id: perfilDoVizinho.id } });
+
+    expect({ recusou: recusou(t), perfil: criado?.perfilFiscalId ?? null }).toEqual({
+      recusou: true,
+      perfil: null,
+    });
+  });
+
+  /** O mesmo perfil de fora, agora pela edição de um produto que já existe. */
+  it("o produto editado não passa a usar o perfil fiscal do vizinho", async () => {
+    const meu = A.itens[0]!;
+    const perfilDoVizinho = await admin.perfilFiscal.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: B.unidade.id,
+        nome: "Perfil do vizinho",
+        cfop: "5102",
+      },
+    });
+
+    const t = await tentar(A.gerentes[0]!, () =>
+      atualizarProduto(
+        meu.produtoId,
+        dadosDeProduto({ titulo: meu.titulo, preco: meu.preco, perfilFiscalId: perfilDoVizinho.id })
+      )
+    );
+
+    const depois = await admin.produto.findUniqueOrThrow({ where: { id: meu.produtoId } });
+    await admin.produto.update({ where: { id: meu.produtoId }, data: { perfilFiscalId: null } });
+    await admin.perfilFiscal.delete({ where: { id: perfilDoVizinho.id } });
+
+    expect({ recusou: recusou(t), perfil: depois.perfilFiscalId ?? null }).toEqual({
+      recusou: true,
+      perfil: null,
+    });
+  });
+
+  /**
+   * A ficha técnica consumindo o insumo do vizinho.
+   *
+   * É a pior das portas desta tela, porque o estrago é automático: a cada
+   * venda, `baixarVenda` percorre a composição e grava um movimento de estoque
+   * **por insumo**. Com um insumo de fora, cada espeto vendido aqui lança
+   * movimento e saldo contra um produto de outra empresa.
+   */
+  it("a ficha técnica não consome o insumo do vizinho", async () => {
+    const meu = A.itens.find((i) => !i.controlaEstoque)!;
+    const insumoDoVizinho = B.itens.find((i) => i.controlaEstoque)!;
+
+    const t = await tentar(A.gerentes[0]!, () =>
+      salvarComposicao(meu.produtoId, [{ insumoId: insumoDoVizinho.produtoId, quantidade: 1 }])
+    );
+
+    const ficha = await admin.composicao.findMany({ where: { produtoId: meu.produtoId } });
+    await admin.composicao.deleteMany({ where: { produtoId: meu.produtoId } });
+
+    expect({
+      recusou: recusou(t),
+      atravessou: ficha.some((c) => c.insumoId === insumoDoVizinho.produtoId),
+    }).toEqual({ recusou: true, atravessou: false });
+  });
+
+  /**
+   * O papel da filial reimpresso e descartado pela matriz.
+   *
+   * `reimprimir` e `descartar` conferem só o restaurante, e o RLS é por
+   * restaurante: a fila da filial existe para a sessão da matriz. Reimprimir
+   * enfileira de novo **na unidade de origem** — o papel sai na outra cidade,
+   * sozinho, de madrugada; descartar apaga da fila de lá um trabalho que
+   * ninguém de lá resolveu.
+   */
+  it("a matriz não reimprime nem descarta o papel da filial", async () => {
+    const unidade = await admin.unidade.create({
+      data: {
+        tenantId: B.tenant.id,
+        codigo: "003",
+        nome: "Filial da impressão",
+        cidade: "Anápolis",
+        uf: "GO",
+        taxaServicoPct: 10,
+        atuaLoja: true,
+      },
+    });
+    const papel = await admin.filaImpressao.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: unidade.id,
+        tipo: "CONFERENCIA",
+        titulo: "Conferência da filial",
+        conteudo: "nada que a matriz tenha pedido",
+      },
+    });
+
+    const reimpressao = await tentar(B.gerentes[0]!, () => reimprimir(papel.id));
+    const descarte = await tentar(B.gerentes[0]!, () => descartar(papel.id));
+
+    const naFila = await admin.filaImpressao.findMany({ where: { unidadeId: unidade.id } });
+    const depois = naFila.find((f) => f.id === papel.id)!;
+
+    await admin.filaImpressao.deleteMany({ where: { unidadeId: unidade.id } });
+    await admin.unidade.delete({ where: { id: unidade.id } });
+
+    expect({
+      reimpressaoRecusada: recusou(reimpressao),
+      descarteRecusado: recusou(descarte),
+      trabalhosNaFilaDaFilial: naFila.length,
+      statusDoOriginal: depois.status,
+    }).toEqual({
+      reimpressaoRecusada: true,
+      descarteRecusado: true,
+      trabalhosNaFilaDaFilial: 1,
+      statusDoOriginal: "PENDENTE",
+    });
+  });
 });
