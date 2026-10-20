@@ -9,6 +9,7 @@ import {
   reemitirNota,
   salvarConfigFiscal,
   salvarPerfil,
+  transmitirContingencia,
   type ConfigFiscal,
   type DadosPerfil,
 } from "./actions";
@@ -62,6 +63,7 @@ export function FiscalTela({
   notas,
   produtosSemPerfil,
   produtosSemNcm,
+  contingencia,
   podeEditar,
 }: {
   unidade: {
@@ -77,6 +79,20 @@ export function FiscalTela({
   notas: Nota[];
   produtosSemPerfil: number;
   produtosSemNcm: number;
+  /**
+   * O que a SEFAZ não recebeu e está esperando transmissão.
+   *
+   * O prazo vem de cima junto com a contagem: a regra mora no servidor
+   * (`lib/fiscal/contingencia`, que é `server-only`) e esta tela não pode
+   * importá-la — nem deve ter uma segunda cópia do número.
+   */
+  contingencia: {
+    paradas: number;
+    vencidas: number;
+    horasDaMaisVelha: number;
+    semDocumento: number;
+    prazoHoras: number;
+  };
   podeEditar: boolean;
 }) {
   const [config, setConfig] = useState(unidade.config);
@@ -127,6 +143,71 @@ export function FiscalTela({
       {erro && <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}
       {aviso && (
         <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{aviso}</p>
+      )}
+
+      {/*
+        A contingência vem antes dos avisos de cadastro porque tem prazo
+        correndo: produto sem NCM atrapalha a próxima venda, nota não
+        transmitida é passivo fiscal de uma venda que já aconteceu.
+      */}
+      {contingencia.paradas > 0 && (
+        <div
+          className={`mt-4 rounded-lg px-4 py-3 text-sm ${
+            contingencia.vencidas > 0 ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"
+          }`}
+        >
+          <p>
+            <strong>
+              {contingencia.paradas} nota(s) emitida(s) em contingência, esperando transmissão.
+            </strong>{" "}
+            A mais velha há {contingencia.horasDaMaisVelha}h, e o prazo legal é de{" "}
+            {contingencia.prazoHoras}h.
+            {contingencia.vencidas > 0 && (
+              <>
+                {" "}
+                <strong>
+                  {contingencia.vencidas} já {contingencia.vencidas === 1 ? "passou" : "passaram"}{" "}
+                  do prazo
+                </strong>{" "}
+                — essa{contingencia.vencidas === 1 ? "" : "s"} o seu contador precisa resolver.
+              </>
+            )}
+          </p>
+          {contingencia.semDocumento > 0 && (
+            <p className="mt-2">
+              {contingencia.semDocumento} delas são de antes desta versão e não guardaram o
+              documento emitido: não há o que transmitir daqui.
+            </p>
+          )}
+          {podeEditar && (
+            <button
+              onClick={() =>
+                agir(async () => {
+                  const r = await transmitirContingencia();
+                  if (temErro(r)) return r;
+                  setAviso(
+                    r.autorizadas > 0
+                      ? `${r.autorizadas} nota(s) transmitida(s) e autorizada(s).` +
+                          (r.recusadas > 0 ? ` ${r.recusadas} recusada(s) — o motivo está na lista.` : "") +
+                          (r.aindaParadas > 0 ? ` ${r.aindaParadas} ainda esperam.` : "")
+                      : r.recusadas > 0
+                        ? `${r.recusadas} nota(s) recusada(s) pela SEFAZ — o motivo está na lista.`
+                        : r.tentadas === 0
+                          ? // Nada foi tentado: o que está na fila é só nota sem
+                            // documento guardado. Dizer "a SEFAZ não respondeu"
+                            // seria culpar quem não foi nem chamado.
+                            `Nada a transmitir daqui: ${r.semDocumento} nota(s) não guardaram o documento emitido.`
+                          : "A SEFAZ continua sem responder. As notas seguem na fila, e o prazo segue correndo."
+                  );
+                })
+              }
+              disabled={pendente}
+              className="mt-3 rounded-lg bg-neutral-900 px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+            >
+              {pendente ? "Transmitindo..." : "Transmitir agora"}
+            </button>
+          )}
+        </div>
       )}
 
       {(produtosSemNcm > 0 || produtosSemPerfil > 0) && (

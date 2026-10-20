@@ -3,18 +3,19 @@ import { db } from "../db";
 import { CONSUMO } from "../itens";
 import { calcularTotais } from "../comanda";
 import { enfileirar } from "../fila-impressao";
-import { gerarCodigoNumerico } from "./chave";
+import { gerarCodigoNumerico, montarChave, TP_EMIS } from "./chave";
 import { montarDanfe } from "./danfe";
 import { EmissorSimulado } from "./emissor-simulado";
 import { montarNota, montarPagamento, type ItemDaComanda } from "./montar-nota";
-import type { Emissor } from "./tipos";
+import type { Emissor, NotaParaEmitir } from "./tipos";
+import type { Prisma } from "@prisma/client";
 
 /**
  * Escolhe quem fala com a SEFAZ. Enquanto só existe o simulado, os gateways
  * caem nele de propósito: melhor uma nota marcada como simulação do que uma
  * integração pela metade fingindo que emitiu.
  */
-function emissorDa(unidade: { emissorFiscal: string }): Emissor {
+export function emissorDa(unidade: { emissorFiscal: string }): Emissor {
   switch (unidade.emissorFiscal) {
     case "SIMULADO":
     default:
@@ -39,6 +40,33 @@ async function reservarNumero(unidadeId: string, serie: number) {
   return (ultima?.numero ?? 0) + 1;
 }
 
+/**
+ * O que fica guardado quando a SEFAZ não recebe.
+ *
+ * A nota nasce **em contingência offline**: é assim que a lei trata a venda
+ * que aconteceu sem o serviço no ar, e a chave de acesso dela carrega
+ * `tpEmis=9` para dizer isso. A chave é calculada aqui, por nós — não vem do
+ * emissor, que é justamente quem não respondeu — e é a mesma que a transmissão
+ * de depois vai usar: a data de emissão e o código numérico entram no cálculo,
+ * então remontar o documento mais tarde daria outra nota.
+ *
+ * Por isso o documento inteiro é guardado em `emitida`. Era o que faltava
+ * para a transmissão posterior existir (`lib/fiscal/contingencia`).
+ */
+function emOffline(nota: NotaParaEmitir): { documento: NotaParaEmitir; chave: string } {
+  const documento: NotaParaEmitir = { ...nota, contingencia: true };
+  const chave = montarChave({
+    uf: documento.emitente.uf,
+    emissao: documento.emissao,
+    cnpj: documento.emitente.cnpj,
+    serie: documento.serie,
+    numero: documento.numero,
+    codigoNumerico: documento.codigoNumerico,
+    tipoEmissao: TP_EMIS.CONTINGENCIA_OFFLINE,
+  });
+  return { documento, chave };
+}
+
 export type ResultadoEmitir =
   | { ok: true; notaId: string; chaveAcesso: string }
   | { ok: false; notaId?: string; motivo: string };
@@ -50,7 +78,12 @@ export type ResultadoEmitir =
  * fiscal vira nota com status de erro para a gestão resolver, não venda
  * travada.
  */
-export async function emitirNfce(comandaId: string, usuarioId?: string): Promise<ResultadoEmitir> {
+export async function emitirNfce(
+  comandaId: string,
+  usuarioId?: string,
+  /** O teste injeta aqui o emissor que cai; em produção vem do cadastro. */
+  emissor?: Emissor
+): Promise<ResultadoEmitir> {
   const comanda = await db.comanda.findUnique({
     where: { id: comandaId },
     include: {
@@ -180,7 +213,7 @@ export async function emitirNfce(comandaId: string, usuarioId?: string): Promise
   });
 
   try {
-    const resposta = await emissorDa(unidade).emitir(nota);
+    const resposta = await (emissor ?? emissorDa(unidade)).emitir(nota);
 
     switch (resposta.status) {
       case "AUTORIZADA": {
@@ -247,14 +280,22 @@ export async function emitirNfce(comandaId: string, usuarioId?: string): Promise
         return { ok: true, notaId: registro.id, chaveAcesso: resposta.chaveAcesso };
       }
 
-      case "INDISPONIVEL":
+      case "INDISPONIVEL": {
         // SEFAZ fora do ar não é erro do restaurante: a nota fica em
-        // contingência e é transmitida quando o serviço voltar.
+        // contingência e é transmitida quando o serviço voltar — agora existe
+        // quem a transmita (`lib/fiscal/contingencia`).
+        const offline = emOffline(nota);
         await db.notaFiscal.update({
           where: { id: registro.id },
-          data: { status: "CONTINGENCIA", motivoRejeicao: resposta.motivo },
+          data: {
+            status: "CONTINGENCIA",
+            motivoRejeicao: resposta.motivo,
+            chaveAcesso: offline.chave,
+            emitida: offline.documento as unknown as Prisma.InputJsonValue,
+          },
         });
         return { ok: false, notaId: registro.id, motivo: `Em contingência: ${resposta.motivo}` };
+      }
 
       default:
         await db.notaFiscal.update({
@@ -268,10 +309,28 @@ export async function emitirNfce(comandaId: string, usuarioId?: string): Promise
         return { ok: false, notaId: registro.id, motivo: resposta.motivo };
     }
   } catch (e) {
+    /*
+     * Estourou no meio da conversa: trata como serviço fora, que é o caso
+     * provável (rede, DNS, timeout).
+     *
+     * Fica um risco conhecido, e ele é do adaptador do gateway, não daqui: se
+     * a autorização saiu e só a **resposta** se perdeu, a nota está autorizada
+     * na SEFAZ e aqui em contingência. A transmissão de depois mandaria a
+     * mesma chave e receberia "duplicidade" — por isso o adaptador precisa
+     * consultar pela chave antes de retransmitir. Está anotado em
+     * `docs/fiscal.md`; com o emissor simulado não acontece.
+     */
     const motivo = e instanceof Error ? e.message : "Falha ao comunicar com o emissor.";
+    const offline = emOffline(nota);
     await db.notaFiscal.update({
       where: { id: registro.id },
-      data: { status: "CONTINGENCIA", motivoRejeicao: motivo, tentativas: { increment: 1 } },
+      data: {
+        status: "CONTINGENCIA",
+        motivoRejeicao: motivo,
+        chaveAcesso: offline.chave,
+        emitida: offline.documento as unknown as Prisma.InputJsonValue,
+        tentativas: { increment: 1 },
+      },
     });
     return { ok: false, notaId: registro.id, motivo };
   }

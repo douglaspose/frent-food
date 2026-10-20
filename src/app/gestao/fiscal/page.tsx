@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { sessaoDaTela, temPermissao } from "@/lib/session";
+import { resumoDaContingencia } from "@/lib/fiscal/contingencia";
 import { FiscalTela } from "./fiscal-tela";
 
 export const metadata: Metadata = { title: "Fiscal" };
@@ -25,6 +26,14 @@ export default async function FiscalPage() {
     db.produto.count({ where: { tenantId: sessao.tenantId, ativo: true, perfilFiscalId: null } }),
   ]);
 
+  /*
+   * Quantas notas a SEFAZ não recebeu, e desde quando.
+   *
+   * É o aviso mais caro desta tela: nota emitida offline tem prazo legal para
+   * ser transmitida, e antes disto existir ela ficava parada sem ninguém saber.
+   */
+  const contingencia = await resumoDaContingencia(sessao);
+
   // Produto sem NCM é rejeição garantida — melhor avisar antes do movimento.
   const produtosSemNcm = await db.produto.count({
     where: { tenantId: sessao.tenantId, ativo: true, tipo: "VENDA", OR: [{ ncm: null }, { ncm: "" }] },
@@ -33,6 +42,7 @@ export default async function FiscalPage() {
   return (
     <FiscalTela
       podeEditar={temPermissao(sessao, "unidade.configurar")}
+      contingencia={contingencia}
       produtosSemPerfil={produtosSemPerfil}
       produtosSemNcm={produtosSemNcm}
       unidade={{

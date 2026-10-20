@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { exigirPermissao } from "@/lib/session";
 import { cancelarNfce, emitirNfce } from "@/lib/fiscal/emitir";
+import { transmitirContingencias } from "@/lib/fiscal/contingencia";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
 import { comandaDaUnidade, conferirUnidade } from "@/lib/da-unidade";
 
@@ -165,6 +166,23 @@ export async function reemitirNota(comandaId: string) {
     await comandaDaUnidade(comandaId, sessao);
 
     const resultado = await emitirNfce(comandaId, sessao.usuarioId);
+    revalidatePath("/gestao/fiscal");
+    return resultado;
+  });
+}
+
+/**
+ * Transmite agora as notas que ficaram em contingência.
+ *
+ * A rotina também roda por agendador (`POST /api/fiscal/contingencia`), mas o
+ * botão existe porque quem está no restaurante sabe antes de qualquer
+ * agendador que a internet voltou — e porque o prazo legal de transmissão corre
+ * contra a casa, não contra o servidor.
+ */
+export async function transmitirContingencia() {
+  return emResultado(async () => {
+    const sessao = await exigirPermissao(PERMISSAO);
+    const resultado = await transmitirContingencias(sessao);
     revalidatePath("/gestao/fiscal");
     return resultado;
   });

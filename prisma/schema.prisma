@@ -1238,6 +1238,14 @@ model NotaFiscal {
   motivoRejeicao String?
   tentativas     Int     @default(0)
 
+  /// O documento como ele nasceu, para ser transmitido depois igual.
+  ///
+  /// A nota que a SEFAZ não recebeu entra em contingência e tem prazo legal
+  /// para ser transmitida. Ela precisa ir **idêntica**: a data de emissão e o
+  /// código numérico entram no cálculo da chave de acesso, que já foi impressa
+  /// no cupom do cliente. Remontar da comanda daria outra chave.
+  emitida Json?
+
   canceladaEm           DateTime?
   protocoloCancelamento String?
   motivoCancelamento    String?
@@ -1248,6 +1256,9 @@ model NotaFiscal {
   @@unique([unidadeId, serie, numero])
   @@index([tenantId])
   @@index([unidadeId, status])
+  // A fila da contingência é varrida por unidade e por idade: a mais velha
+  // primeiro, que é a mais perto de estourar o prazo.
+  @@index([unidadeId, status, criadoEm])
   @@map("notas_fiscais")
 }
 

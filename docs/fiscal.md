@@ -51,20 +51,52 @@ retorno. Depois registre o novo emissor no `switch` de `emissorDa()` em
 O trabalho real é traduzir `NotaParaEmitir` para o payload do gateway. Os
 campos já estão todos lá, inclusive tributação por item.
 
-### 2. Contingência offline — **o furo mais sério**
+### 2. Contingência offline — **pronta** (20/10/2026)
 
-Hoje, quando o emissor não responde, a nota é marcada como `CONTINGENCIA` e a
-venda segue. **Mas não existe a rotina que a transmite quando o serviço
-volta** — essas notas ficam paradas para sempre.
+Quando o emissor não responde, a venda não para: a nota nasce em contingência
+offline, e é transmitida depois. O que existe hoje:
 
-O que falta:
+- A chave é calculada **por nós**, com `tpEmis=9` (`TP_EMIS.CONTINGENCIA_OFFLINE`)
+  — o emissor não respondeu, não há de quem esperar chave.
+- O documento inteiro fica guardado em `notas_fiscais.emitida`. É o que permite
+  transmitir **a mesma nota**: a data de emissão e o código numérico entram no
+  cálculo da chave que já foi impressa, e remontar da comanda daria outra.
+- `transmitirContingencias()` em `src/lib/fiscal/contingencia.ts` varre a fila
+  da unidade, da mais velha para a mais nova. Autorizada: grava protocolo, XML e
+  enfileira o DANFE. Recusada ou denegada: sai da contingência com o motivo, para
+  a mão de gente. Indisponível: para o lote ali — as outras receberiam a mesma
+  resposta.
+- O prazo legal (`PRAZO_DE_TRANSMISSAO_HORAS`, 24h) é contado em
+  `resumoDaContingencia()`, e **Gestão → Fiscal** avisa em cima da tela quantas
+  esperam, há quanto tempo a mais velha, e quantas já venceram.
 
-- Tarefa periódica que busca notas em `CONTINGENCIA` e tenta reemitir
-- Marcar a chave com `tpEmis=9` na emissão offline (o código da chave já
-  suporta, ver `TP_EMIS.CONTINGENCIA_OFFLINE`)
-- Prazo legal de transmissão (24h na maioria das UFs) e alerta quando estourar
+**Duas portas** chamam a rotina:
 
-Sem isso, um dia de SEFAZ instável vira um passivo fiscal silencioso.
+1. O botão "Transmitir agora" na tela Fiscal (pede `unidade.configurar`). Quem
+   está no restaurante sabe antes de qualquer agendador que a internet voltou.
+2. `POST /api/fiscal/contingencia`, com o **token do aparelho** no
+   `Authorization: Bearer` — a mesma credencial da fila de impressão. Varre a
+   unidade daquele token; quem tem filial agenda uma chamada por filial.
+
+   ```bash
+   # a cada 10 minutos, na VPS
+   */10 * * * * curl -fsS -X POST https://SEU-DOMINIO/api/fiscal/contingencia \
+     -H "Authorization: Bearer TOKEN_DO_APARELHO" >/dev/null
+   ```
+
+   Responde 200 mesmo com a SEFAZ fora, e o corpo conta o que houve
+   (`autorizadas`, `recusadas`, `aindaParadas`, `esperando`): um 5xx faria o
+   agendador tratar "o governo está fora" como "esta porta quebrou".
+
+**O que sobra para o adaptador do gateway:** se a autorização sair e só a
+*resposta* se perder, a nota fica autorizada na SEFAZ e em contingência aqui — a
+transmissão seguinte mandaria a mesma chave e levaria "duplicidade". O adaptador
+precisa **consultar pela chave** antes de retransmitir. Com o emissor simulado
+isso não acontece, e por isso não está resolvido ainda.
+
+**Notas anteriores a 20/10/2026** que ficaram em contingência não guardaram o
+documento: a rotina as conta à parte (`semDocumento`) e não tenta transmiti-las.
+A tela diz isso, e quem resolve é o contador.
 
 ### 3. Menores, mas necessários antes de produção
 
@@ -72,6 +104,9 @@ Sem isso, um dia de SEFAZ instável vira um passivo fiscal silencioso.
   ser inutilizado na SEFAZ, senão fica buraco na sequência
 - **Janela de cancelamento**: a SEFAZ aceita cancelar por ~30 min após a
   autorização (varia por UF). A tela ainda oferece cancelar sem checar o prazo
+- **DANFE da contingência no ato da venda**: a lei manda entregar o cupom ao
+  cliente na hora, com a observação de emissão em contingência. Hoje o papel só
+  sai quando a nota é autorizada — na venda offline o cliente sai sem cupom
 - **CSC guardado em texto puro** no banco. Deveria ser cifrado em repouso
 - **Numeração sob concorrência**: hoje é `max + 1`. No volume de um restaurante
   dá conta; numa rede com muitos caixas simultâneos, vira uma sequence no
