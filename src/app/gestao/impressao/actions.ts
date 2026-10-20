@@ -7,6 +7,7 @@ import { exigirPermissao } from "@/lib/session";
 import { enfileirar } from "@/lib/fila-impressao";
 import { centro, linha } from "@/lib/impressao";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
+import { conferirUnidade } from "@/lib/da-unidade";
 
 /**
  * A credencial da unidade, nova.
@@ -35,7 +36,14 @@ export async function reimprimir(filaId: string) {
     const sessao = await exigirPermissao("produto.editar");
 
     const original = await db.filaImpressao.findUnique({ where: { id: filaId } });
-    if (!original || original.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Não encontrado.");
+    if (!original) throw new ErroDeOperacao("Não encontrado.");
+    /*
+     * A fila é por unidade, e o RLS é por restaurante: o papel da filial
+     * existe para a sessão da matriz. Reimprimir enfileira de novo na unidade
+     * de **origem** — o papel sairia na outra cidade, de madrugada, sem
+     * ninguém de lá ter pedido.
+     */
+    conferirUnidade(original, sessao, "Papel");
 
     await enfileirar({
       tenantId: original.tenantId,
@@ -57,7 +65,10 @@ export async function descartar(filaId: string) {
     const sessao = await exigirPermissao("produto.editar");
 
     const trabalho = await db.filaImpressao.findUnique({ where: { id: filaId } });
-    if (!trabalho || trabalho.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Não encontrado.");
+    if (!trabalho) throw new ErroDeOperacao("Não encontrado.");
+    // Descartar daqui apagaria da fila de lá um papel que ninguém de lá
+    // resolveu — e a praça continuaria esperando o prato.
+    conferirUnidade(trabalho, sessao, "Papel");
 
     await db.filaImpressao.update({
       where: { id: filaId },
