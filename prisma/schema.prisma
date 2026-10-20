@@ -889,6 +889,14 @@ enum StatusPedido {
   PRONTO
   ENTREGUE
   CANCELADO
+
+  /// Saiu no papel da praça, e o sistema parou de segui-lo ali.
+  ///
+  /// A casa que troca a tela de cozinha pela térmica não tem quem toque em
+  /// "pronto" e "entregue". Sem estado próprio, esses tickets ficariam para
+  /// sempre em EM_PREPARO: no quadro que ninguém olha e na contagem de
+  /// "atrasados" da barra, gritando o dia inteiro. Ver `lib/producao`.
+  NO_PAPEL
 }
 
 /// Cada envio à cozinha gera um ticket por estação — é o que aparece no KDS

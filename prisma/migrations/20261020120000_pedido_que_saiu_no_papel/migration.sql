@@ -1,0 +1,14 @@
+-- O ticket que saiu no papel, e não na tela.
+--
+-- A casa que troca a tela de cozinha pela térmica não tem quem toque em
+-- "pronto" e "entregue": quem acompanha o prato é o papel pendurado na praça.
+-- Sem um estado próprio, esses tickets ficariam para sempre em EM_PREPARO —
+-- aparecendo no quadro do KDS que ninguém olha e entrando na contagem de
+-- "atrasados" da barra, que passaria a gritar o dia inteiro.
+--
+-- `NO_PAPEL` diz o que aconteceu de verdade: o pedido foi para a praça em
+-- papel e o sistema parou de segui-lo ali. Fica fora do quadro e fora dos
+-- alertas pela mesma consulta que já filtra por status, e continua
+-- distinguível num relatório — o que não daria para fazer marcando ENTREGUE,
+-- que significa "chegou à mesa".
+ALTER TYPE "StatusPedido" ADD VALUE 'NO_PAPEL';
