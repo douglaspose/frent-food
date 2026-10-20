@@ -183,6 +183,18 @@ export async function salvarComposicao(
     const validas = partes.filter((p) => p.insumoId && p.quantidade > 0);
     for (const parte of validas) quantidadeValida(parte.quantidade, "Quantidade do insumo");
 
+    /*
+     * O insumo também é um id que o navegador manda, e chave estrangeira
+     * ignora o RLS: o banco aceita a ficha apontar para o produto de outro
+     * restaurante, que ele próprio esconderia numa consulta. Daí em diante o
+     * estrago é automático — a cada venda deste prato, `baixarVenda` percorre
+     * a composição e grava movimento e saldo contra o produto de fora, na
+     * unidade de quem vendeu. Medido: um prato vendido deixa um saldo de -2
+     * aqui para um produto de lá, e a tela de Estoque passa a estourar, porque
+     * o movimento tem produto que esta sessão não lê.
+     */
+    for (const parte of validas) await produtoDoTenant(parte.insumoId, sessao.tenantId);
+
     await db.$transaction(async (tx) => {
       // Substitui a ficha inteira: é mais previsível que calcular a diferença,
       // e a ficha é editada por completo na tela.
