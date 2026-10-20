@@ -3534,7 +3534,13 @@ describe("a conta da filial vizinha", () => {
  * esconderia numa consulta. Quem segura isso é o código.
  */
 describe("o cadastro da retaguarda com id de fora", () => {
-  /** Uma mesa só desta bateria, para não brigar com as contas dos outros testes. */
+  /**
+   * Uma mesa só desta bateria, para não brigar com as contas dos outros testes.
+   *
+   * O número é 9901 e não 901: a bateria da maquininha cria mesas a partir de
+   * 901, e o número é único por unidade — a primeira versão deste teste
+   * quebrava por isso, e a falha era minha, não do sistema.
+   */
   async function mesaDeProva() {
     const area = await admin.area.findFirstOrThrow({ where: { unidadeId: A.unidade.id } });
     const mesa = await admin.mesa.create({
@@ -3542,7 +3548,7 @@ describe("o cadastro da retaguarda com id de fora", () => {
         tenantId: A.tenant.id,
         unidadeId: A.unidade.id,
         areaId: area.id,
-        numero: "901",
+        numero: "9901",
         capacidade: 4,
         qrToken: `qr-prova-${Date.now()}`,
       },
