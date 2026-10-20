@@ -71,6 +71,9 @@ export const SECOES_DE_CONFIGURACAO: SecaoDeConfiguracao[] = [
     href: "/gestao/fiscal",
     titulo: "Fiscal",
     descricao: "Emissão de NFC-e: certificado, CSC, série e ambiente de homologação.",
+    // Como formas de pagamento e ajustes: o cartão é de quem configura a
+    // unidade. Sem isto o gerente abria uma tela em que nada responde.
+    permissao: "unidade.configurar",
   },
   {
     href: "/gestao/ajustes",

@@ -32,7 +32,7 @@ export default async function FiscalPage() {
 
   return (
     <FiscalTela
-      podeEditar={temPermissao(sessao, "produto.editar")}
+      podeEditar={temPermissao(sessao, "unidade.configurar")}
       produtosSemPerfil={produtosSemPerfil}
       produtosSemNcm={produtosSemNcm}
       unidade={{

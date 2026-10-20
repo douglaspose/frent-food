@@ -7,7 +7,22 @@ import { cancelarNfce, emitirNfce } from "@/lib/fiscal/emitir";
 import { emResultado, ErroDeOperacao } from "@/lib/erro-de-operacao";
 import { comandaDaUnidade, conferirUnidade } from "@/lib/da-unidade";
 
-const PERMISSAO = "produto.editar";
+/**
+ * O fiscal é configuração da unidade, e não edição de cardápio.
+ *
+ * Era `produto.editar` — a mesma permissão de trocar o título de um prato —,
+ * e o que esta tela guarda é outra coisa: CFOP, CST/CSOSN e alíquotas que a
+ * NFC-e declara à SEFAZ no nome da empresa, a série e o ambiente da emissão, o
+ * CSC e o token do emissor, e o cancelamento de nota, que é ato fiscal com
+ * prazo contado. As telas vizinhas de mesma natureza — formas de pagamento,
+ * aparelhos, ajustes — pedem `unidade.configurar` desde sempre.
+ *
+ * Na instalação padrão isto tira o fiscal da mão do gerente, que tem
+ * `produto.editar` e não tem `unidade.configurar`: é a decisão do dono, e
+ * quem quiser o gerente emitindo e cancelando nota dá a ele a permissão de
+ * configurar a unidade — no cargo, onde essa escolha mora.
+ */
+const PERMISSAO = "unidade.configurar";
 
 export type ConfigFiscal = {
   inscricaoEstadual: string;

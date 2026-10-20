@@ -8,7 +8,12 @@ import { comandaDeBalcao } from "@/lib/balcao";
 import { pedirAutorizacao } from "@/app/pdv/autorizacao-actions";
 import { avancarPedido } from "@/app/kds/actions";
 import { atenderChamado } from "@/app/pdv/carrinho-actions";
-import { cancelarNota, reemitirNota } from "@/app/gestao/fiscal/actions";
+import {
+  cancelarNota,
+  reemitirNota,
+  salvarConfigFiscal,
+  salvarPerfil,
+} from "@/app/gestao/fiscal/actions";
 import { transferirMesa } from "@/app/pdv/transferencia-actions";
 import {
   registrarContagem,
@@ -343,6 +348,96 @@ describe("permissões e sessão", () => {
     const t = await tentar(A.garcons[2]!, () => registrarPagamento(comandaId, A.formas.pix.id, 10, 0));
     const gravados = await admin.pagamento.count({ where: { comandaId } });
     expect({ recusou: recusou(t), gravados }).toEqual({ recusou: true, gravados: 0 });
+  });
+
+  /** O perfil fiscal mínimo que a action aceita. */
+  const perfilDeProva = (nome: string) => ({
+    nome,
+    cfop: "5102",
+    origemMercadoria: 0,
+    csosn: "102",
+    cstIcms: "",
+    aliquotaIcms: 0,
+    cstPis: "49",
+    aliquotaPis: 0,
+    cstCofins: "49",
+    aliquotaCofins: 0,
+    padrao: false,
+  });
+
+  /**
+   * O fiscal na mão de quem edita cardápio.
+   *
+   * As cinco ações da tela pediam `produto.editar`: a mesma permissão de
+   * trocar o título de um prato abria CFOP, CST/CSOSN e alíquotas — o que a
+   * NFC-e declara à SEFAZ no nome da empresa —, a série, o ambiente de
+   * emissão, o CSC, o token do emissor e o cancelamento de nota, que tem prazo
+   * contado. As telas vizinhas de mesma natureza pedem `unidade.configurar`.
+   *
+   * Na instalação padrão (`prisma/dados-de-exemplo.ts`) o gerente tem
+   * `produto.editar` e não tem `unidade.configurar` — então é exatamente ele
+   * quem passava.
+   */
+  it("o gerente não mexe no fiscal da casa", async () => {
+    const antes = await admin.unidade.findUniqueOrThrow({
+      where: { id: A.unidade.id },
+      select: { serieNfce: true, ambienteFiscal: true, inscricaoEstadual: true },
+    });
+
+    const config = await tentar(A.gerentes[0]!, () =>
+      salvarConfigFiscal({
+        inscricaoEstadual: "111111111",
+        regimeTributario: "SIMPLES_NACIONAL",
+        serieNfce: 9,
+        ambienteFiscal: "PRODUCAO",
+        emiteNfce: false,
+        cscId: "1",
+        csc: "",
+        tokenEmissor: "",
+      })
+    );
+    const perfil = await tentar(A.gerentes[0]!, () =>
+      salvarPerfil(perfilDeProva("Perfil do gerente"))
+    );
+
+    const depois = await admin.unidade.findUniqueOrThrow({
+      where: { id: A.unidade.id },
+      select: { serieNfce: true, ambienteFiscal: true, inscricaoEstadual: true },
+    });
+
+    expect({
+      config: recusou(config),
+      perfil: recusou(perfil),
+      perfisDoGerente: await admin.perfilFiscal.count({
+        where: { unidadeId: A.unidade.id, nome: "Perfil do gerente" },
+      }),
+      serie: depois.serieNfce === antes.serieNfce,
+      ambiente: depois.ambienteFiscal === antes.ambienteFiscal,
+      ie: depois.inscricaoEstadual === antes.inscricaoEstadual,
+    }).toEqual({
+      config: true,
+      perfil: true,
+      perfisDoGerente: 0,
+      serie: true,
+      ambiente: true,
+      ie: true,
+    });
+  });
+
+  /** E quem responde pela unidade continua mexendo. */
+  it("o proprietário mexe no fiscal", async () => {
+    const t = await tentar(A.proprietario, () =>
+      salvarPerfil(perfilDeProva("Perfil do dono"))
+    );
+
+    const criado = await admin.perfilFiscal.count({
+      where: { unidadeId: A.unidade.id, nome: "Perfil do dono" },
+    });
+    await admin.perfilFiscal.deleteMany({
+      where: { unidadeId: A.unidade.id, nome: "Perfil do dono" },
+    });
+
+    expect({ recusou: recusou(t), criado }).toEqual({ recusou: false, criado: 1 });
   });
 
   it("garçom não faz sangria sem o PIN do gerente", async () => {
@@ -3476,7 +3571,9 @@ describe("a conta da filial vizinha", () => {
   it("a matriz não reemite a nota da conta da filial", async () => {
     const { comandaId } = await montarFilial();
 
-    const t = await tentar(B.gerentes[0]!, () => reemitirNota(comandaId));
+    // O proprietário, e não o gerente: o fiscal pede `unidade.configurar`, e
+    // com o gerente a recusa seria de permissão — não provaria a da unidade.
+    const t = await tentar(B.proprietario, () => reemitirNota(comandaId));
 
     await desmontarFilial();
 
@@ -3504,7 +3601,7 @@ describe("a conta da filial vizinha", () => {
       },
     });
 
-    const t = await tentar(B.gerentes[0]!, () => cancelarNota(nota.id, "cancelamento que não é meu"));
+    const t = await tentar(B.proprietario, () => cancelarNota(nota.id, "cancelamento que não é meu"));
 
     const depois = await admin.notaFiscal.findUniqueOrThrow({ where: { id: nota.id } });
     await admin.notaFiscal.deleteMany({ where: { unidadeId } });
