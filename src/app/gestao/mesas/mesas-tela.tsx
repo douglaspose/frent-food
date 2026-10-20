@@ -200,22 +200,47 @@ export function MesasTela({
 
             {podeEditar && editandoArea?.id !== area.id && (
               <span className="ml-auto flex flex-wrap items-center gap-3 text-sm">
-                <button
-                  onClick={() => agir(() => moverArea(area.id, -1))}
-                  disabled={indice === 0}
-                  title="Subir no mapa de mesas"
-                  className="text-neutral-500 hover:text-neutral-900 disabled:opacity-30"
-                >
-                  ↑
-                </button>
-                <button
-                  onClick={() => agir(() => moverArea(area.id, 1))}
-                  disabled={indice === areas.length - 1}
-                  title="Descer no mapa de mesas"
-                  className="text-neutral-500 hover:text-neutral-900 disabled:opacity-30"
-                >
-                  ↓
-                </button>
+                {/*
+                  As setas são largas no celular, e coladas uma na outra.
+
+                  A camada invisível de 36px que o `globals.css` põe sobre todo
+                  botão da gestão é centrada no alvo: numa seta de 10px de
+                  largura ela sobra 13px para cada lado, e com as duas a 22px
+                  uma da outra as camadas se invadiam em 14px. O pedaço do meio
+                  ficava de quem viesse depois no desenho, então o dedo que
+                  mirasse a seta de subir descia a área — mexer no mapa do salão
+                  de quem está trabalhando, medido em 33px e 35px de alvo útil.
+
+                  `w-9` são os mesmos 36px, e o par anda junto sem espaço entre
+                  as duas: 36px de centro a centro, camadas encostando sem se
+                  invadir, 36px úteis para cada uma. Sem espaço porque com ele a
+                  linha passava de 77px para 109px de altura a 375px — uma
+                  dobra a mais em cada área, que é o preço que esta tela não
+                  precisa pagar. Botão vizinho de botão é o normal de qualquer
+                  barra de ações; o que não pode é o alvo de um cair dentro do
+                  outro.
+
+                  Acima de `sm` o ponteiro mira o que vê: a seta volta ao
+                  tamanho do texto ao lado e o par recupera o `gap-3` da linha.
+                */}
+                <span className="flex items-center sm:gap-3">
+                  <button
+                    onClick={() => agir(() => moverArea(area.id, -1))}
+                    disabled={indice === 0}
+                    title="Subir no mapa de mesas"
+                    className="w-9 text-center text-neutral-500 hover:text-neutral-900 disabled:opacity-30 sm:w-auto"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={() => agir(() => moverArea(area.id, 1))}
+                    disabled={indice === areas.length - 1}
+                    title="Descer no mapa de mesas"
+                    className="w-9 text-center text-neutral-500 hover:text-neutral-900 disabled:opacity-30 sm:w-auto"
+                  >
+                    ↓
+                  </button>
+                </span>
                 <button
                   onClick={() => setEditandoArea({ id: area.id, nome: area.nome })}
                   className="text-neutral-500 hover:text-neutral-900"
