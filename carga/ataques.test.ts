@@ -23,7 +23,12 @@ import {
 } from "@/app/gestao/estoque/actions";
 import { atualizarProduto, criarProduto, type DadosProduto } from "@/app/gestao/actions";
 import { atualizarMesa } from "@/app/gestao/mesas/actions";
-import { descartar, reimprimir } from "@/app/gestao/impressao/actions";
+import {
+  descartar,
+  excluirImpressora,
+  ligarPracaNaImpressora,
+  reimprimir,
+} from "@/app/gestao/impressao/actions";
 import { salvarDivisaoDaTaxa } from "@/app/gestao/ajustes/actions";
 import { gerarTokenImpressao } from "@/app/gestao/impressao/actions";
 import {
@@ -3898,6 +3903,106 @@ describe("o cadastro da retaguarda com id de fora", () => {
    * sozinho, de madrugada; descartar apaga da fila de lá um trabalho que
    * ninguém de lá resolveu.
    */
+  /**
+   * A praça ligada na térmica da outra casa.
+   *
+   * O vínculo praça → impressora é o que faz a comanda da cozinha sair na
+   * térmica da cozinha. Com o id de fora, a comanda desta casa sairia na
+   * impressora da outra cidade — de madrugada, para ninguém.
+   */
+  it("a praça não é ligada na impressora de outra unidade", async () => {
+    const outra = await admin.unidade.create({
+      data: {
+        tenantId: B.tenant.id,
+        codigo: "005",
+        nome: "Filial da térmica",
+        cidade: "Anápolis",
+        uf: "GO",
+        taxaServicoPct: 10,
+        atuaLoja: true,
+      },
+    });
+    const daOutra = await admin.impressora.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: outra.id,
+        nome: "Térmica da filial",
+        conexao: "rede",
+        endereco: "10.9.9.9",
+      },
+    });
+    const minhaPraca = await admin.estacao.findFirstOrThrow({ where: { unidadeId: B.unidade.id } });
+
+    const t = await tentar(B.proprietario, () =>
+      ligarPracaNaImpressora(minhaPraca.id, daOutra.id)
+    );
+
+    const depois = await admin.estacao.findUniqueOrThrow({ where: { id: minhaPraca.id } });
+    await admin.impressora.delete({ where: { id: daOutra.id } });
+    await admin.unidade.delete({ where: { id: outra.id } });
+
+    expect({ porQue: porQue(t), ligou: depois.impressoraId }).toEqual({
+      porQue: "Impressora de outra unidade.",
+      ligou: null,
+    });
+  });
+
+  /** E a praça de lá não é religada por quem está aqui. */
+  it("a praça de outra unidade não é mexida daqui", async () => {
+    const outra = await admin.unidade.create({
+      data: {
+        tenantId: B.tenant.id,
+        codigo: "006",
+        nome: "Filial da praça",
+        cidade: "Anápolis",
+        uf: "GO",
+        taxaServicoPct: 10,
+        atuaLoja: true,
+      },
+    });
+    const pracaDeLa = await admin.estacao.create({
+      data: { tenantId: B.tenant.id, unidadeId: outra.id, nome: "COZINHA DE LÁ" },
+    });
+
+    const t = await tentar(B.proprietario, () => ligarPracaNaImpressora(pracaDeLa.id, null));
+
+    await admin.estacao.delete({ where: { id: pracaDeLa.id } });
+    await admin.unidade.delete({ where: { id: outra.id } });
+
+    expect(porQue(t)).toBe("Praça de outra unidade.");
+  });
+
+  /**
+   * Apagar a impressora que uma praça usa.
+   *
+   * O banco recusaria com erro de chave estrangeira, que chega à tela como
+   * falha de sistema — e a casa ficaria sem saber que bastava desligá-la.
+   */
+  it("impressora em uso por uma praça não é apagada", async () => {
+    const minha = await admin.impressora.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: B.unidade.id,
+        nome: "Térmica em uso",
+        conexao: "rede",
+        endereco: "10.0.0.5",
+      },
+    });
+    const praca = await admin.estacao.findFirstOrThrow({ where: { unidadeId: B.unidade.id } });
+    await admin.estacao.update({ where: { id: praca.id }, data: { impressoraId: minha.id } });
+
+    const t = await tentar(B.proprietario, () => excluirImpressora(minha.id));
+
+    const aindaExiste = await admin.impressora.count({ where: { id: minha.id } });
+    await admin.estacao.update({ where: { id: praca.id }, data: { impressoraId: null } });
+    await admin.impressora.delete({ where: { id: minha.id } });
+
+    expect({ porQue: porQue(t), aindaExiste }).toEqual({
+      porQue: "Esta impressora atende 1 praça(s). Troque a impressora delas antes de apagar — ou desligue-a.",
+      aindaExiste: 1,
+    });
+  });
+
   it("a matriz não reimprime nem descarta o papel da filial", async () => {
     const unidade = await admin.unidade.create({
       data: {

@@ -3,7 +3,19 @@
 import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { descartar, gerarTokenImpressao, imprimirTeste, reimprimir } from "./actions";
+import { CONEXOES, precisaEndereco } from "@/lib/impressoras";
+import {
+  alternarImpressoraAtiva,
+  atualizarImpressora,
+  cadastrarImpressora,
+  descartar,
+  excluirImpressora,
+  gerarTokenImpressao,
+  imprimirTeste,
+  ligarPracaNaImpressora,
+  reimprimir,
+  type DadosImpressora,
+} from "./actions";
 
 type Trabalho = {
   id: string;
@@ -25,8 +37,13 @@ type Impressora = {
   nome: string;
   conexao: string;
   endereco: string | null;
+  modelo: string | null;
   ativo: boolean;
 };
+
+type Praca = { id: string; nome: string; impressoraId: string | null; ativo: boolean };
+
+const VAZIA: DadosImpressora = { nome: "", conexao: "rede", endereco: "", modelo: "" };
 
 const CORES: Record<string, string> = {
   PENDENTE: "bg-amber-100 text-amber-800",
@@ -40,6 +57,7 @@ export function FilaTela({
   trabalhos,
   naFila,
   impressoras,
+  pracas,
   podeEditar,
   podeConfigurar,
 }: {
@@ -58,9 +76,13 @@ export function FilaTela({
    */
   naFila: number;
   impressoras: Impressora[];
+  /** As praças de produção da unidade, para ligar cada uma à sua térmica. */
+  pracas: Praca[];
   podeEditar: boolean;
 }) {
   const [vendo, setVendo] = useState<Trabalho | null>(null);
+  /** O formulário aberto: uma impressora existente, "nova", ou nenhum. */
+  const [editando, setEditando] = useState<Impressora | "nova" | null>(null);
   const [tokenNovo, setTokenNovo] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [pendente, iniciar] = useTransition();
@@ -152,24 +174,126 @@ export function FilaTela({
         )}
 
         <div className="mt-5 border-t border-neutral-100 pt-4">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
-            Impressoras
-          </h3>
-          {impressoras.length === 0 ? (
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              Impressoras
+            </h3>
+            {podeConfigurar && editando === null && (
+              <button
+                onClick={() => setEditando("nova")}
+                className="text-sm font-semibold text-neutral-900"
+              >
+                cadastrar impressora
+              </button>
+            )}
+          </div>
+
+          {impressoras.length === 0 && editando === null ? (
             <p className="text-sm text-neutral-500">
-              Nenhuma impressora cadastrada. Sem endereço configurado, os papéis ficam na fila.
+              Nenhuma impressora cadastrada. Sem endereço, o papel de produção sai &ldquo;na
+              mão&rdquo;: em qualquer agente que buscar a fila, inclusive na bobina da maquininha.
             </p>
           ) : (
-            <ul className="space-y-1 text-sm">
+            <ul className="space-y-2 text-sm">
               {impressoras.map((i) => (
-                <li key={i.id} className="flex gap-3">
-                  <span className="font-medium">{i.nome}</span>
-                  <span className="text-neutral-500">
-                    {i.conexao} {i.endereco ?? "— sem endereço"}
+                <li key={i.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className={`font-medium ${i.ativo ? "" : "text-neutral-400 line-through"}`}>
+                    {i.nome}
                   </span>
+                  <span className="text-neutral-500">
+                    {CONEXOES.find((c) => c.valor === i.conexao)?.rotulo ?? i.conexao}
+                    {i.endereco ? ` · ${i.endereco}` : ""}
+                    {i.modelo ? ` · ${i.modelo}` : ""}
+                  </span>
+                  {!i.ativo && (
+                    <span className="rounded-md bg-neutral-200 px-2 py-0.5 text-[10px] font-bold text-neutral-600">
+                      DESLIGADA
+                    </span>
+                  )}
+                  {podeConfigurar && (
+                    <span className="ml-auto flex items-center gap-3 text-neutral-500">
+                      <button onClick={() => setEditando(i)} className="hover:text-neutral-900">
+                        editar
+                      </button>
+                      <button
+                        onClick={() => agir(() => alternarImpressoraAtiva(i.id, !i.ativo))}
+                        disabled={pendente}
+                        className="hover:text-neutral-900"
+                      >
+                        {i.ativo ? "desligar" : "religar"}
+                      </button>
+                      <button
+                        onClick={() => agir(() => excluirImpressora(i.id))}
+                        disabled={pendente}
+                        className="hover:text-red-600"
+                      >
+                        apagar
+                      </button>
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
+          )}
+
+          {podeConfigurar && editando !== null && (
+            <FormularioDaImpressora
+              inicial={editando === "nova" ? VAZIA : paraFormulario(editando)}
+              nova={editando === "nova"}
+              pendente={pendente}
+              onCancelar={() => setEditando(null)}
+              onSalvar={(dados) =>
+                agir(async () => {
+                  const r =
+                    editando === "nova"
+                      ? await cadastrarImpressora(dados)
+                      : await atualizarImpressora(editando.id, dados);
+                  if (temErro(r)) return r;
+                  setEditando(null);
+                })
+              }
+            />
+          )}
+
+          {/*
+            As praças junto das impressoras, de propósito.
+
+            O vínculo é o que faz a comanda da cozinha sair na térmica da
+            cozinha, e ele só se entende olhando as duas listas: sem impressora,
+            a praça manda o papel "na mão".
+          */}
+          {podeConfigurar && pracas.length > 0 && (
+            <div className="mt-5 border-t border-neutral-100 pt-4">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                Qual impressora atende cada praça
+              </h3>
+              <ul className="space-y-2 text-sm">
+                {pracas.map((p) => (
+                  <li key={p.id} className="flex flex-wrap items-center gap-3">
+                    <span className={`font-medium ${p.ativo ? "" : "text-neutral-400"}`}>
+                      {p.nome}
+                    </span>
+                    <select
+                      aria-label={`Impressora da praça ${p.nome}`}
+                      value={p.impressoraId ?? ""}
+                      disabled={pendente}
+                      onChange={(e) =>
+                        agir(() => ligarPracaNaImpressora(p.id, e.target.value || null))
+                      }
+                      className="ml-auto rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm disabled:opacity-50"
+                    >
+                      <option value="">Sai na mão (qualquer agente)</option>
+                      {impressoras.map((i) => (
+                        <option key={i.id} value={i.id}>
+                          {i.nome}
+                          {i.ativo ? "" : " (desligada)"}
+                        </option>
+                      ))}
+                    </select>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       </section>
@@ -285,5 +409,123 @@ export function FilaTela({
         )}
       </div>
     </>
+  );
+}
+
+/** O cadastro de uma impressora como o formulário o trata: tudo texto. */
+function paraFormulario(i: Impressora): DadosImpressora {
+  return {
+    nome: i.nome,
+    conexao: i.conexao,
+    endereco: i.endereco ?? "",
+    modelo: i.modelo ?? "",
+  };
+}
+
+/**
+ * O formulário da impressora.
+ *
+ * O endereço só aparece na conexão de rede — nas outras a impressora está
+ * pendurada na máquina do agente, e um campo de endereço ali seria um campo
+ * que ninguém sabe preencher. A dica da porta 9100 fica à vista porque é o
+ * número que o dono não tem como adivinhar, e é o que quase toda térmica usa.
+ */
+function FormularioDaImpressora({
+  inicial,
+  nova,
+  pendente,
+  onCancelar,
+  onSalvar,
+}: {
+  inicial: DadosImpressora;
+  nova: boolean;
+  pendente: boolean;
+  onCancelar: () => void;
+  onSalvar: (dados: DadosImpressora) => void;
+}) {
+  const [dados, setDados] = useState(inicial);
+  const campo = (k: keyof DadosImpressora) => (v: string) => setDados((d) => ({ ...d, [k]: v }));
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSalvar(dados);
+      }}
+      className="mt-4 grid gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-4 sm:grid-cols-2"
+    >
+      <label className="sm:col-span-2">
+        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          Nome
+        </span>
+        <input
+          value={dados.nome}
+          onChange={(e) => campo("nome")(e.target.value)}
+          placeholder="Térmica da cozinha"
+          autoFocus
+          className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm"
+        />
+      </label>
+
+      <label>
+        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          Como o agente chega nela
+        </span>
+        <select
+          value={dados.conexao}
+          onChange={(e) => campo("conexao")(e.target.value)}
+          className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm"
+        >
+          {CONEXOES.map((c) => (
+            <option key={c.valor} value={c.valor}>
+              {c.rotulo}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {precisaEndereco(dados.conexao) && (
+        <label>
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            Endereço na rede
+          </span>
+          <input
+            value={dados.endereco}
+            onChange={(e) => campo("endereco")(e.target.value)}
+            placeholder="192.168.0.10:9100"
+            inputMode="url"
+            className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm"
+          />
+          <span className="mt-1 block text-xs text-neutral-500">
+            IP da impressora. Sem porta, vale a 9100 — a que quase toda térmica de rede usa.
+          </span>
+        </label>
+      )}
+
+      <label className="sm:col-span-2">
+        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          Modelo (opcional)
+        </span>
+        <input
+          value={dados.modelo}
+          onChange={(e) => campo("modelo")(e.target.value)}
+          placeholder="Elgin i9"
+          className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm"
+        />
+      </label>
+
+      <div className="flex items-center gap-3 sm:col-span-2">
+        <button
+          type="submit"
+          disabled={pendente}
+          className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+        >
+          {pendente ? "Salvando..." : nova ? "Cadastrar" : "Salvar"}
+        </button>
+        <button type="button" onClick={onCancelar} className="text-sm text-neutral-500">
+          cancelar
+        </button>
+      </div>
+    </form>
   );
 }

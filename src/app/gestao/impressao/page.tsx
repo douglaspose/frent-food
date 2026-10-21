@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function ImpressaoPage() {
   const sessao = await sessaoDaTela();
 
-  const [unidade, trabalhos, naFila, impressoras] = await Promise.all([
+  const [unidade, trabalhos, naFila, impressoras, pracas] = await Promise.all([
     db.unidade.findUniqueOrThrow({
       where: { id: sessao.unidadeId },
       select: { nome: true, tokenImpressao: true },
@@ -36,7 +36,19 @@ export default async function ImpressaoPage() {
     db.impressora.findMany({
       where: { unidadeId: sessao.unidadeId },
       orderBy: { nome: "asc" },
-      select: { id: true, nome: true, conexao: true, endereco: true, ativo: true },
+      select: { id: true, nome: true, conexao: true, endereco: true, modelo: true, ativo: true },
+    }),
+    /*
+     * As praças, para ligar cada uma à sua térmica.
+     *
+     * É nesta tela porque é aqui que as impressoras moram — e porque o vínculo
+     * só faz sentido olhando as duas listas juntas: praça sem impressora manda
+     * o papel "na mão", em qualquer agente que buscar a fila.
+     */
+    db.estacao.findMany({
+      where: { unidadeId: sessao.unidadeId },
+      orderBy: { ordem: "asc" },
+      select: { id: true, nome: true, impressoraId: true, ativo: true },
     }),
   ]);
 
@@ -61,6 +73,7 @@ export default async function ImpressaoPage() {
        */
       temToken={Boolean(unidade.tokenImpressao)}
       impressoras={impressoras}
+      pracas={pracas}
       naFila={naFila}
       trabalhos={trabalhos.map((t) => ({
         id: t.id,
