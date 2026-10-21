@@ -200,6 +200,12 @@ export async function enfileirarCancelamento(comandaItemId: string) {
  *
  * Só os tickets que ainda não saíram: avisar sobre prato já entregue seria
  * papel jogado fora e um aviso a menos de credibilidade para o próximo.
+ *
+ * `NO_PAPEL` entra na lista, e é onde este aviso mais importa: na casa que
+ * trocou a tela de cozinha pela térmica (ver `lib/producao`), o ticket nasce
+ * nesse estado e o papel pendurado na praça é o **único** jeito de alguém lá
+ * saber que o prato agora vai para outra mesa. Fora da lista, o grupo mudava
+ * de lugar e o prato saía para a mesa de onde ele acabou de levantar.
  */
 export async function enfileirarTransferencia(
   comandaId: string,
@@ -208,7 +214,7 @@ export async function enfileirarTransferencia(
   transferidoPor: string
 ) {
   const pedidos = await db.pedido.findMany({
-    where: { comandaId, status: { in: ["AGUARDANDO", "EM_PREPARO", "PRONTO"] } },
+    where: { comandaId, status: { in: ["AGUARDANDO", "EM_PREPARO", "PRONTO", "NO_PAPEL"] } },
     include: {
       estacao: { select: { nome: true, impressoraId: true } },
       comanda: { select: { numero: true } },

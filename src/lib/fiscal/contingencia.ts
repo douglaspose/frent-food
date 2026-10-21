@@ -35,6 +35,37 @@ const POR_PASSADA = 20;
 
 export type QuemTransmite = { tenantId: string; unidadeId: string };
 
+/**
+ * Reserva a nota antes de falar com a SEFAZ.
+ *
+ * A transmissão tem duas portas de propósito — o botão da retaguarda e
+ * `POST /api/fiscal/contingencia`, do agendador — e as duas podem cair na
+ * mesma nota no mesmo segundo. É o encontro mais provável que existe: o dono
+ * aperta o botão justamente quando percebe que a internet voltou, que é quando
+ * o agendador também está passando. Sem reserva as duas passadas leem a mesma
+ * lista de paradas e transmitem **o mesmo documento duas vezes**: nota
+ * duplicada na SEFAZ, dois papéis, e a resposta da segunda sobrescrevendo a da
+ * primeira aqui — a nota autorizada fica registrada como rejeitada.
+ *
+ * A reserva é o próprio contador de tentativas: quem conseguir incrementá-lo
+ * é quem tenta. Um `UPDATE ... WHERE id = ? AND status = 'CONTINGENCIA' AND
+ * tentativas = ?` é atômico no Postgres, então das duas passadas exatamente
+ * uma vê `count = 1`. Sem coluna nova e sem travar a linha da unidade, que é
+ * a trava que o resto do sistema usa para corrida — e que aqui ficaria presa
+ * pelo tempo de até vinte chamadas à SEFAZ, barrando a abertura de mesa.
+ *
+ * Se a passada morrer no meio, a nota fica em contingência com uma tentativa
+ * gasta e a próxima passada a pega de novo: a reserva não prende nada para
+ * sempre.
+ */
+async function reservar(parada: { id: string; tentativas: number }) {
+  const { count } = await db.notaFiscal.updateMany({
+    where: { id: parada.id, status: "CONTINGENCIA", tentativas: parada.tentativas },
+    data: { tentativas: { increment: 1 } },
+  });
+  return count === 1;
+}
+
 export type NotaParada = {
   id: string;
   numero: number;
@@ -178,6 +209,9 @@ export async function transmitirContingencias(
       continue;
     }
 
+    // Outra passada chegou nesta nota primeiro: a dela é a transmissão.
+    if (!(await reservar(parada))) continue;
+
     const documento = parada.emitida as unknown as NotaParaEmitir;
     // O JSON devolve data como texto; o emissor espera `Date` — é a única
     // costura da ida e volta pelo banco.
@@ -208,7 +242,6 @@ export async function transmitirContingencias(
           urlConsulta: resposta.urlConsulta,
           xml: resposta.xml,
           motivoRejeicao: null,
-          tentativas: { increment: 1 },
         },
       });
       resultado.autorizadas++;
@@ -278,7 +311,7 @@ export async function transmitirContingencias(
     if (resposta.status === "INDISPONIVEL") {
       await db.notaFiscal.update({
         where: { id: parada.id },
-        data: { motivoRejeicao: resposta.motivo, tentativas: { increment: 1 } },
+        data: { motivoRejeicao: resposta.motivo },
       });
       // O serviço está fora: as outras receberiam a mesma resposta.
       resultado.aindaParadas = paradas.length - paradas.indexOf(parada);
@@ -298,7 +331,6 @@ export async function transmitirContingencias(
       data: {
         status: resposta.status === "DENEGADA" ? "DENEGADA" : "REJEITADA",
         motivoRejeicao: resposta.motivo,
-        tentativas: { increment: 1 },
       },
     });
     resultado.recusadas++;

@@ -175,7 +175,8 @@ export function FiscalTela({
           </p>
           {contingencia.semDocumento > 0 && (
             <p className="mt-2">
-              {contingencia.semDocumento} delas são de antes desta versão e não guardaram o
+              {contingencia.semDocumento} del{contingencia.semDocumento === 1 ? "a é" : "as são"} de
+              antes desta versão e não guard{contingencia.semDocumento === 1 ? "ou" : "aram"} o
               documento emitido: não há o que transmitir daqui.
             </p>
           )}
