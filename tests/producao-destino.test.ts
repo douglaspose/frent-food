@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { adicionarItem, enviarCarrinho } from "@/lib/carrinho";
+import { transferirMesa } from "@/lib/transferencia";
 import { dadosDaBarra } from "@/lib/barra";
 import { CHAVE_DO_DESTINO, type DestinoDoPedido } from "@/lib/producao";
 import { valorDoParametro } from "@/lib/parametros";
@@ -211,5 +212,75 @@ describe("o valor guardado", () => {
       where: { unidadeId_chave: { unidadeId, chave: CHAVE_DO_DESTINO } },
     });
     expect(valorDoParametro(CHAVE_DO_DESTINO, linha.valor)).toBe("PAPEL");
+  });
+});
+
+/**
+ * A comanda que muda de mesa, na casa onde o papel é a cozinha.
+ *
+ * O aviso de transferência é papel de produção: sai na térmica da praça para
+ * quem tem a comanda da mesa 5 pendurada saber que aquele prato agora vai para
+ * a 12. Na casa que olha a tela ele é reforço — o KDS mostra a mesa nova
+ * sozinho. Na casa de papel ele é o **único** jeito de a praça saber, e sem
+ * ele o prato sai para a mesa de onde o grupo já levantou.
+ */
+describe("a comanda que muda de mesa", () => {
+  /** Duas mesas por rodada, com números que não disputam com ninguém. */
+  async function duasMesas() {
+    const marca = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const area = await db.area.create({
+      data: { tenantId, unidadeId, nome: `Salão ${marca}`, ordem: 1 },
+    });
+    const mesa = (sufixo: string) =>
+      db.mesa.create({
+        data: {
+          tenantId,
+          unidadeId,
+          areaId: area.id,
+          numero: `${marca}${sufixo}`,
+          capacidade: 4,
+          qrToken: `qr-${marca}-${sufixo}`,
+        },
+      });
+    return { origem: await mesa("a"), destino: await mesa("b") };
+  }
+
+  /** Uma rodada na praça e o grupo mudando de mesa, como numa noite qualquer. */
+  async function mudarDeMesa() {
+    const { origem, destino } = await duasMesas();
+    const comanda = await db.comanda.create({
+      data: {
+        tenantId,
+        unidadeId,
+        numero: Math.floor(Math.random() * 1_000_000),
+        mesaId: origem.id,
+        pessoas: 2,
+        status: "ABERTA",
+        abertaPorId: usuarioId,
+      },
+    });
+    await adicionarItem(quem, { comandaId: comanda.id, cardapioItemId });
+    await enviarCarrinho(quem, comanda.id);
+
+    const tickets = await db.pedido.findMany({ where: { comandaId: comanda.id } });
+    await transferirMesa({ ...quem, nome: "Garçom do teste" }, comanda.id, destino.id);
+
+    return {
+      ticket: tickets[0]?.status,
+      avisos: await db.filaImpressao.count({ where: { tenantId, tipo: "TRANSFERENCIA" } }),
+    };
+  }
+
+  /** A régua: na casa que usa as duas, o aviso sai — é o que sempre saiu. */
+  it("avisa a praça quando a casa trabalha pela tela e pelo papel", async () => {
+    await escolherDestino("TELA_E_PAPEL");
+
+    expect(await mudarDeMesa()).toEqual({ ticket: "AGUARDANDO", avisos: 1 });
+  });
+
+  it("avisa a praça também quando o papel é a única cozinha", async () => {
+    await escolherDestino("PAPEL");
+
+    expect(await mudarDeMesa()).toEqual({ ticket: "NO_PAPEL", avisos: 1 });
   });
 });
