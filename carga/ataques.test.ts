@@ -44,6 +44,7 @@ import PdvMesasPage from "@/app/pdv/page";
 import GestaoLayout from "@/app/gestao/layout";
 import AparelhosPage from "@/app/gestao/aparelhos/page";
 import ImpressaoPage from "@/app/gestao/impressao/page";
+import KdsPage from "@/app/kds/page";
 import MesaPublicaPage from "@/app/mesa/[token]/page";
 import { GET as GETImpressao, POST as POSTImpressao } from "@/app/api/impressao/route";
 import { POST as POSTEntrar } from "@/app/api/maquininha/entrar/route";
@@ -541,6 +542,87 @@ describe("permissões e sessão", () => {
  * tela, reaparecendo no quadro e voltando a contar como atrasado, que é o
  * problema que o estado resolve.
  */
+/**
+ * A troca de destino no meio do turno.
+ *
+ * O dono muda "como a cozinha recebe" quando a térmica chega — e isso
+ * acontece com a casa aberta, porque é quando ele está no restaurante. Os
+ * tickets que já estavam no fogo nasceram no fluxo da tela: ninguém os marcou
+ * como prontos, eles contam como atrasados na barra, e quem avança é a cozinha
+ * **nesta tela**. Se a tela os engolir, não sobra nenhum lugar onde terminá-los
+ * — prato no fogo sem acompanhamento e um alarme que ninguém pode desligar.
+ */
+describe("trocar o destino com a casa aberta", () => {
+  const destinoDaCasa = async (valor: string) => {
+    await admin.parametroUnidade.upsert({
+      where: { unidadeId_chave: { unidadeId: A.unidade.id, chave: "producao.destinoDoPedido" } },
+      create: {
+        tenantId: A.tenant.id,
+        unidadeId: A.unidade.id,
+        grupo: "KDS",
+        chave: "producao.destinoDoPedido",
+        valor,
+      },
+      update: { valor },
+    });
+  };
+
+  it("o prato que está no fogo continua na tela, e o aviso explica o resto", async () => {
+    // Uma rodada no fluxo da tela, que é como a casa estava até agora.
+    const g = A.garcons[2]!;
+    const aberta = (await como(g, () => abrirComanda(A.mesas[44]!.id, 2))) as { comandaId: string };
+    const item = A.itens[0]!;
+    await como(g, () =>
+      adicionarAoCarrinho({
+        comandaId: aberta.comandaId,
+        produtoId: item.produtoId,
+        cardapioItemId: item.cardapioItemId,
+        precoUnitario: item.preco,
+        exigePontoCarne: false,
+      })
+    );
+    await como(g, () => enviarCarrinho(aberta.comandaId));
+    const pedido = await admin.pedido.findFirstOrThrow({ where: { comandaId: aberta.comandaId } });
+
+    // Agora a térmica chegou, e o dono troca com a mesa servida.
+    await destinoDaCasa("PAPEL");
+    const comPratoNoFogo = JSON.stringify(await como(g, () => KdsPage()));
+
+    // Terminado o prato, ele sai do quadro como qualquer outro.
+    //
+    // Não se afirma aqui que a tela virou o aviso de "quadro vazio": nesta
+    // altura da bateria a unidade A tem outros tickets vivos, e exigir o
+    // quadro vazio faria este teste depender da ordem dos vizinhos. O que se
+    // afirma é o que não depende deles — o ticket entra, é avançado por esta
+    // tela e sai. A tela do aviso sozinho é o caso que o `pedidos.length === 0`
+    // decide, e está provado no navegador.
+    await como(A.caixas[0]!, () => avancarPedido(pedido.id, "PRONTO"));
+    await como(A.caixas[0]!, () => avancarPedido(pedido.id, "ENTREGUE"));
+    const semPrato = JSON.stringify(await como(g, () => KdsPage()));
+
+    await destinoDaCasa("TELA_E_PAPEL");
+    const depois = await admin.pedido.findUniqueOrThrow({ where: { id: pedido.id } });
+
+    expect({
+      ticketNaTela: comPratoNoFogo.includes(`"numero":${pedido.numero}`),
+      avisouQueOsNovosSaemNoPapel: comPratoNoFogo.includes("saem na impressora"),
+      // Com o fogo apagado, a tela é só o aviso — e o ticket não está nela.
+      quadroDepois: semPrato.includes(`"numero":${pedido.numero}`),
+      // E, com prato no fogo, a tela **não** trocou o quadro pelo aviso: é
+      // exatamente o que ela fazia antes desta correção.
+      trocouOQuadroPeloAviso: comPratoNoFogo.includes("recebe os pedidos pela impressora"),
+      // E ele foi avançado de verdade, pela tela, depois da troca.
+      status: depois.status,
+    }).toEqual({
+      ticketNaTela: true,
+      avisouQueOsNovosSaemNoPapel: true,
+      quadroDepois: false,
+      trocouOQuadroPeloAviso: false,
+      status: "ENTREGUE",
+    });
+  });
+});
+
 describe("o ticket de papel e a porta do KDS", () => {
   it("o monitor não puxa de volta o pedido que saiu no papel", async () => {
     const g = A.garcons[1]!;

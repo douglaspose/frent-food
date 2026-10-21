@@ -505,3 +505,163 @@ describe("duas passadas na mesma nota", () => {
     });
   });
 });
+
+/**
+ * A reserva, sem depender de quem chega primeiro.
+ *
+ * O teste das duas passadas simultâneas acima prova a corrida, mas por
+ * repetição: ele depende de qual delas o laço de eventos escolhe. Estes aqui
+ * põem a nota em cada estado da reserva **à mão** e afirmam o que a varredura
+ * faz com ela — é o desenho que fica preso, não a sorte.
+ *
+ * A primeira versão da reserva usava o contador de tentativas e passava no
+ * teste simultâneo em duas de quatro execuções, porque a segunda passada lia a
+ * linha depois da reserva e antes da autorização. Estes testes a derrubam
+ * sempre.
+ */
+describe("a nota reservada sai da fila", () => {
+  /** Como a nota fica enquanto uma passada está falando com a SEFAZ. */
+  async function noAr(notaId: string, desdeMinutos: number) {
+    await db.notaFiscal.update({
+      where: { id: notaId },
+      data: {
+        status: "PROCESSANDO",
+        transmitindoDesde: new Date(Date.now() - desdeMinutos * 60_000),
+        tentativas: 1,
+      },
+    });
+  }
+
+  it("nota no ar agora não é pega por outra passada", async () => {
+    const { notaId } = await emContingencia(920);
+    await noAr(notaId, 0);
+
+    const resultado = await transmitirContingencias(quem(), { emissor: sefazNoAr });
+
+    const depois = await db.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
+    expect({
+      tentadas: resultado.tentadas,
+      autorizadas: resultado.autorizadas,
+      // Intocada: quem a reservou é quem vai escrever o desfecho dela.
+      status: depois.status,
+      tentativas: depois.tentativas,
+    }).toEqual({ tentadas: 0, autorizadas: 0, status: "PROCESSANDO", tentativas: 1 });
+  });
+
+  /** Reserva sem prazo seria nota perdida para sempre se a passada morrer. */
+  it("reserva vencida volta para a fila e é transmitida", async () => {
+    const { notaId } = await emContingencia(921);
+    await noAr(notaId, 10);
+
+    const resultado = await transmitirContingencias(quem(), { emissor: sefazNoAr });
+
+    const depois = await db.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
+    expect({
+      autorizadas: resultado.autorizadas,
+      status: depois.status,
+      // A marca sai com o desfecho: a nota não fica "em transmissão" para sempre.
+      marca: depois.transmitindoDesde,
+      tentativas: depois.tentativas,
+    }).toEqual({ autorizadas: 1, status: "AUTORIZADA", marca: null, tentativas: 2 });
+  });
+
+  /**
+   * A PROCESSANDO da emissão original não é desta fila.
+   *
+   * Uma nota que ficou em PROCESSANDO porque a emissão morreu no meio nunca
+   * foi reservada aqui — e transmiti-la seria mandar à SEFAZ um documento que
+   * não foi guardado para isso. `transmitindoDesde` nula é o que as separa.
+   */
+  it("PROCESSANDO sem marca de transmissão fica de fora", async () => {
+    const { notaId } = await emContingencia(922);
+    await db.notaFiscal.update({
+      where: { id: notaId },
+      data: { status: "PROCESSANDO", transmitindoDesde: null },
+    });
+
+    const resultado = await transmitirContingencias(quem(), { emissor: sefazNoAr });
+
+    expect({ tentadas: resultado.tentadas, autorizadas: resultado.autorizadas }).toEqual({
+      tentadas: 0,
+      autorizadas: 0,
+    });
+  });
+
+  /**
+   * O encontro das duas passadas, sem sorteio.
+   *
+   * O teste simultâneo lá acima depende de qual passada o laço de eventos
+   * escolhe — com a reserva antiga ele passava em duas de quatro execuções.
+   * Aqui a segunda passada acontece **dentro** da chamada à SEFAZ da primeira:
+   * é exatamente o instante em que a nota está reservada e ainda não tem
+   * desfecho, e é o instante que a reserva existe para cobrir.
+   */
+  it("enquanto uma passada fala com a SEFAZ, a outra não encontra a nota", async () => {
+    const { notaId } = await emContingencia(925);
+
+    let segunda: Awaited<ReturnType<typeof transmitirContingencias>> | null = null;
+    const sefazQueDeixaAOutraPassar: Emissor = {
+      nome: "ENCONTRO",
+      async emitir(nota) {
+        segunda = await transmitirContingencias(quem(), { emissor: sefazNoAr });
+        return sefazNoAr.emitir(nota);
+      },
+      cancelar: sefazNoAr.cancelar.bind(sefazNoAr),
+    };
+
+    const primeira = await transmitirContingencias(quem(), {
+      emissor: sefazQueDeixaAOutraPassar,
+    });
+
+    const depois = await db.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
+    const danfes = await db.filaImpressao.count({
+      where: { tenantId, referenciaId: notaId, tipo: "DANFE_NFCE" },
+    });
+
+    expect({
+      primeiraAutorizou: primeira.autorizadas,
+      segundaTentou: segunda!.tentadas,
+      status: depois.status,
+      // Uma transmissão, uma tentativa, um papel.
+      tentativas: depois.tentativas,
+      danfes,
+    }).toEqual({
+      primeiraAutorizou: 1,
+      segundaTentou: 0,
+      status: "AUTORIZADA",
+      tentativas: 1,
+      danfes: 1,
+    });
+  });
+
+  /** Serviço fora devolve a nota à contingência, e não a deixa reservada. */
+  it("SEFAZ fora devolve a nota à fila na hora", async () => {
+    const { notaId } = await emContingencia(923);
+
+    await transmitirContingencias(quem(), { emissor: sefazFora });
+
+    const depois = await db.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
+    expect({ status: depois.status, marca: depois.transmitindoDesde }).toEqual({
+      status: "CONTINGENCIA",
+      marca: null,
+    });
+  });
+
+  /**
+   * A tela conta a nota que está no ar.
+   *
+   * Dizer "nenhuma nota esperando" enquanto uma está presa numa transmissão
+   * que morreu seria esconder justamente a que tem prazo correndo.
+   */
+  it("o resumo conta a que está em transmissão", async () => {
+    const { notaId } = await emContingencia(924);
+    await noAr(notaId, 1);
+
+    const resumo = await resumoDaContingencia(quem());
+
+    expect({ paradas: resumo.paradas, vencidas: resumo.vencidas }).toEqual({
+      paradas: 1,
+      vencidas: 0,
+    });
+  });
+});

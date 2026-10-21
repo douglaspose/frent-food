@@ -1246,6 +1246,17 @@ model NotaFiscal {
   motivoRejeicao String?
   tentativas     Int     @default(0)
 
+  /// Desde quando esta nota está sendo transmitida, e por isso fora da fila.
+  ///
+  /// Quem reserva a nota para transmitir move o status para PROCESSANDO e
+  /// marca a hora aqui. As outras passadas não a enxergam mais — era assim
+  /// que a mesma nota ia duas vezes para a SEFAZ. A hora é o que a devolve se
+  /// a passada morrer no meio, como o `entregueEm` da fila de impressão.
+  ///
+  /// Nula fora de uma transmissão, inclusive na PROCESSANDO da emissão
+  /// original: é o que distingue as duas.
+  transmitindoDesde DateTime?
+
   /// O documento como ele nasceu, para ser transmitido depois igual.
   ///
   /// A nota que a SEFAZ não recebeu entra em contingência e tem prazo legal

@@ -1,0 +1,18 @@
+-- Desde quando esta nota está sendo transmitida.
+--
+-- A fila da contingência tem duas portas de propósito — o botão da retaguarda
+-- e o agendador —, e elas caíam na mesma nota: a reserva pelo contador de
+-- tentativas não resolvia, porque a segunda passada lia a linha **depois** da
+-- reserva da primeira, enquanto o status ainda era CONTINGENCIA. O documento
+-- ia duas vezes para a SEFAZ.
+--
+-- Com esta coluna a nota sai da fila enquanto está no ar: quem reserva a move
+-- para PROCESSANDO e marca a hora, e as outras passadas não a enxergam mais.
+-- A hora é o que permite devolvê-la se a passada morrer no meio — é a mesma
+-- ideia do `entregueEm` da fila de impressão, pelo mesmo motivo: reserva sem
+-- prazo é trabalho perdido para sempre.
+--
+-- Nula em toda nota que não está no meio de uma transmissão, o que inclui a
+-- PROCESSANDO da emissão original — e é por isso que a varredura não as
+-- confunde.
+ALTER TABLE "notas_fiscais" ADD COLUMN "transmitindoDesde" TIMESTAMP(3);

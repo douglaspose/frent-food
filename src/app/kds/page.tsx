@@ -72,8 +72,16 @@ export default async function KdsPage() {
    * porque não há quem toque em "pronto" aqui. Sem este aviso, a tela diria
    * "nenhum pedido" num sábado cheio, e alguém ia procurar defeito onde há
    * configuração.
+   *
+   * **Só quando não há prato no fogo.** Trocar o destino no meio do turno não
+   * pode engolir o que já estava na tela: esses tickets nasceram antes da
+   * troca, estão em preparo, ninguém os marcou como prontos e eles continuam
+   * contando como atrasados na barra. Sumindo daqui, não havia mais nenhuma
+   * tela onde fossem avançados — prato no fogo sem acompanhamento, e um alarme
+   * na barra que ninguém podia desligar. Eles ficam, e o aviso de cima explica
+   * que os próximos saem no papel.
    */
-  if (destino === "PAPEL") {
+  if (destino === "PAPEL" && pedidos.length === 0) {
     return (
       <div className="flex h-tela flex-col bg-neutral-950">
         <BarraAmbientes dados={await dadosDaBarra(sessao)} />
@@ -93,6 +101,20 @@ export default async function KdsPage() {
   return (
     <div className="flex h-tela flex-col bg-neutral-950">
     <BarraAmbientes dados={await dadosDaBarra(sessao)} />
+    {/*
+      A faixa de quem acabou de trocar para o papel.
+
+      O quadro continua aqui porque tem prato no fogo, e quem está na cozinha
+      precisa saber que o que vier agora não aparece mais nesta tela — senão
+      fica esperando o próximo ticket que nunca chega, com a comanda já
+      pendurada na térmica atrás dele.
+    */}
+    {destino === "PAPEL" && (
+      <p className="border-b border-amber-900/50 bg-amber-950/40 px-4 py-2 text-center text-sm text-amber-300">
+        Os pedidos novos saem na impressora. Estes {pedidos.length} ficaram da tela — termine-os
+        aqui, e o quadro fica vazio.
+      </p>
+    )}
     <KdsBoard
       estacoes={estacoes.map((e) => ({ id: e.id, nome: e.nome, corHex: e.corHex }))}
       alertaAtrasoMin={parametro("kds.alertaAtrasoMin", 20)}

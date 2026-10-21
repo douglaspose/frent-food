@@ -36,32 +36,78 @@ const POR_PASSADA = 20;
 export type QuemTransmite = { tenantId: string; unidadeId: string };
 
 /**
- * Reserva a nota antes de falar com a SEFAZ.
+ * Quanto tempo a reserva segura a nota.
+ *
+ * Enquanto a marca for recente, a nota não sai para mais ninguém. Vencida, ela
+ * volta à fila — a passada que a reservou pode ter morrido no meio, e nota não
+ * transmitida tem prazo legal correndo.
+ *
+ * Cinco minutos: a chamada à SEFAZ leva segundos, e um gateway no pior dia
+ * leva dezenas. O risco do prazo curto é transmitir de novo o que estava só
+ * devagar; o do prazo longo é a nota esperando o relógio.
+ *
+ * É a mesma ideia do `ENTREGA_VALE_POR_SEGUNDOS` da fila de impressão, pelo
+ * mesmo motivo: reserva sem prazo é trabalho perdido para sempre.
+ */
+const RESERVA_VALE_POR_MS = 5 * 60_000;
+
+/**
+ * As notas que uma passada pode pegar: as paradas e as de reserva vencida.
+ *
+ * `transmitindoDesde` não nula é o que distingue a nota que ficou no meio de
+ * uma transmissão da PROCESSANDO da emissão original, que nunca passou por
+ * aqui e não é desta fila.
+ */
+const podeSerPega = (agora: Date) => [
+  { status: "CONTINGENCIA" as const },
+  {
+    status: "PROCESSANDO" as const,
+    transmitindoDesde: { lt: new Date(agora.getTime() - RESERVA_VALE_POR_MS) },
+  },
+];
+
+/**
+ * As notas que ainda não chegaram à SEFAZ, inclusive a que está no ar agora.
+ *
+ * É o que a tela conta: uma nota no meio de uma transmissão continua não
+ * transmitida, e o prazo dela corre igual. Some da lista quando for autorizada
+ * — ou quando for recusada, e aí vira problema de cadastro, não de fila.
+ */
+const naoChegaramNaSefaz = [
+  { status: "CONTINGENCIA" as const },
+  { status: "PROCESSANDO" as const, transmitindoDesde: { not: null } },
+];
+
+/**
+ * Tira a nota da fila antes de falar com a SEFAZ.
  *
  * A transmissão tem duas portas de propósito — o botão da retaguarda e
- * `POST /api/fiscal/contingencia`, do agendador — e as duas podem cair na
- * mesma nota no mesmo segundo. É o encontro mais provável que existe: o dono
- * aperta o botão justamente quando percebe que a internet voltou, que é quando
- * o agendador também está passando. Sem reserva as duas passadas leem a mesma
- * lista de paradas e transmitem **o mesmo documento duas vezes**: nota
- * duplicada na SEFAZ, dois papéis, e a resposta da segunda sobrescrevendo a da
- * primeira aqui — a nota autorizada fica registrada como rejeitada.
+ * `POST /api/fiscal/contingencia`, do agendador — e as duas caem na mesma nota
+ * no mesmo segundo. É o encontro mais provável que existe: o dono aperta o
+ * botão justamente quando percebe que a internet voltou, que é quando o
+ * agendador também está passando. Sem reserva, **o mesmo documento vai duas
+ * vezes para a SEFAZ**: nota duplicada lá, dois papéis aqui, e a resposta da
+ * segunda (rejeição 539, duplicidade) sobrescrevendo a da primeira — a nota
+ * autorizada fica registrada como rejeitada, e o dono manda emitir a terceira.
  *
- * A reserva é o próprio contador de tentativas: quem conseguir incrementá-lo
- * é quem tenta. Um `UPDATE ... WHERE id = ? AND status = 'CONTINGENCIA' AND
- * tentativas = ?` é atômico no Postgres, então das duas passadas exatamente
- * uma vê `count = 1`. Sem coluna nova e sem travar a linha da unidade, que é
- * a trava que o resto do sistema usa para corrida — e que aqui ficaria presa
- * pelo tempo de até vinte chamadas à SEFAZ, barrando a abertura de mesa.
+ * **Um contador não bastava.** A primeira versão disto reservava incrementando
+ * `tentativas` com `WHERE tentativas = <o que eu li>`, o que é atômico e
+ * mesmo assim não resolvia: a segunda passada lia a linha **depois** da reserva
+ * da primeira, quando o status ainda era CONTINGENCIA, e o compare-and-swap
+ * dela era legítimo. A janela não diminuía — passava a ser todo o tempo da
+ * chamada à SEFAZ. Medido com as duas portas reais: duas de quatro execuções
+ * deram `tentativas: 2` e duas DANFEs da mesma nota.
  *
- * Se a passada morrer no meio, a nota fica em contingência com uma tentativa
- * gasta e a próxima passada a pega de novo: a reserva não prende nada para
- * sempre.
+ * O que resolve é a nota **sair da fila**: o status vai para PROCESSANDO e a
+ * hora fica em `transmitindoDesde`, então as outras passadas não a enxergam.
+ * Quem termina devolve o status certo — autorizada, recusada, ou de volta à
+ * contingência se o serviço estava fora. Quem morre no meio deixa a reserva
+ * vencer, e a nota volta sozinha.
  */
-async function reservar(parada: { id: string; tentativas: number }) {
+async function reservar(parada: { id: string }, agora: Date) {
   const { count } = await db.notaFiscal.updateMany({
-    where: { id: parada.id, status: "CONTINGENCIA", tentativas: parada.tentativas },
-    data: { tentativas: { increment: 1 } },
+    where: { id: parada.id, OR: podeSerPega(agora) },
+    data: { status: "PROCESSANDO", transmitindoDesde: agora, tentativas: { increment: 1 } },
   });
   return count === 1;
 }
@@ -95,7 +141,7 @@ export async function notasEmContingencia(
   agora = new Date()
 ): Promise<NotaParada[]> {
   const notas = await db.notaFiscal.findMany({
-    where: { unidadeId: quem.unidadeId, status: "CONTINGENCIA" },
+    where: { unidadeId: quem.unidadeId, OR: naoChegaramNaSefaz },
     orderBy: { criadoEm: "asc" },
   });
 
@@ -189,8 +235,9 @@ export async function transmitirContingencias(
 
   const emissor = opcoes.emissor ?? emissorDa(unidade);
 
+  const agora = new Date();
   const paradas = await db.notaFiscal.findMany({
-    where: { unidadeId: quem.unidadeId, status: "CONTINGENCIA" },
+    where: { unidadeId: quem.unidadeId, OR: podeSerPega(agora) },
     orderBy: { criadoEm: "asc" },
     take: limite,
   });
@@ -210,7 +257,7 @@ export async function transmitirContingencias(
     }
 
     // Outra passada chegou nesta nota primeiro: a dela é a transmissão.
-    if (!(await reservar(parada))) continue;
+    if (!(await reservar(parada, agora))) continue;
 
     const documento = parada.emitida as unknown as NotaParaEmitir;
     // O JSON devolve data como texto; o emissor espera `Date` — é a única
@@ -242,6 +289,7 @@ export async function transmitirContingencias(
           urlConsulta: resposta.urlConsulta,
           xml: resposta.xml,
           motivoRejeicao: null,
+          transmitindoDesde: null,
         },
       });
       resultado.autorizadas++;
@@ -309,9 +357,11 @@ export async function transmitirContingencias(
     }
 
     if (resposta.status === "INDISPONIVEL") {
+      // De volta à fila, e não presa em PROCESSANDO esperando a reserva
+      // vencer: o serviço está fora, e a próxima passada tenta de novo.
       await db.notaFiscal.update({
         where: { id: parada.id },
-        data: { motivoRejeicao: resposta.motivo },
+        data: { status: "CONTINGENCIA", transmitindoDesde: null, motivoRejeicao: resposta.motivo },
       });
       // O serviço está fora: as outras receberiam a mesma resposta.
       resultado.aindaParadas = paradas.length - paradas.indexOf(parada);
@@ -331,6 +381,7 @@ export async function transmitirContingencias(
       data: {
         status: resposta.status === "DENEGADA" ? "DENEGADA" : "REJEITADA",
         motivoRejeicao: resposta.motivo,
+        transmitindoDesde: null,
       },
     });
     resultado.recusadas++;
