@@ -175,7 +175,12 @@ export function FiscalTela({
           </p>
           {contingencia.semDocumento > 0 && (
             <p className="mt-2">
-              {contingencia.semDocumento} del{contingencia.semDocumento === 1 ? "a é" : "as são"} de
+              {/*
+                "delas" no plural mesmo quando é uma: o pronome aponta para o
+                conjunto das notas paradas, e só o verbo concorda com o número.
+                "1 dela é" diria "de uma nota só", que não é o que se quer.
+              */}
+              {contingencia.semDocumento} delas {contingencia.semDocumento === 1 ? "é" : "são"} de
               antes desta versão e não guard{contingencia.semDocumento === 1 ? "ou" : "aram"} o
               documento emitido: não há o que transmitir daqui.
             </p>
