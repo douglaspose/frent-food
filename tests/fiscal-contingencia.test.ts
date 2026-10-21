@@ -447,3 +447,61 @@ describe("a contingência da filial vizinha", () => {
     ).rejects.toThrow("outro restaurante");
   });
 });
+
+/**
+ * As duas portas da mesma fila.
+ *
+ * A transmissão tem dois gatilhos de propósito: o botão da retaguarda, para
+ * quem está olhando a tela, e `POST /api/fiscal/contingencia`, para o
+ * agendador que roda a cada poucos minutos. Nada impede que os dois caiam na
+ * mesma nota no mesmo segundo — e é o caso mais provável de todos, porque o
+ * dono aperta o botão exatamente quando percebe a fila crescendo, que é quando
+ * o agendador também está passando.
+ *
+ * Transmitir a mesma nota duas vezes não é um papel a mais: é um documento
+ * fiscal duplicado na SEFAZ, com a resposta da segunda sobrescrevendo a da
+ * primeira no banco.
+ */
+describe("duas passadas na mesma nota", () => {
+  it("o botão da tela e o agendador juntos transmitem a nota uma vez só", async () => {
+    const { notaId } = await emContingencia(915);
+
+    let idas = 0;
+    /**
+     * A SEFAZ como ela responde a um documento repetido.
+     *
+     * A primeira chamada autoriza. A segunda recebe a rejeição 539 —
+     * literalmente a resposta dela para uma nota que já entrou — e recebe
+     * **depois**, porque a duplicidade só aparece depois de consultar o que já
+     * está lá. É o que faz a resposta da duplicidade ser a última a escrever.
+     */
+    const sefazQueVeDuplicidade: Emissor = {
+      nome: "DUPLICIDADE",
+      async emitir(nota): Promise<ResultadoEmissao> {
+        if (++idas === 1) return sefazNoAr.emitir(nota);
+        await new Promise((r) => setTimeout(r, 400));
+        return { status: "REJEITADA", motivo: "Rejeição 539: duplicidade de NF-e." };
+      },
+      async cancelar(): Promise<ResultadoCancelamento> {
+        return { status: "RECUSADO", motivo: "n/a" };
+      },
+    };
+
+    await Promise.all([
+      transmitirContingencias(quem(), { emissor: sefazQueVeDuplicidade }),
+      transmitirContingencias(quem(), { emissor: sefazQueVeDuplicidade }),
+    ]);
+
+    const nota = await db.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
+    const danfes = await db.filaImpressao.count({
+      where: { tenantId, referenciaId: notaId, tipo: "DANFE_NFCE" },
+    });
+
+    expect({ idas, status: nota.status, motivo: nota.motivoRejeicao, danfes }).toEqual({
+      idas: 1,
+      status: "AUTORIZADA",
+      motivo: null,
+      danfes: 1,
+    });
+  });
+});

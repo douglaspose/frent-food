@@ -13,7 +13,10 @@ import {
   reemitirNota,
   salvarConfigFiscal,
   salvarPerfil,
+  transmitirContingencia,
 } from "@/app/gestao/fiscal/actions";
+import { emitirNfce } from "@/lib/fiscal/emitir";
+import { POST as POSTContingencia } from "@/app/api/fiscal/contingencia/route";
 import { transferirMesa } from "@/app/pdv/transferencia-actions";
 import {
   registrarContagem,
@@ -4119,5 +4122,174 @@ describe("duas pessoas abrindo a mesma gaveta", () => {
       gavetasAbertas: gavetas.length,
       algumRespondeu: toques.some((t) => !recusou(t)),
     }).toEqual({ gavetasAbertas: 1, algumRespondeu: true });
+  });
+});
+
+/**
+ * As duas portas da fila da contingência, ao mesmo tempo.
+ *
+ * A nota que a SEFAZ não recebeu fica guardada esperando transmissão, e a
+ * transmissão tem dois gatilhos de propósito: o botão da retaguarda, para quem
+ * está olhando a tela, e `POST /api/fiscal/contingencia`, para o agendador que
+ * passa a cada poucos minutos com o token da unidade.
+ *
+ * Nada impede que os dois caiam na mesma nota no mesmo segundo — e é o encontro
+ * mais provável que existe, porque o dono aperta o botão justamente quando
+ * percebe que a internet voltou, que é quando o agendador também está passando.
+ *
+ * Duas transmissões da mesma nota não são um papel a mais: é o mesmo documento
+ * fiscal entrando duas vezes na SEFAZ, com a resposta da segunda sobrescrevendo
+ * a da primeira aqui dentro.
+ */
+describe("a fila da contingência com duas pessoas puxando", () => {
+  it("o botão da tela e o agendador juntos transmitem a nota uma vez só", async () => {
+    const TOKEN = `agendador-${Date.now()}`;
+    const unidade = await admin.unidade.create({
+      data: {
+        tenantId: B.tenant.id,
+        codigo: "005",
+        nome: "Casa que emite",
+        razaoSocial: "Casa Que Emite LTDA",
+        cidade: "Anápolis",
+        uf: "GO",
+        cnpj: "11222333000181",
+        inscricaoEstadual: "123456789",
+        emiteNfce: true,
+        ambienteFiscal: "HOMOLOGACAO",
+        serieNfce: 1,
+        taxaServicoPct: 0,
+        atuaLoja: true,
+        tokenImpressao: TOKEN,
+      },
+    });
+    const perfil = await admin.perfilFiscal.create({
+      data: { tenantId: B.tenant.id, unidadeId: unidade.id, nome: "Padrão", cfop: "5102", padrao: true },
+    });
+    const produto = await admin.produto.create({
+      data: {
+        tenantId: B.tenant.id,
+        titulo: "Prato com NCM",
+        unidadeMedida: "UN",
+        // NCM válido: sem ele o emissor recusa de propósito, e a recusa
+        // esconderia a corrida atrás de um motivo que não é o do teste.
+        ncm: "21069090",
+        perfilFiscalId: perfil.id,
+      },
+    });
+    const usuario = await admin.usuario.create({
+      data: {
+        tenantId: B.tenant.id,
+        nome: "dona da casa que emite",
+        email: `fiscal-${Date.now()}@vizinho.com`,
+        pinHash: await bcrypt.hash("8888", 4),
+        unidades: { create: { unidadeId: unidade.id, cargoId: B.cargos.PROPRIETARIO! } },
+      },
+    });
+    const cargo = await admin.cargo.findUniqueOrThrow({
+      where: { id: B.cargos.PROPRIETARIO! },
+      include: { permissoes: true },
+    });
+    const quem = {
+      ...pessoa("dona da casa que emite", "8888", "10.5.0.9", "vizinho.frentfood.test"),
+      usuarioId: usuario.id,
+      cargo: "PROPRIETARIO",
+    };
+    await sessaoAssinada(quem, {
+      usuarioId: usuario.id,
+      tenantId: B.tenant.id,
+      unidadeId: unidade.id,
+      nome: quem.nome,
+      cargo: "PROPRIETARIO",
+      permissoes: cargo.permissoes.map((p) => p.chave),
+    });
+
+    // Uma venda paga, com o pagamento batendo o total: o emissor confere a
+    // soma, e divergência viraria rejeição em vez de autorização.
+    const comanda = await admin.comanda.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId: unidade.id,
+        numero: 1,
+        pessoas: 1,
+        status: "PAGA",
+        taxaServicoPct: 0,
+        abertaPorId: usuario.id,
+        itens: {
+          create: {
+            tenantId: B.tenant.id,
+            produtoId: produto.id,
+            quantidade: 1,
+            precoUnitario: 100,
+            precoTotal: 100,
+            status: "ENTREGUE",
+            lancadoPorId: usuario.id,
+          },
+        },
+        pagamentos: {
+          create: {
+            tenantId: B.tenant.id,
+            formaPagamentoId: B.formas.pix.id,
+            valor: 100,
+            troco: 0,
+            taxaPct: 0,
+            taxaValor: 0,
+            usuarioId: usuario.id,
+          },
+        },
+      },
+    });
+
+    // A nota nasce em contingência pelo caminho de verdade: a SEFAZ fora do ar
+    // é o que guarda o documento para ser transmitido igual depois.
+    await como(quem, () =>
+      emitirNfce(comanda.id, usuario.id, {
+        nome: "FORA",
+        async emitir() {
+          return { status: "INDISPONIVEL" as const, motivo: "Serviço da SEFAZ indisponível." };
+        },
+        async cancelar() {
+          return { status: "RECUSADO" as const, motivo: "fora do ar" };
+        },
+      })
+    );
+    const parada = await admin.notaFiscal.findFirstOrThrow({ where: { unidadeId: unidade.id } });
+    // Sem nota parada não há corrida para medir, e o resto do teste ficaria
+    // verde por falta de assunto.
+    if (parada.status !== "CONTINGENCIA") {
+      throw new Error(`a nota do teste não ficou em contingência: ${parada.status}`);
+    }
+
+    // O botão e o agendador no mesmo instante, cada um pela sua porta.
+    const pedido = new NextRequest("http://vizinho.frentfood.test/api/fiscal/contingencia", {
+      method: "POST",
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    await Promise.all([
+      tentar(quem, () => transmitirContingencia()),
+      POSTContingencia(pedido).catch(() => null),
+    ]);
+
+    const depois = await admin.notaFiscal.findUniqueOrThrow({ where: { id: parada.id } });
+    const danfes = await admin.filaImpressao.count({
+      where: { unidadeId: unidade.id, tipo: "DANFE_NFCE", referenciaId: parada.id },
+    });
+
+    await admin.filaImpressao.deleteMany({ where: { unidadeId: unidade.id } });
+    await admin.notaFiscal.deleteMany({ where: { unidadeId: unidade.id } });
+    await admin.pagamento.deleteMany({ where: { comandaId: comanda.id } });
+    await admin.comanda.deleteMany({ where: { unidadeId: unidade.id } });
+    await admin.usuarioUnidade.deleteMany({ where: { unidadeId: unidade.id } });
+    await admin.usuario.delete({ where: { id: usuario.id } });
+    await admin.produto.delete({ where: { id: produto.id } });
+    await admin.perfilFiscal.delete({ where: { id: perfil.id } });
+    await admin.unidade.delete({ where: { id: unidade.id } });
+
+    // Uma transmissão, uma autorização, um papel. Duas idas à SEFAZ com o
+    // mesmo documento é nota duplicada lá, com prazo e multa deste lado.
+    expect({ status: depois.status, tentativas: depois.tentativas, danfes }).toEqual({
+      status: "AUTORIZADA",
+      tentativas: 1,
+      danfes: 1,
+    });
   });
 });
