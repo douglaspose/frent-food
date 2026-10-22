@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { lerPreco } from "../cardapio/cardapio-editor";
+import { Recusa } from "../recusa";
 import {
   alternarOpcaoAtiva,
   atualizarGrupo,
@@ -106,7 +107,7 @@ export function OpcionaisTela({
 
   return (
     <>
-      {erro && <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}
+      {erro && <Recusa>{erro}</Recusa>}
 
       {podeEditar && (
         <div className="mt-4">

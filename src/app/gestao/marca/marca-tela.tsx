@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { temErro } from "@/lib/erro-de-operacao";
 import { COR_DE_FUNDO_PADRAO, noEndereco, type FundoDaLogo } from "@/lib/marca";
 import { removerLogomarca, salvarCorDeFundo, salvarLogomarca } from "./actions";
+import { Recusa } from "../recusa";
 
 /**
  * O cadastro da marca da casa.
@@ -58,7 +59,7 @@ export function MarcaTela({
         </p>
       </header>
 
-      {erro && <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}
+      {erro && <Recusa className="mb-4">{erro}</Recusa>}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Versao

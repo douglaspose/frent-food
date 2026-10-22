@@ -3,6 +3,7 @@
 import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { Recusa } from "../recusa";
 import { cadastrarAparelho, revogarAparelho, trocarToken } from "./actions";
 
 type Aparelho = {
@@ -107,7 +108,7 @@ export function AparelhosTela({
         )}
       </div>
 
-      {erro && <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}
+      {erro && <Recusa>{erro}</Recusa>}
 
       {podeEditar && (
         <form

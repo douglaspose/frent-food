@@ -6,6 +6,7 @@ import { GRUPOS, PARAMETROS, TITULO_DO_GRUPO, type Parametro } from "@/lib/param
 import type { AreaDaTaxa } from "@/lib/divisao-da-taxa";
 import { salvarAjuste } from "./actions";
 import { DivisaoDaTaxa } from "./divisao-da-taxa";
+import { Recusa } from "../recusa";
 
 export function AjustesTela({
   valores,
@@ -59,11 +60,7 @@ export function AjustesTela({
         </p>
       </header>
 
-      {erro && (
-        <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
-          {erro}
-        </p>
-      )}
+      {erro && <Recusa className="mb-4 ring-1 ring-red-200">{erro}</Recusa>}
 
       <div className="space-y-6">
         {GRUPOS.map((grupo) => {

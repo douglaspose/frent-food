@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { temErro } from "@/lib/erro-de-operacao";
+import { Recusa } from "../recusa";
 import {
   alternarAtiva,
   alternarNaMaquininha,
@@ -131,9 +132,7 @@ export function FormasTela({
         </div>
       </header>
 
-      {erro && (
-        <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>
-      )}
+      {erro && <Recusa className="mb-4">{erro}</Recusa>}
 
       {novaAberta && (
         <div className="mb-4 rounded-xl border border-neutral-200 bg-white p-5">

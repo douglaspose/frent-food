@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { salvarComposicao } from "../../actions";
+import { Recusa } from "../../../recusa";
 
 type Insumo = { id: string; titulo: string; unidadeMedida: string };
 
@@ -119,7 +120,7 @@ export function FichaTela({
         </p>
       )}
 
-      {erro && <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}
+      {erro && <Recusa>{erro}</Recusa>}
 
       <h2 className="mt-8 text-sm font-semibold">
         Composição

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { alterarPreco, alternarEsgotado } from "../actions";
+import { Recusa } from "../recusa";
 
 export type ItemCardapio = {
   id: string;
@@ -133,9 +134,7 @@ export function CardapioEditor({
         )}
       </div>
 
-      {erro && (
-        <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>
-      )}
+      {erro && <Recusa className="mb-4">{erro}</Recusa>}
 
       <div className="space-y-6">
         {visiveis.map((categoria) => (

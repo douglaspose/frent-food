@@ -3,6 +3,7 @@
 import { temErro, mensagemDeFalha } from "@/lib/erro-de-operacao";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { Recusa } from "../recusa";
 import { CONEXOES, precisaEndereco } from "@/lib/impressoras";
 import {
   alternarImpressoraAtiva,
@@ -126,7 +127,7 @@ export function FilaTela({
         )}
       </div>
 
-      {erro && <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{erro}</p>}
+      {erro && <Recusa>{erro}</Recusa>}
 
       <section className="mt-6 rounded-xl border border-neutral-200 bg-white p-5">
         <h2 className="text-sm font-semibold">Agente de impressão</h2>
