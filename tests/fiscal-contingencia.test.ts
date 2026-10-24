@@ -190,6 +190,73 @@ describe("a nota que a SEFAZ não recebeu", () => {
   });
 
   /**
+   * O cupom na mão do cliente, com a SEFAZ fora.
+   *
+   * A lei manda entregar o DANFE no ato da venda, autorizado ou não — e até
+   * aqui o cliente saía **sem papel nenhum** quando o serviço estava fora: o
+   * DANFE só era enfileirado na autorização. Era a dívida mais séria que
+   * sobrava no módulo fiscal.
+   *
+   * O papel da contingência diz o que é: traz o aviso em destaque, a chave que
+   * nós calculamos (com `tpEmis=9`) para o cliente consultar depois, o
+   * endereço da SEFAZ onde digitá-la, e **não** traz protocolo nem QR Code —
+   * o QR leva um hash assinado com o CSC, e quem assina é justamente quem não
+   * respondeu.
+   */
+  it("a venda em contingência entrega cupom ao cliente na hora", async () => {
+    const { notaId } = await emContingencia(930, 42);
+
+    const papel = await db.filaImpressao.findFirstOrThrow({
+      where: { tenantId, referenciaId: notaId, tipo: "DANFE_NFCE" },
+    });
+    const nota = await db.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
+
+    expect({
+      titulo: papel.titulo,
+      avisa: papel.conteudo.includes("EMITIDA EM CONTINGENCIA"),
+      dizQueFaltaAutorizar: papel.conteudo.includes("PENDENTE DE AUTORIZACAO"),
+      // A chave em blocos de quatro, como o cliente digita no site.
+      temAChave: papel.conteudo.includes(nota.chaveAcesso!.slice(0, 4)),
+      // Sem o "/consulta" no fim: a URL tem 49 caracteres e o papel tem 48,
+      // então ela quebra entre duas linhas — o endereço está lá, partido como
+      // em qualquer cupom desta largura.
+      ondeConsultar: papel.conteudo.includes("nfce-homologacao.sefaz.go.gov.br"),
+      // Nada de protocolo: ele não existe ainda, e escrevê-lo seria mentir.
+      semProtocolo: !papel.conteudo.includes("Protocolo de autorizacao"),
+      prometeTransmitir: papel.conteudo.includes("Autorizacao pendente"),
+      semQrCode: !papel.conteudo.includes("[[QRCODE:"),
+      // E o valor da venda está no papel, que é o que o cliente confere.
+      temOTotal: papel.conteudo.includes("42,00"),
+    }).toEqual({
+      titulo: "NFC-e 1/1 (contingência)",
+      avisa: true,
+      dizQueFaltaAutorizar: true,
+      temAChave: true,
+      ondeConsultar: true,
+      semProtocolo: true,
+      prometeTransmitir: true,
+      semQrCode: true,
+      temOTotal: true,
+    });
+  });
+
+  /** Transmitida depois, sai o segundo papel — e esse já é o autorizado. */
+  it("o papel da transmissão traz protocolo e QR Code", async () => {
+    await emContingencia(931);
+    await transmitirContingencias(quem(), { emissor: sefazNoAr });
+
+    const daCasa = await db.filaImpressao.findFirstOrThrow({
+      where: { tenantId, tipo: "DANFE_NFCE", titulo: { contains: "transmitida" } },
+    });
+
+    expect({
+      temProtocolo: daCasa.conteudo.includes("Protocolo de autorizacao"),
+      temQrCode: daCasa.conteudo.includes("[[QRCODE:"),
+      semAvisoDeContingencia: !daCasa.conteudo.includes("EMITIDA EM CONTINGENCIA"),
+    }).toEqual({ temProtocolo: true, temQrCode: true, semAvisoDeContingencia: true });
+  });
+
+  /**
    * O documento guardado é o que permite transmitir **a mesma nota**.
    *
    * A data de emissão e o código numérico entram no cálculo da chave, que já
@@ -205,7 +272,12 @@ describe("a nota que a SEFAZ não recebeu", () => {
     const depois = await db.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
     const papel = await db.filaImpressao.findFirst({
       // O guarda de isolamento cobra o filtro: toda consulta tem dono.
-      where: { tenantId, referenciaId: notaId, tipo: "DANFE_NFCE" },
+      where: {
+        tenantId,
+        referenciaId: notaId,
+        tipo: "DANFE_NFCE",
+        titulo: { contains: "transmitida" },
+      },
     });
 
     expect({
@@ -493,8 +565,16 @@ describe("duas passadas na mesma nota", () => {
     ]);
 
     const nota = await db.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
+    // O papel da transmissão, e não todos: o cupom da venda em contingência
+    // também é um DANFE desta nota, de propósito, e contar os dois esconderia
+    // justamente a transmissão repetida que este teste persegue.
     const danfes = await db.filaImpressao.count({
-      where: { tenantId, referenciaId: notaId, tipo: "DANFE_NFCE" },
+      where: {
+        tenantId,
+        referenciaId: notaId,
+        tipo: "DANFE_NFCE",
+        titulo: { contains: "transmitida" },
+      },
     });
 
     expect({ idas, status: nota.status, motivo: nota.motivoRejeicao, danfes }).toEqual({
@@ -614,8 +694,16 @@ describe("a nota reservada sai da fila", () => {
     });
 
     const depois = await db.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
+    // O papel da transmissão, e não todos: o cupom da venda em contingência
+    // também é um DANFE desta nota, de propósito, e contar os dois esconderia
+    // justamente a transmissão repetida que este teste persegue.
     const danfes = await db.filaImpressao.count({
-      where: { tenantId, referenciaId: notaId, tipo: "DANFE_NFCE" },
+      where: {
+        tenantId,
+        referenciaId: notaId,
+        tipo: "DANFE_NFCE",
+        titulo: { contains: "transmitida" },
+      },
     });
 
     expect({

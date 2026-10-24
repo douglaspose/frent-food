@@ -4,7 +4,7 @@ import { CONSUMO } from "../itens";
 import { calcularTotais } from "../comanda";
 import { enfileirar } from "../fila-impressao";
 import { gerarCodigoNumerico, montarChave, TP_EMIS } from "./chave";
-import { montarDanfe } from "./danfe";
+import { danfeDaNota } from "./danfe";
 import { EmissorSimulado } from "./emissor-simulado";
 import { montarNota, montarPagamento, type ItemDaComanda } from "./montar-nota";
 import type { Emissor, NotaParaEmitir } from "./tipos";
@@ -65,6 +65,40 @@ function emOffline(nota: NotaParaEmitir): { documento: NotaParaEmitir; chave: st
     tipoEmissao: TP_EMIS.CONTINGENCIA_OFFLINE,
   });
   return { documento, chave };
+}
+
+/**
+ * O cupom que o cliente leva quando a SEFAZ está fora.
+ *
+ * A lei manda entregar o DANFE ao consumidor **no ato da venda**, autorizada
+ * ou não: na contingência offline o papel sai com o aviso de contingência, a
+ * chave que nós mesmos calculamos e sem protocolo — a autorização vem depois,
+ * pela transmissão (`lib/fiscal/contingencia`), e aí sai um segundo papel para
+ * a casa.
+ *
+ * Até aqui o cliente saía **sem cupom nenhum** quando o serviço estava fora,
+ * que era a dívida mais séria que o módulo fiscal tinha.
+ *
+ * Nunca lança: a conta já foi paga e o cliente está de pé no caixa. Papel que
+ * não sai é problema da fila de impressão, não da venda.
+ */
+async function papelDaContingencia(
+  registro: { id: string; tenantId: string; unidadeId: string },
+  documento: NotaParaEmitir,
+  chave: string
+) {
+  try {
+    await enfileirar({
+      tenantId: registro.tenantId,
+      unidadeId: registro.unidadeId,
+      tipo: "DANFE_NFCE",
+      titulo: `NFC-e ${documento.numero}/${documento.serie} (contingência)`,
+      referenciaId: registro.id,
+      conteudo: danfeDaNota(documento, { contingencia: true, chaveAcesso: chave }),
+    });
+  } catch (e) {
+    console.error("Falha ao enfileirar DANFE da contingência", e);
+  }
 }
 
 export type ResultadoEmitir =
@@ -238,39 +272,12 @@ export async function emitirNfce(
             tipo: "DANFE_NFCE",
             titulo: `NFC-e ${numero}/${serie}`,
             referenciaId: registro.id,
-            conteudo: montarDanfe({
-              emitente: {
-                razaoSocial: nota.emitente.razaoSocial,
-                cnpj: nota.emitente.cnpj,
-                endereco: [unidade.logradouro, unidade.numero, unidade.bairro, unidade.cidade]
-                  .filter(Boolean)
-                  .join(", "),
-              },
-              numero,
-              serie,
-              ambiente: unidade.ambienteFiscal,
+            conteudo: danfeDaNota(nota, {
               autorizadaEm: resposta.autorizadaEm,
-              chaveAcesso: resposta.chaveAcesso,
               protocolo: resposta.protocolo,
+              chaveAcesso: resposta.chaveAcesso,
               qrCodeDados: resposta.qrCodeDados,
               urlConsulta: resposta.urlConsulta,
-              itens: nota.itens.map((i) => ({
-                descricao: i.descricao,
-                quantidade: i.quantidade,
-                unidade: i.unidade,
-                valorUnitario: i.valorUnitario,
-                valorTotal: i.valorTotal,
-              })),
-              valorProdutos: nota.valorProdutos,
-              valorDesconto: nota.valorDesconto,
-              valorTotal: nota.valorTotal,
-              pagamentos: nota.pagamentos.map((p) => ({
-                descricao: p.descricao,
-                valor: p.valor,
-                troco: p.troco,
-              })),
-              consumidor: nota.destinatario,
-              observacao: nota.informacoesComplementares,
             }),
           });
         } catch (e) {
@@ -294,6 +301,7 @@ export async function emitirNfce(
             emitida: offline.documento as unknown as Prisma.InputJsonValue,
           },
         });
+        await papelDaContingencia(registro, offline.documento, offline.chave);
         return { ok: false, notaId: registro.id, motivo: `Em contingência: ${resposta.motivo}` };
       }
 
@@ -332,6 +340,7 @@ export async function emitirNfce(
         tentativas: { increment: 1 },
       },
     });
+    await papelDaContingencia(registro, offline.documento, offline.chave);
     return { ok: false, notaId: registro.id, motivo };
   }
 }

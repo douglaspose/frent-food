@@ -1,4 +1,4 @@
-import { montarChave, TP_EMIS } from "./chave";
+import { montarChave, TP_EMIS, urlDeConsulta } from "./chave";
 import type {
   Emissor,
   NotaParaEmitir,
@@ -48,7 +48,7 @@ export class EmissorSimulado implements Emissor {
       protocolo,
       autorizadaEm,
       qrCodeDados: this.montarQrCode(nota, chaveAcesso),
-      urlConsulta: this.urlConsulta(nota.emitente.uf, nota.ambiente),
+      urlConsulta: urlDeConsulta(nota.emitente.uf, nota.ambiente),
       xml: this.montarXml(nota, chaveAcesso, protocolo, autorizadaEm),
     };
   }
@@ -114,12 +114,7 @@ export class EmissorSimulado implements Emissor {
     const parametros = new URLSearchParams({
       p: [chave, "2", nota.ambiente === "PRODUCAO" ? "1" : "2", "1", "SIMULADO"].join("|"),
     });
-    return `${this.urlConsulta(nota.emitente.uf, nota.ambiente)}?${parametros}`;
-  }
-
-  private urlConsulta(uf: string, ambiente: string) {
-    const sufixo = ambiente === "PRODUCAO" ? "" : "-homologacao";
-    return `https://nfce${sufixo}.sefaz.${uf.toLowerCase()}.gov.br/consulta`;
+    return `${urlDeConsulta(nota.emitente.uf, nota.ambiente)}?${parametros}`;
   }
 
   private montarXml(

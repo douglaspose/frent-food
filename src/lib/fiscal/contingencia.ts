@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "../db";
 import { enfileirar } from "../fila-impressao";
-import { montarDanfe } from "./danfe";
+import { danfeDaNota } from "./danfe";
 import { emissorDa } from "./emitir";
 import type { Emissor, NotaParaEmitir } from "./tipos";
 
@@ -310,44 +310,12 @@ export async function transmitirContingencias(
           tipo: "DANFE_NFCE",
           titulo: `NFC-e ${parada.numero}/${parada.serie} (contingência transmitida)`,
           referenciaId: parada.id,
-          conteudo: montarDanfe({
-            emitente: {
-              razaoSocial: documento.emitente.razaoSocial,
-              cnpj: documento.emitente.cnpj,
-              endereco: [
-                documento.emitente.logradouro,
-                documento.emitente.numero,
-                documento.emitente.bairro,
-                documento.emitente.municipio,
-              ]
-                .filter(Boolean)
-                .join(", "),
-            },
-            numero: parada.numero,
-            serie: parada.serie,
-            ambiente: parada.ambiente,
+          conteudo: danfeDaNota(documento, {
             autorizadaEm: resposta.autorizadaEm,
-            chaveAcesso: resposta.chaveAcesso,
             protocolo: resposta.protocolo,
+            chaveAcesso: resposta.chaveAcesso,
             qrCodeDados: resposta.qrCodeDados,
             urlConsulta: resposta.urlConsulta,
-            itens: documento.itens.map((i) => ({
-              descricao: i.descricao,
-              quantidade: i.quantidade,
-              unidade: i.unidade,
-              valorUnitario: i.valorUnitario,
-              valorTotal: i.valorTotal,
-            })),
-            valorProdutos: documento.valorProdutos,
-            valorDesconto: documento.valorDesconto,
-            valorTotal: documento.valorTotal,
-            pagamentos: documento.pagamentos.map((p) => ({
-              descricao: p.descricao,
-              valor: p.valor,
-              troco: p.troco,
-            })),
-            consumidor: documento.destinatario,
-            observacao: documento.informacoesComplementares,
           }),
         });
       } catch (e) {

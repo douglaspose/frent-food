@@ -4352,8 +4352,26 @@ describe("a fila da contingência com duas pessoas puxando", () => {
     ]);
 
     const depois = await admin.notaFiscal.findUniqueOrThrow({ where: { id: parada.id } });
+    // O papel **da transmissão**, e não todos os desta nota: a venda em
+    // contingência entrega um cupom ao cliente na hora, de propósito, e
+    // contar os dois esconderia a transmissão repetida que se persegue aqui.
     const danfes = await admin.filaImpressao.count({
-      where: { unidadeId: unidade.id, tipo: "DANFE_NFCE", referenciaId: parada.id },
+      where: {
+        unidadeId: unidade.id,
+        tipo: "DANFE_NFCE",
+        referenciaId: parada.id,
+        titulo: { contains: "transmitida" },
+      },
+    });
+    // E o cliente saiu com o cupom dele: é a exigência legal que a emissão
+    // offline passou a cumprir.
+    const cupomDoCliente = await admin.filaImpressao.count({
+      where: {
+        unidadeId: unidade.id,
+        tipo: "DANFE_NFCE",
+        referenciaId: parada.id,
+        titulo: { contains: "(contingência)" },
+      },
     });
 
     await admin.filaImpressao.deleteMany({ where: { unidadeId: unidade.id } });
@@ -4368,10 +4386,11 @@ describe("a fila da contingência com duas pessoas puxando", () => {
 
     // Uma transmissão, uma autorização, um papel. Duas idas à SEFAZ com o
     // mesmo documento é nota duplicada lá, com prazo e multa deste lado.
-    expect({ status: depois.status, tentativas: depois.tentativas, danfes }).toEqual({
+    expect({ status: depois.status, tentativas: depois.tentativas, danfes, cupomDoCliente }).toEqual({
       status: "AUTORIZADA",
       tentativas: 1,
       danfes: 1,
+      cupomDoCliente: 1,
     });
   });
 });

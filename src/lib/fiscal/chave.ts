@@ -83,6 +83,22 @@ export function montarChave(dados: DadosChave) {
   return chave43 + digitoVerificador(chave43);
 }
 
+/**
+ * Onde o consumidor confere a nota.
+ *
+ * Mora aqui, junto do resto do que é por UF, porque **o cupom da contingência
+ * precisa dela sem ter emissor**: a nota offline é impressa na hora, antes de
+ * qualquer resposta da SEFAZ, e sem este endereço o cliente ficaria com a
+ * chave na mão e nenhum lugar para digitá-la.
+ *
+ * O endereço real varia por estado e o gateway devolve o dele quando houver
+ * um; este é o padrão que a SEFAZ publica e o que o emissor simulado já usava.
+ */
+export function urlDeConsulta(uf: string, ambiente: string) {
+  const sufixo = ambiente === "PRODUCAO" ? "" : "-homologacao";
+  return `https://nfce${sufixo}.sefaz.${uf.toLowerCase()}.gov.br/consulta`;
+}
+
 export function chaveValida(chave: string) {
   const limpa = somenteDigitos(chave);
   if (limpa.length !== 44) return false;

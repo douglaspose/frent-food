@@ -66,6 +66,11 @@ offline, e é transmitida depois. O que existe hoje:
   enfileira o DANFE. Recusada ou denegada: sai da contingência com o motivo, para
   a mão de gente. Indisponível: para o lote ali — as outras receberiam a mesma
   resposta.
+- **O cliente sai com o cupom**, como a lei manda: a venda offline enfileira
+  um DANFE na hora, com `EMITIDA EM CONTINGENCIA / PENDENTE DE AUTORIZACAO`, a
+  chave (`tpEmis=9`) em blocos de quatro e o endereço de consulta — sem
+  protocolo e sem QR Code, que precisa do hash assinado com o CSC. Transmitida
+  depois, sai um segundo papel, esse com protocolo e QR, para a casa.
 - O prazo legal (`PRAZO_DE_TRANSMISSAO_HORAS`, 24h) é contado em
   `resumoDaContingencia()`, e **Gestão → Fiscal** avisa em cima da tela quantas
   esperam, há quanto tempo a mais velha, e quantas já venceram.
@@ -104,9 +109,6 @@ A tela diz isso, e quem resolve é o contador.
   ser inutilizado na SEFAZ, senão fica buraco na sequência
 - **Janela de cancelamento**: a SEFAZ aceita cancelar por ~30 min após a
   autorização (varia por UF). A tela ainda oferece cancelar sem checar o prazo
-- **DANFE da contingência no ato da venda**: a lei manda entregar o cupom ao
-  cliente na hora, com a observação de emissão em contingência. Hoje o papel só
-  sai quando a nota é autorizada — na venda offline o cliente sai sem cupom
 - **CSC guardado em texto puro** no banco. Deveria ser cifrado em repouso
 - **Numeração sob concorrência**: hoje é `max + 1`. No volume de um restaurante
   dá conta; numa rede com muitos caixas simultâneos, vira uma sequence no
