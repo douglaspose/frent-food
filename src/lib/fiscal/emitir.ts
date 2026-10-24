@@ -23,23 +23,10 @@ export function emissorDa(unidade: { emissorFiscal: string }): Emissor {
   }
 }
 
-/**
- * O próximo número da série, pelo maior já gravado.
- *
- * A numeração não pode ter buraco nem repetição. Duas contas fechando no mesmo
- * instante leem o mesmo máximo e pedem o mesmo número — quem decide é o
- * `@@unique([unidadeId, serie, numero])` da tabela, e quem perder tenta o
- * seguinte (ver `gravarComNumeroLivre`). Numa rede grande isso vira uma
- * sequence no Postgres.
- */
-async function proximoNumero(unidadeId: string, serie: number) {
-  const ultima = await db.notaFiscal.findFirst({
-    where: { unidadeId, serie },
-    orderBy: { numero: "desc" },
-    select: { numero: true },
-  });
-  return (ultima?.numero ?? 0) + 1;
-}
+/** Os estados em que a comanda já tem nota, e não cabe outra. */
+const JA_TEM_NOTA = ["AUTORIZADA", "PROCESSANDO", "CONTINGENCIA"] as const;
+
+const JA_TEM_NOTA_MOTIVO = "Esta comanda já tem nota emitida.";
 
 /** Quantas vezes tentar outro número antes de desistir. */
 const TENTATIVAS_DE_NUMERO = 5;
@@ -57,23 +44,39 @@ function numeroJaTomado(e: unknown) {
 }
 
 /**
- * Grava a nota no primeiro número que a série aceitar.
+ * Reserva a nota da comanda: confere que ela não tem nota e grava a linha, de
+ * uma vez só.
  *
- * Dois caixas tocando "finalizar" no mesmo segundo é o sábado inteiro, e as
- * duas leituras do maior número veem o mesmo máximo. A gravação da segunda
- * batia no índice único e **estourava para fora de `emitirNfce`**, que promete
- * não lançar: quem a chama (`lib/conta.ts`) engole o erro porque a conta já
- * está paga e o cliente não pode ser segurado na porta — e a venda terminava
- * sem nota e **sem linha no banco**, invisível para a tela Fiscal, que lista
- * notas. Medido com duas contas pagas e `Promise.all`: uma nota, uma venda sem
- * documento nenhum.
+ * Duas corridas moram aqui, e as duas são a mesma coisa — ler o banco, decidir,
+ * e gravar depois:
  *
- * Quem decide é o índice único, e quem perde pede o número seguinte. Sem trava:
- * a da linha da unidade serializaria toda emissão contra a abertura de mesa,
- * que usa a mesma trava, para pagar por uma colisão que só acontece no empate.
- * Cinco tentativas cobrem cinco caixas empatando no mesmo número.
+ * 1. **Duas contas diferentes fechando no mesmo segundo** — o sábado inteiro.
+ *    As duas leituras do maior número da série veem o mesmo máximo, e a
+ *    gravação da segunda batia no `@@unique([unidadeId, serie, numero])`. O
+ *    estouro subia por `emitirNfce`, que promete não lançar, e quem a chama
+ *    (`lib/conta.ts`) o engolia porque a conta já está paga e o cliente não
+ *    pode ser segurado na porta: a venda terminava **sem nota e sem linha no
+ *    banco**, invisível para a tela Fiscal, que lista notas.
+ *
+ * 2. **Dois toques na mesma venda** — o botão "reemitir" da tela Fiscal, ou
+ *    duas abas do caixa. A conferência de "esta comanda já tem nota" lia e a
+ *    gravação vinha depois, então as duas passavam e a venda terminava com
+ *    **duas notas autorizadas na SEFAZ**. Nota em duplicidade é o problema
+ *    fiscal mais caro deste módulo: imposto recolhido duas vezes sobre a mesma
+ *    venda, e desfazer pede cancelamento dentro da janela da SEFAZ.
+ *
+ * A trava da linha da comanda resolve a segunda — é a mesma que
+ * `lib/cancelamento` e a finalização usam, e a granularidade certa: quem
+ * disputa uma comanda é o dedo da mesma pessoa, não o salão. A primeira fica
+ * com o índice único: quem perde o número tenta a transação de novo, e a
+ * tentativa seguinte lê um máximo já maior. Cinco tentativas cobrem cinco
+ * caixas empatando.
+ *
+ * A trava da linha da **unidade** não serve aqui: ela é a da abertura de mesa
+ * (`lib/abertura`) e da venda de balcão, e serializaria toda emissão contra o
+ * salão para pagar por uma colisão que só acontece no empate.
  */
-async function gravarComNumeroLivre(
+async function reservarNota(
   montar: (numero: number) => NotaParaEmitir,
   onde: {
     tenantId: string;
@@ -85,22 +88,40 @@ async function gravarComNumeroLivre(
   }
 ) {
   for (let tentativa = 1; ; tentativa++) {
-    const nota = montar(await proximoNumero(onde.unidadeId, onde.serie));
     try {
-      const registro = await db.notaFiscal.create({
-        data: {
-          tenantId: onde.tenantId,
-          unidadeId: onde.unidadeId,
-          comandaId: onde.comandaId,
-          serie: onde.serie,
-          numero: nota.numero,
-          ambiente: onde.ambiente,
-          status: "PROCESSANDO",
-          valorTotal: nota.valorTotal,
-          emitidaPorId: onde.emitidaPorId,
-        },
+      return await db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM comandas WHERE id = ${onde.comandaId} FOR UPDATE`;
+
+        // A conferência que vale, dentro da trava. A de fora é só para não
+        // abrir transação no caso comum de quem toca duas vezes devagar.
+        const ja = await tx.notaFiscal.findFirst({
+          where: { comandaId: onde.comandaId, status: { in: [...JA_TEM_NOTA] } },
+          select: { id: true },
+        });
+        if (ja) return { jaEmitida: ja.id };
+
+        const ultima = await tx.notaFiscal.findFirst({
+          where: { unidadeId: onde.unidadeId, serie: onde.serie },
+          orderBy: { numero: "desc" },
+          select: { numero: true },
+        });
+
+        const nota = montar((ultima?.numero ?? 0) + 1);
+        const registro = await tx.notaFiscal.create({
+          data: {
+            tenantId: onde.tenantId,
+            unidadeId: onde.unidadeId,
+            comandaId: onde.comandaId,
+            serie: onde.serie,
+            numero: nota.numero,
+            ambiente: onde.ambiente,
+            status: "PROCESSANDO",
+            valorTotal: nota.valorTotal,
+            emitidaPorId: onde.emitidaPorId,
+          },
+        });
+        return { nota, registro };
       });
-      return { nota, registro };
     } catch (e) {
       if (tentativa >= TENTATIVAS_DE_NUMERO || !numeroJaTomado(e)) throw e;
     }
@@ -218,11 +239,13 @@ export async function emitirNfce(
   if (!unidade.cnpj) return { ok: false, motivo: "CNPJ da unidade não configurado." };
 
   const jaEmitida = await db.notaFiscal.findFirst({
-    where: { comandaId, status: { in: ["AUTORIZADA", "PROCESSANDO", "CONTINGENCIA"] } },
+    where: { comandaId, status: { in: [...JA_TEM_NOTA] } },
   });
   // Emitir duas notas para a mesma venda é problema fiscal, não conveniência.
+  // Quem decide é a conferência de dentro da trava, em `reservarNota`: esta
+  // responde cedo e com o id da nota, e não vale contra dois toques juntos.
   if (jaEmitida) {
-    return { ok: false, notaId: jaEmitida.id, motivo: "Esta comanda já tem nota emitida." };
+    return { ok: false, notaId: jaEmitida.id, motivo: JA_TEM_NOTA_MOTIVO };
   }
 
   const itens: ItemDaComanda[] = comanda.itens.map((item) => ({
@@ -311,9 +334,9 @@ export async function emitirNfce(
    * ficava sem documento e sem rastro. Esgotar as tentativas é recusa legível,
    * como todo problema fiscal nesta função — nunca venda travada.
    */
-  let gravada;
+  let reservada;
   try {
-    gravada = await gravarComNumeroLivre(montar, {
+    reservada = await reservarNota(montar, {
       tenantId: comanda.tenantId,
       unidadeId: unidade.id,
       comandaId,
@@ -328,7 +351,11 @@ export async function emitirNfce(
       motivo: "Não foi possível reservar o número da nota. Reemita pela tela Fiscal.",
     };
   }
-  const { nota, registro } = gravada;
+  // O outro toque chegou primeiro, e a nota dele é a desta venda.
+  if ("jaEmitida" in reservada) {
+    return { ok: false, notaId: reservada.jaEmitida, motivo: JA_TEM_NOTA_MOTIVO };
+  }
+  const { nota, registro } = reservada;
 
   try {
     const resposta = await (emissor ?? emissorDa(unidade)).emitir(nota);
