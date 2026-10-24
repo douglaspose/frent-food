@@ -3802,6 +3802,73 @@ describe("a conta da filial vizinha", () => {
       pessoas: 2,
     });
   });
+  /**
+   * O perfil fiscal da filial, reescrito pela matriz.
+   *
+   * `salvarPerfil` recebe o `perfilId` do navegador e confere **só o
+   * restaurante** (`src/app/gestao/fiscal/actions.ts`), embora o perfil seja
+   * da unidade: ele nasce com `unidadeId: sessao.unidadeId` e a tela Fiscal
+   * lista só os da unidade da sessão.
+   *
+   * O que se reescreve daqui é CFOP, CSOSN/CST e as alíquotas de ICMS, PIS e
+   * COFINS — o que a NFC-e declara à SEFAZ no nome da empresa. Toda nota que
+   * a filial emitir depois sai com o imposto de outra, e na tela de lá nada
+   * mudou de lugar: o perfil simplesmente passou a dizer outra coisa, sem
+   * autor e sem aviso. É o caso mais caro desta família, porque o erro só
+   * aparece na apuração do contador, semanas depois.
+   */
+  it("a matriz não reescreve o perfil fiscal da filial", async () => {
+    const { unidadeId } = await montarFilial();
+    const perfil = await admin.perfilFiscal.create({
+      data: {
+        tenantId: B.tenant.id,
+        unidadeId,
+        nome: "Perfil da filial",
+        cfop: "5102",
+        csosn: "102",
+        aliquotaIcms: 0,
+        padrao: true,
+      },
+    });
+
+    const t = await tentar(B.proprietario, () =>
+      salvarPerfil(
+        {
+          nome: "Perfil reescrito de longe",
+          cfop: "6108",
+          origemMercadoria: 0,
+          csosn: "500",
+          cstIcms: "",
+          aliquotaIcms: 18,
+          cstPis: "49",
+          aliquotaPis: 0,
+          cstCofins: "49",
+          aliquotaCofins: 0,
+          padrao: false,
+        },
+        perfil.id
+      )
+    );
+
+    const depois = await admin.perfilFiscal.findUniqueOrThrow({ where: { id: perfil.id } });
+    await admin.perfilFiscal.deleteMany({ where: { unidadeId } });
+    await desmontarFilial();
+
+    expect({
+      porQue: porQue(t),
+      nome: depois.nome,
+      cfop: depois.cfop,
+      csosn: depois.csosn,
+      icms: Number(depois.aliquotaIcms),
+    }).toEqual({
+      porQue: "Perfil não encontrado.",
+      nome: "Perfil da filial",
+      cfop: "5102",
+      csosn: "102",
+      icms: 0,
+    });
+  });
+
 
 });
 

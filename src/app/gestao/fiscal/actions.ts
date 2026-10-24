@@ -120,7 +120,10 @@ export async function salvarPerfil(dados: DadosPerfil, perfilId?: string) {
 
       if (perfilId) {
         const existente = await tx.perfilFiscal.findUnique({ where: { id: perfilId } });
-        if (!existente || existente.tenantId !== sessao.tenantId) {
+        // A unidade, e não só o restaurante: o perfil nasce com a unidade da
+        // sessão e a tela só lista os de lá. O que se reescreve aqui é CFOP,
+        // CST/CSOSN e alíquota — o imposto que a filial vai declarar.
+        if (!existente || existente.tenantId !== sessao.tenantId || existente.unidadeId !== sessao.unidadeId) {
           throw new ErroDeOperacao("Perfil não encontrado.");
         }
         await tx.perfilFiscal.update({ where: { id: perfilId }, data: conteudo });
@@ -142,7 +145,11 @@ export async function aplicarPerfilAosSemPerfil(perfilId: string) {
     const sessao = await exigirPermissao(PERMISSAO);
 
     const perfil = await db.perfilFiscal.findUnique({ where: { id: perfilId } });
-    if (!perfil || perfil.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Perfil não encontrado.");
+    // Mesma régua do `salvarPerfil`: o perfil de outra unidade não entra nos
+    // produtos daqui, e os produtos são do restaurante inteiro.
+    if (!perfil || perfil.tenantId !== sessao.tenantId || perfil.unidadeId !== sessao.unidadeId) {
+      throw new ErroDeOperacao("Perfil não encontrado.");
+    }
 
     const r = await db.produto.updateMany({
       where: { tenantId: sessao.tenantId, perfilFiscalId: null },
