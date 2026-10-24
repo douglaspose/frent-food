@@ -63,6 +63,7 @@ import {
   definirTaxaServico,
   estornarPagamento,
   fecharCaixa,
+  definirPessoas,
   finalizarComanda,
   imprimirConferencia,
   iniciarFechamento,
@@ -3742,6 +3743,63 @@ describe("a conta da filial vizinha", () => {
     expect({ porQue: porQue(t), status: depois.status }).toEqual({
       porQue: "Nota de outra unidade.",
       status: "AUTORIZADA",
+    });
+  });
+
+  /**
+   * A conta da filial impressa pela matriz.
+   *
+   * `imprimirConferencia` recebe o id do navegador e confere **só o
+   * restaurante** — a linha da unidade não está lá, e as vizinhas de arquivo
+   * (`aplicarDesconto`, `definirTaxaServico`) conferem as duas.
+   *
+   * E o papel não sai aqui: `enfileirarConferencia` enfileira na unidade **da
+   * comanda**. Então a matriz faz sair papel na impressora da filial, de uma
+   * mesa que está sendo servida a 100 km — o cliente de lá recebe a conta sem
+   * ter pedido, e quem está no caixa de lá vê uma segunda via que ninguém
+   * daquela casa mandou imprimir. Qualquer sessão basta: a ação pede sessão e
+   * nada mais.
+   */
+  it("a matriz não imprime a conta da filial na impressora de lá", async () => {
+    const { comandaId, unidadeId } = await montarFilial();
+
+    const t = await tentar(B.gerentes[0]!, () => imprimirConferencia(comandaId));
+
+    const papeis = await admin.filaImpressao.count({
+      where: { unidadeId, referenciaId: comandaId },
+    });
+    await admin.filaImpressao.deleteMany({ where: { unidadeId } });
+    await desmontarFilial();
+
+    expect({ porQue: porQue(t), papeis }).toEqual({
+      porQue: "Comanda de outra unidade.",
+      papeis: 0,
+    });
+  });
+
+  /**
+   * As pessoas da mesa da filial, corrigidas pela matriz.
+   *
+   * `definirPessoas` também confere só o restaurante. O número não muda o
+   * total, muda a **divisão** — é por ele que a tela de fechamento diz quanto
+   * cada um paga, e é essa tela que o cliente está olhando quando a conta
+   * chega à mesa. Mexer nele de outra cidade troca a divisão no meio da
+   * conversa, e o garçom de lá não tem como saber por quê.
+   */
+  it("a matriz não corrige as pessoas da mesa da filial", async () => {
+    const { comandaId } = await montarFilial();
+
+    const t = await tentar(B.gerentes[0]!, () => definirPessoas(comandaId, 9));
+
+    const depois = await admin.comanda.findUniqueOrThrow({
+      where: { id: comandaId },
+      select: { pessoas: true },
+    });
+    await desmontarFilial();
+
+    expect({ porQue: porQue(t), pessoas: depois.pessoas }).toEqual({
+      porQue: "Comanda de outra unidade.",
+      pessoas: 2,
     });
   });
 

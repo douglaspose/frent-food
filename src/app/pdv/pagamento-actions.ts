@@ -12,7 +12,7 @@ import { publicar } from "@/lib/eventos";
 import { auditoria } from "@/lib/auditoria-servidor";
 import { dinheiroNaGaveta } from "@/lib/caixa";
 import { porQueOCaixaNaoFecha } from "@/lib/comandas-abertas";
-import { conferirUnidade } from "@/lib/da-unidade";
+import { comandaDaUnidade, conferirUnidade } from "@/lib/da-unidade";
 import { ajusteBooleano } from "@/lib/parametros-servidor";
 import { liberar } from "@/lib/autorizacao-servidor";
 import type { PrecisaAutorizacao } from "@/lib/autorizacao";
@@ -350,8 +350,10 @@ export async function imprimirConferencia(comandaId: string, segundaVia = false)
   return emResultado(async () => {
     const sessao = await exigirSessao();
 
-    const comanda = await db.comanda.findUniqueOrThrow({ where: { id: comandaId } });
-    if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+    // A unidade, e não só o restaurante: `enfileirarConferencia` enfileira na
+    // unidade **da comanda**, então daqui saía papel na impressora da filial,
+    // de uma mesa que está sendo servida lá.
+    await comandaDaUnidade(comandaId, sessao);
 
     await enfileirarConferencia(comandaId, segundaVia);
     revalidatePath("/pdv");
@@ -402,11 +404,10 @@ export async function definirPessoas(comandaId: string, pessoas: number) {
       throw new ErroDeOperacao("Informe de 1 a 99 pessoas.");
     }
 
-    const comanda = await db.comanda.findUniqueOrThrow({
-      where: { id: comandaId },
-      select: { tenantId: true },
-    });
-    if (comanda.tenantId !== sessao.tenantId) throw new ErroDeOperacao("Comanda de outro restaurante.");
+    // O número não muda o total, muda a divisão por pessoa — a tela que o
+    // cliente está olhando quando a conta chega. A conta de outra unidade não
+    // é desta sessão, como no desconto e na taxa.
+    await comandaDaUnidade(comandaId, sessao);
 
     await db.comanda.update({ where: { id: comandaId }, data: { pessoas } });
     revalidatePath("/pdv");
