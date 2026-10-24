@@ -24,20 +24,87 @@ export function emissorDa(unidade: { emissorFiscal: string }): Emissor {
 }
 
 /**
- * Reserva o próximo número da série.
+ * O próximo número da série, pelo maior já gravado.
  *
- * A numeração não pode ter buraco nem repetição, e duas comandas fechando ao
- * mesmo tempo disputariam o mesmo número. A transação com leitura do maior
- * número resolve no volume de um restaurante; numa rede grande isso vira uma
+ * A numeração não pode ter buraco nem repetição. Duas contas fechando no mesmo
+ * instante leem o mesmo máximo e pedem o mesmo número — quem decide é o
+ * `@@unique([unidadeId, serie, numero])` da tabela, e quem perder tenta o
+ * seguinte (ver `gravarComNumeroLivre`). Numa rede grande isso vira uma
  * sequence no Postgres.
  */
-async function reservarNumero(unidadeId: string, serie: number) {
+async function proximoNumero(unidadeId: string, serie: number) {
   const ultima = await db.notaFiscal.findFirst({
     where: { unidadeId, serie },
     orderBy: { numero: "desc" },
     select: { numero: true },
   });
   return (ultima?.numero ?? 0) + 1;
+}
+
+/** Quantas vezes tentar outro número antes de desistir. */
+const TENTATIVAS_DE_NUMERO = 5;
+
+/**
+ * O número foi levado por outro caixa entre a leitura e a gravação.
+ *
+ * É a única violação de unicidade possível nesta gravação: a `chaveAcesso`
+ * ainda é nula aqui, e `comandaId` não é único.
+ */
+function numeroJaTomado(e: unknown) {
+  return (
+    e instanceof Error && e.message.includes("notas_fiscais_unidadeId_serie_numero_key")
+  );
+}
+
+/**
+ * Grava a nota no primeiro número que a série aceitar.
+ *
+ * Dois caixas tocando "finalizar" no mesmo segundo é o sábado inteiro, e as
+ * duas leituras do maior número veem o mesmo máximo. A gravação da segunda
+ * batia no índice único e **estourava para fora de `emitirNfce`**, que promete
+ * não lançar: quem a chama (`lib/conta.ts`) engole o erro porque a conta já
+ * está paga e o cliente não pode ser segurado na porta — e a venda terminava
+ * sem nota e **sem linha no banco**, invisível para a tela Fiscal, que lista
+ * notas. Medido com duas contas pagas e `Promise.all`: uma nota, uma venda sem
+ * documento nenhum.
+ *
+ * Quem decide é o índice único, e quem perde pede o número seguinte. Sem trava:
+ * a da linha da unidade serializaria toda emissão contra a abertura de mesa,
+ * que usa a mesma trava, para pagar por uma colisão que só acontece no empate.
+ * Cinco tentativas cobrem cinco caixas empatando no mesmo número.
+ */
+async function gravarComNumeroLivre(
+  montar: (numero: number) => NotaParaEmitir,
+  onde: {
+    tenantId: string;
+    unidadeId: string;
+    comandaId: string;
+    serie: number;
+    ambiente: "HOMOLOGACAO" | "PRODUCAO";
+    emitidaPorId?: string;
+  }
+) {
+  for (let tentativa = 1; ; tentativa++) {
+    const nota = montar(await proximoNumero(onde.unidadeId, onde.serie));
+    try {
+      const registro = await db.notaFiscal.create({
+        data: {
+          tenantId: onde.tenantId,
+          unidadeId: onde.unidadeId,
+          comandaId: onde.comandaId,
+          serie: onde.serie,
+          numero: nota.numero,
+          ambiente: onde.ambiente,
+          status: "PROCESSANDO",
+          valorTotal: nota.valorTotal,
+          emitidaPorId: onde.emitidaPorId,
+        },
+      });
+      return { nota, registro };
+    } catch (e) {
+      if (tentativa >= TENTATIVAS_DE_NUMERO || !numeroJaTomado(e)) throw e;
+    }
+  }
 }
 
 /**
@@ -201,50 +268,67 @@ export async function emitirNfce(
   );
 
   const serie = unidade.serieNfce;
-  const numero = await reservarNumero(unidade.id, serie);
+  // Conferidos no alto da função; soltos aqui porque dentro da closure o
+  // TypeScript não guarda o estreitamento feito sobre a propriedade.
+  const cnpj = unidade.cnpj;
+  const uf = unidade.uf;
 
-  const nota = montarNota({
-    serie,
-    numero,
-    codigoNumerico: gerarCodigoNumerico(),
-    ambiente: unidade.ambienteFiscal,
-    contingencia: false,
-    emitente: {
-      cnpj: unidade.cnpj,
-      razaoSocial: unidade.razaoSocial ?? unidade.nome,
-      nomeFantasia: unidade.apelido ?? unidade.nome,
-      inscricaoEstadual: unidade.inscricaoEstadual,
-      regime: unidade.regimeTributario,
-      uf: unidade.uf,
-      codigoMunicipio: unidade.codigoMunicipioIbge,
-      municipio: unidade.cidade,
-      logradouro: unidade.logradouro,
-      numero: unidade.numero,
-      bairro: unidade.bairro,
-      cep: unidade.cep,
-    },
-    destinatario: comanda.cliente?.cpf
-      ? { cpf: comanda.cliente.cpf, nome: comanda.cliente.nome }
-      : null,
-    itens,
-    pagamentos,
-    desconto: totais.desconto,
-    taxaServico: totais.taxaServico,
-  });
+  const montar = (numero: number) =>
+    montarNota({
+      serie,
+      numero,
+      codigoNumerico: gerarCodigoNumerico(),
+      ambiente: unidade.ambienteFiscal,
+      contingencia: false,
+      emitente: {
+        cnpj,
+        razaoSocial: unidade.razaoSocial ?? unidade.nome,
+        nomeFantasia: unidade.apelido ?? unidade.nome,
+        inscricaoEstadual: unidade.inscricaoEstadual,
+        regime: unidade.regimeTributario,
+        uf,
+        codigoMunicipio: unidade.codigoMunicipioIbge,
+        municipio: unidade.cidade,
+        logradouro: unidade.logradouro,
+        numero: unidade.numero,
+        bairro: unidade.bairro,
+        cep: unidade.cep,
+      },
+      destinatario: comanda.cliente?.cpf
+        ? { cpf: comanda.cliente.cpf, nome: comanda.cliente.nome }
+        : null,
+      itens,
+      pagamentos,
+      desconto: totais.desconto,
+      taxaServico: totais.taxaServico,
+    });
 
-  const registro = await db.notaFiscal.create({
-    data: {
+  /*
+   * Gravar primeiro, falar com a SEFAZ depois.
+   *
+   * A linha é o que reserva o número, e é por isso que ela não pode estourar
+   * aqui: o estouro subia por uma função que promete não lançar e a venda
+   * ficava sem documento e sem rastro. Esgotar as tentativas é recusa legível,
+   * como todo problema fiscal nesta função — nunca venda travada.
+   */
+  let gravada;
+  try {
+    gravada = await gravarComNumeroLivre(montar, {
       tenantId: comanda.tenantId,
       unidadeId: unidade.id,
       comandaId,
       serie,
-      numero,
       ambiente: unidade.ambienteFiscal,
-      status: "PROCESSANDO",
-      valorTotal: nota.valorTotal,
       emitidaPorId: usuarioId,
-    },
-  });
+    });
+  } catch (e) {
+    console.error("Falha ao gravar a nota antes de emitir", e);
+    return {
+      ok: false,
+      motivo: "Não foi possível reservar o número da nota. Reemita pela tela Fiscal.",
+    };
+  }
+  const { nota, registro } = gravada;
 
   try {
     const resposta = await (emissor ?? emissorDa(unidade)).emitir(nota);
@@ -270,7 +354,7 @@ export async function emitirNfce(
             tenantId: comanda.tenantId,
             unidadeId: unidade.id,
             tipo: "DANFE_NFCE",
-            titulo: `NFC-e ${numero}/${serie}`,
+            titulo: `NFC-e ${nota.numero}/${serie}`,
             referenciaId: registro.id,
             conteudo: danfeDaNota(nota, {
               autorizadaEm: resposta.autorizadaEm,

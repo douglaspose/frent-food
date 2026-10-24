@@ -4394,3 +4394,166 @@ describe("a fila da contingência com duas pessoas puxando", () => {
     });
   });
 });
+
+describe("dois caixas fechando contas no mesmo instante", () => {
+  /**
+   * A numeração da NFC-e é `max + 1`, lida fora de qualquer trava.
+   *
+   * Dois caixas tocando "finalizar" no mesmo segundo é o sábado inteiro, e
+   * `reservarNumero` (`src/lib/fiscal/emitir.ts:34`) lê o maior número da série
+   * e soma um. As duas leituras veem o mesmo máximo, as duas tentam gravar o
+   * mesmo número, e a tabela tem `@@unique([unidadeId, serie, numero])` — então
+   * a segunda gravação estoura.
+   *
+   * O estouro acontece **antes** do `try` que protege a conversa com a SEFAZ, e
+   * sobe por uma função cujo contrato diz "nunca lança". Quem chama
+   * (`lib/conta.ts:364`) engole num `console.error`, porque a conta já foi paga
+   * e o cliente não pode ser segurado na porta — e aí a venda termina **sem
+   * nota nenhuma e sem linha no banco**: a tela Fiscal lista notas, e uma venda
+   * que não gerou nota não aparece em lugar nenhum.
+   *
+   * O certo é as duas vendas saírem com nota, em números seguidos. A série
+   * não pode ter buraco nem repetição — e muito menos venda sem documento.
+   */
+  it("as duas vendas saem com nota, em números diferentes", async () => {
+    const unidade = await admin.unidade.create({
+      data: {
+        tenantId: B.tenant.id,
+        codigo: "006",
+        nome: "Casa de dois caixas",
+        razaoSocial: "Casa De Dois Caixas LTDA",
+        cidade: "Anápolis",
+        uf: "GO",
+        cnpj: "11222333000181",
+        inscricaoEstadual: "123456789",
+        emiteNfce: true,
+        ambienteFiscal: "HOMOLOGACAO",
+        serieNfce: 1,
+        taxaServicoPct: 0,
+        atuaLoja: true,
+      },
+    });
+    const perfil = await admin.perfilFiscal.create({
+      data: { tenantId: B.tenant.id, unidadeId: unidade.id, nome: "Padrão", cfop: "5102", padrao: true },
+    });
+    const produto = await admin.produto.create({
+      data: {
+        tenantId: B.tenant.id,
+        titulo: "Prato com NCM",
+        unidadeMedida: "UN",
+        // Sem NCM o emissor recusa de propósito, e a recusa esconderia a
+        // corrida atrás de um motivo que não é o deste teste.
+        ncm: "21069090",
+        perfilFiscalId: perfil.id,
+      },
+    });
+    const usuario = await admin.usuario.create({
+      data: {
+        tenantId: B.tenant.id,
+        nome: "dona da casa de dois caixas",
+        email: `doiscaixas-${Date.now()}@vizinho.com`,
+        pinHash: await bcrypt.hash("8787", 4),
+        unidades: { create: { unidadeId: unidade.id, cargoId: B.cargos.PROPRIETARIO! } },
+      },
+    });
+    const cargo = await admin.cargo.findUniqueOrThrow({
+      where: { id: B.cargos.PROPRIETARIO! },
+      include: { permissoes: true },
+    });
+    const quem = {
+      ...pessoa("dona da casa de dois caixas", "8787", "10.5.0.11", "vizinho.frentfood.test"),
+      usuarioId: usuario.id,
+      cargo: "PROPRIETARIO",
+    };
+    await sessaoAssinada(quem, {
+      usuarioId: usuario.id,
+      tenantId: B.tenant.id,
+      unidadeId: unidade.id,
+      nome: quem.nome,
+      cargo: "PROPRIETARIO",
+      permissoes: cargo.permissoes.map((p) => p.chave),
+    });
+
+    /** Duas contas pagas, em mesas diferentes, prontas para virar nota. */
+    const umaConta = async (numero: number) =>
+      admin.comanda.create({
+        data: {
+          tenantId: B.tenant.id,
+          unidadeId: unidade.id,
+          numero,
+          pessoas: 2,
+          status: "PAGA",
+          taxaServicoPct: 0,
+          abertaPorId: usuario.id,
+          itens: {
+            create: {
+              tenantId: B.tenant.id,
+              produtoId: produto.id,
+              quantidade: 1,
+              precoUnitario: 50,
+              precoTotal: 50,
+              status: "ENTREGUE",
+              lancadoPorId: usuario.id,
+            },
+          },
+          pagamentos: {
+            create: {
+              tenantId: B.tenant.id,
+              formaPagamentoId: B.formas.pix.id,
+              valor: 50,
+              troco: 0,
+              taxaPct: 0,
+              taxaValor: 0,
+              usuarioId: usuario.id,
+            },
+          },
+        },
+      });
+
+    const contaA = await umaConta(901);
+    const contaB = await umaConta(902);
+
+    // Os dois caixas no mesmo instante. O emissor é o simulado, que autoriza:
+    // o que se mede aqui é a numeração, não a resposta da SEFAZ.
+    const idas = await Promise.all([
+      como(quem, () => emitirNfce(contaA.id, usuario.id)).catch((e) =>
+        e instanceof Error ? `estourou: ${e.message}` : String(e)
+      ),
+      como(quem, () => emitirNfce(contaB.id, usuario.id)).catch((e) =>
+        e instanceof Error ? `estourou: ${e.message}` : String(e)
+      ),
+    ]);
+
+    const notas = await admin.notaFiscal.findMany({
+      where: { unidadeId: unidade.id },
+      orderBy: { numero: "asc" },
+      select: { numero: true, status: true, comandaId: true },
+    });
+
+    await admin.filaImpressao.deleteMany({ where: { unidadeId: unidade.id } });
+    await admin.notaFiscal.deleteMany({ where: { unidadeId: unidade.id } });
+    await admin.pagamento.deleteMany({ where: { comandaId: { in: [contaA.id, contaB.id] } } });
+    await admin.comandaItem.deleteMany({ where: { comandaId: { in: [contaA.id, contaB.id] } } });
+    await admin.comanda.deleteMany({ where: { unidadeId: unidade.id } });
+    await admin.usuarioUnidade.deleteMany({ where: { unidadeId: unidade.id } });
+    await admin.usuario.delete({ where: { id: usuario.id } });
+    await admin.produto.delete({ where: { id: produto.id } });
+    await admin.perfilFiscal.delete({ where: { id: perfil.id } });
+    await admin.unidade.delete({ where: { id: unidade.id } });
+
+    // Duas vendas, duas notas, números 1 e 2. E nenhuma das duas chamadas
+    // estourou: `emitirNfce` promete não lançar, e quem a chama conta com isso.
+    expect({
+      notas: notas.map((n) => ({ numero: n.numero, status: n.status })),
+      comandasComNota: new Set(notas.map((n) => n.comandaId)).size,
+      estouros: idas.filter((r) => typeof r === "string").length,
+    }).toEqual({
+      notas: [
+        { numero: 1, status: "AUTORIZADA" },
+        { numero: 2, status: "AUTORIZADA" },
+      ],
+      comandasComNota: 2,
+      estouros: 0,
+    });
+  });
+});
